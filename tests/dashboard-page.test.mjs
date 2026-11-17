@@ -1346,7 +1346,7 @@ test("dashboard page: Hand over is offered on a story someone holds whose column
 });
 
 // [dashboard-writes#10]
-test("dashboard page: the handover dialog takes its title, labels, button word and subject from the entry, suggests the vault's names without anyone left and without from, and a changed label changes the dialog", () => {
+test("dashboard page: the handover dialog takes its title, labels, button word and subject from the entry, suggests the vault's names without anyone left and without from, and a changed label changes the dialog", async () => {
   const changed = JSON.parse(JSON.stringify(WRITE_VERBS));
   changed[1].label = "Give away";
   changed[1].fields.to.label = "Taker";
@@ -1371,6 +1371,107 @@ test("dashboard page: the handover dialog takes its title, labels, button word a
     assert.match(box.querySelector(".subject").text, /^Commit: hand over PS-X\/story-h from Ann to Bea: Ann is away$/);
     assert.equal(box.querySelector("button.primary").text, "Preview");
   }
+  // The button's word after a preview is the entry's label too.
+  const plan = {
+    from: "Ann",
+    to: "Bea",
+    reason: "r",
+    story: HELD.ref,
+    items: [{ story: HELD.ref, path: "x.md" }],
+    wip: null,
+    notes: [],
+  };
+  const { ui, els } = loadWithHeld(writable(changed), {
+    "/api/preview": { status: 200, body: { ok: true, result: plan, write: writable(changed) } },
+  });
+  ui.openHandover(HELD.ref);
+  const box = els["#modal"].kids[0];
+  const [to, reason] = box.querySelectorAll("input");
+  to.value = "Bea";
+  to.fire("input");
+  reason.value = "r";
+  reason.fire("input");
+  box.querySelector("button.primary").click();
+  await settle();
+  assert.equal(box.querySelector("button.primary").text, "Give away");
+});
+
+// [dashboard-writes#10]
+test("dashboard page: a handover the core refuses shows the core's words and never says the story is the receiver's already", async () => {
+  const refused = {
+    from: "Ann",
+    to: "Cid",
+    reason: "r",
+    story: HELD.ref,
+    items: [],
+    wip: null,
+    notes: [],
+    error:
+      "--to Cid is marked left (flow.people[Cid].left is 2026-11-01), so the work cannot go to them; name someone who has not left",
+  };
+  const { ui, els } = loadWithHeld(writable(), {
+    "/api/preview": { status: 200, body: { ok: false, result: refused, error: refused.error, write: writable() } },
+  });
+  ui.openHandover(HELD.ref);
+  const box = els["#modal"].kids[0];
+  const [to, reason] = box.querySelectorAll("input");
+  to.value = "Cid";
+  to.fire("input");
+  reason.value = "r";
+  reason.fire("input");
+  box.querySelector("button.primary").click();
+  await settle();
+  assert.match(box.text, /Cid is marked left/);
+  assert.doesNotMatch(box.text, /already/);
+  assert.equal(box.querySelector("button.primary").text, "Preview", "no click goes through on a refusal");
+});
+
+// [dashboard-writes#10]
+test("dashboard page: a story in ToDo that someone holds offers its move and Hand over side by side, each with its own data-focus; a handover that commits says whose the story is now", async () => {
+  const todoHeld = { ref: "PS-X/story-t", title: "T", status: "todo", column: "ToDo", assignee: "Ann" };
+  const plan = {
+    from: "Ann",
+    to: "Bea",
+    reason: "r",
+    story: todoHeld.ref,
+    items: [{ story: todoHeld.ref, path: "t.md" }],
+    wip: null,
+    notes: [],
+  };
+  const after = writable(undefined, {
+    batch: {
+      branch: "dashboard/p/20261118T000000Z",
+      started_at: "2026-11-18T00:00:00.000Z",
+      commits: 1,
+      pull_request: null,
+    },
+  });
+  const r = loadWithHeld(writable(), {
+    "/api/preview": { status: 200, body: { ok: true, result: plan, write: writable() } },
+    "/api/action": { status: 200, body: { ok: true, result: { ...plan, write: true }, write: after } },
+  });
+  r.ctx.S.stories.push(todoHeld);
+  const buttons = r.ui.storyButtons(todoHeld).buttons;
+  assert.deepEqual(
+    buttons.map((b) => b.text),
+    ["Back to Backlog…", "Hand over…"],
+  );
+  assert.deepEqual(
+    buttons.map((b) => b.getAttribute("data-focus")),
+    ["move-planned", "handover"],
+  );
+  r.ui.openHandover(todoHeld.ref);
+  const box = r.els["#modal"].kids[0];
+  const [to, reason] = box.querySelectorAll("input");
+  to.value = "Bea";
+  to.fire("input");
+  reason.value = "r";
+  reason.fire("input");
+  box.querySelector("button.primary").click();
+  await settle();
+  box.querySelector("button.primary").click();
+  await settle();
+  assert.match(r.els["#write"].text, /T is Bea's now\. The batch dashboard\/p\/20261118T000000Z holds 1 commit\./);
 });
 
 // [dashboard-writes#10]

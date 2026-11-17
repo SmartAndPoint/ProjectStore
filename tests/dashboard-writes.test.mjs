@@ -2683,14 +2683,15 @@ test("dashboard writes: a handover that succeeds is one commit whose only file i
 });
 
 // [dashboard-writes#10]
-test("dashboard writes: a handover the core refuses (to equals from: 400; the story held by someone else: 200 with ok false) answers in the core's words and leaves the clone and the batch as they were", async () => {
-  await withWorld({}, async (w) => {
+test("dashboard writes: a handover the core refuses (to equals from: 400; the story held by someone else, or to marked left: 200 with ok false) answers in the core's words and leaves the clone and the batch as they were", async () => {
+  await withWorld({ vaultSettings: { flow: { people: { Cid: { left: "2026-11-01" } } } } }, async (w) => {
     const writer = await writable(w);
     const clone = writer.paths.clone;
     const before = cloneState(w, clone);
     for (const [fields, status, why] of [
       [{ to: "Other" }, 400, /./],
       [{ from: "Nobody" }, 200, /assigned to Other, not to Nobody/],
+      [{ to: "Cid" }, 200, /--to Cid is marked left/],
     ]) {
       for (const step of ["preview", "action"]) {
         const r = await writer[step](handover(fields));

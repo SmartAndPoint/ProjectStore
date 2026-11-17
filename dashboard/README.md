@@ -69,7 +69,9 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   write route gets 404. Once at its start, before it answers, the server runs
   the refresh itself, inside a 10-second budget.
 - A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
-  `move`, with `story`, `to` as `todo` or `planned`, and `reason`) and gives each field as a value.
+  `move`, with `story`, `to` as `todo` or `planned`, and `reason`; `handover`, with `story`, `from`
+  as the story's assignee, `to` and `reason`) and gives every field of it as a value. Each entry
+  also carries the labels and the commit subject the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400).
 - One path rule for every route that takes a path (`readableRel` in `lib/state.mjs`): not empty,
   not absolute, no `\`, no NUL, no `.`, `..` or hidden segment, and after every link is followed
@@ -102,7 +104,7 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
 - It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
   `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
-  points the core's `move` at the vault inside the clone, and the lock file
+  points the core's `move` and `handover` at the vault inside the clone, and the lock file
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.

@@ -282,7 +282,7 @@ const writeUi = (() => {
         result.reason ? ["Reason", result.reason] : null,
         ...items.map((x) => ["File", h("span", { class: "mono path" }, x.path)]),
       ),
-      !items.length ? h("div", { class: "note" }, `The story is ${result.to}'s already: the core will write nothing.`) : null,
+      !items.length && !result.error ? h("div", { class: "note" }, `The story is ${result.to}'s already: the core will write nothing.`) : null,
       wip && wip.over ? h("div", { class: "note warn" }, `${wip.assignee} would hold ${wip.after} stories in progress against a limit of ${wip.limit}.`) : null,
       ...notes.map((n) => h("div", { class: "note" }, String(n.message))),
     );
