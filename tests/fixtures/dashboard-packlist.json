@@ -15,5 +15,6 @@
   "public/related.js",
   "public/styles.css",
   "public/views.js",
+  "public/write.js",
   "server.mjs"
 ]

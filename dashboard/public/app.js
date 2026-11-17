@@ -1,6 +1,7 @@
 // ProjectStore dashboard: the page. No framework, no build.
-// Everything shown comes from GET /api/state and the other GET routes. The
-// page only reads: nothing on it changes the vault.
+// Everything shown comes from GET /api/state and the other GET routes. A
+// change goes only through write.js, by POST to the write routes, while the
+// page can write; nothing else on the page changes the vault.
 
 const $ = (sel, el = document) => el.querySelector(sel);
 // What this browser remembers for its viewer: the open view, folded rows, who is looking.

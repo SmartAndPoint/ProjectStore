@@ -743,7 +743,7 @@ test("dashboard delivery: Discard on an open pull request closes it on the code 
 });
 
 // [dashboard-delivery#4] [dashboard-delivery#6]
-test("dashboard delivery: Discard with a closed or no pull request ends the batch, keeps its branch with its count in write.kept, runs no gh pr close, and deletes no commit; with none it says a pull request, if one is open, stays open", async () => {
+test("dashboard delivery: Discard with a closed or no pull request ends the batch, keeps its branch with its count in write.kept, runs no gh pr close, and deletes no commit; with none it says no pull request was opened", async () => {
   await withWorld({}, async (w) => {
     const { writer, branch } = await withBatch(w);
     const clone = writer.paths.clone;
@@ -753,7 +753,7 @@ test("dashboard delivery: Discard with a closed or no pull request ends the batc
     assert.equal(r.body.ok, true);
     assert.equal(r.body.result.ended, "here");
     assert.match(r.body.result.message, /ended on this machine/);
-    assert.match(r.body.result.message, /if one is open, stays open on the code host/);
+    assert.match(r.body.result.message, /no pull request was opened for it/);
     assert.deepEqual(r.body.write.kept, [{ branch, commits: 1 }]);
     assert.ok(allCount(w, clone) >= count);
     // A closed one: the batch ends, its branch is kept. (The clone is back

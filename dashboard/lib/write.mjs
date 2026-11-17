@@ -1719,7 +1719,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
           : !asked.ok
             ? `gh cannot be asked (${pullRequests}), so `
             : "";
-      return finish({ branch, ended: "here", pull_request: prOf(pr), kept: k, message: `${why}the batch ended on this machine; its branch ${branch} is kept with ${plural(k.commits, "commit")} the default branch lacks${s.pending ? "" : `, and ${stays}`}` });
+      return finish({ branch, ended: "here", pull_request: prOf(pr), kept: k, message: `${why}the batch ended on this machine; its branch ${branch} is kept with ${plural(k.commits, "commit")} the default branch lacks${s.pending ? "" : asked.ok && !pr ? "; no pull request was opened for it" : `, and ${stays}`}` });
     });
   }
 

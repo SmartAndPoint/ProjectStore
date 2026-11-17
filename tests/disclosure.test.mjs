@@ -115,6 +115,9 @@ const ROWS = {
       ["each new artifact names it as its author", "author: cfg.default_author", code("scripts/draft.mjs")],
       ["`git check-ignore`", '"check-ignore"', code("scripts/doctor.mjs")],
       ["`git ls-files`", '"ls-files"', code("scripts/doctor.mjs")],
+      // Doctor's note on the dashboard's kept branches (dashboard-delivery, contract 7).
+      ["`git for-each-ref`", '"for-each-ref"', code("scripts/doctor.mjs")],
+      ["`git rev-list --count`", '"rev-list", "--count"', code("scripts/doctor.mjs")],
       ["`git diff --name-only`", '"diff", "--name-only"', code("scripts/diff-refs.mjs")],
       ["`git log`", '"log"', code("scripts/diff-refs.mjs")],
       ["`git grep --untracked`", '"--untracked"', code("scripts/diff-refs.mjs")],

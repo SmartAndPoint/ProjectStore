@@ -228,3 +228,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   `handover` command of an `assignee-left` or `assignee-idle` finding: it
   leaves `--to <name>` and `--reason '<why>'` for the user to fill in, so
   never run it yourself and never choose the receiver.
+- `dashboard-kept-branch` (info) names a batch branch the dashboard keeps in
+  its clone under `.projectstore/state/dashboard/`, with its count of commits
+  the fetched default branch lacks: they may be work that was never sent.
+  Doctor reads the clone locally and never fetches. `--fix` touches none of
+  them: sending or deleting a kept branch is the user's judgement, so never
+  push, merge or delete it yourself; `dashboard/README.md` says how by hand.

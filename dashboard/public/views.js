@@ -63,13 +63,13 @@ function render() {
     $("#foot"),
     h("label", { class: "f" }, h("span", null, "You are"), h("select", { onchange: (e) => setMe(e.target.value) }, h("option", { value: "", selected: !ui.me }, "— choose —"), S.people.filter((p) => p.kind === "person").map((p) => h("option", { selected: p.name === ui.me }, p.name)))),
     me && h("div", { class: "mono" }, `in work ${me.held}/${me.limit ?? "∞"} · ${me.queued} queued`),
-    h("div", { style: "margin-top:10px" }, h("b", null, "Read only."), ` The vault of ${S.project.name}, as it is on disk. Nothing on this page changes it. core ${S.coreVersion}`),
+    writeUi.footLine(), // write.js: whether this page writes, and why not when it does not
   );
   const def = savedDef(ui.view);
   const title = ui.view === "backlog" ? "Backlog" : def.name;
   ui.viewTitle = title;
   const small = $(".brand small");
-  if (small) small.textContent = `${S.project.name} · read only`; // two dashboards side by side must not look the same
+  if (small) small.textContent = S.write?.can ? S.project.name : `${S.project.name} · read only`; // two dashboards side by side must not look the same
   fill(
     $("#top"),
     h("button", { class: "btn nav-toggle", "aria-label": "menu", onclick: () => document.body.classList.toggle("nav-open") }, "☰"),
@@ -97,6 +97,7 @@ function render() {
     el?.setSelectionRange?.(caret, caret);
   }
   applySel(); // keys.js: the selection survives a redraw
+  writeUi.paint(); // write.js: the batch strip and the kept branches
   renderDrawer();
   syncHash(true); // item.js: the address follows the filters, with no new step in the history
 }
@@ -580,11 +581,13 @@ function column(c, pool, lane) {
     gate && h("span", { class: "lock", title: gateWhy }, isDone ? "close gate" : c.shows.includes("In Progress") ? "plan gate" : "gate"),
   );
   if (lane?.heads) return h("div", { class: `${cls} head-only` }, head);
-  return h("div", { class: cls }, cell ? null : head, h("div", { class: "cards" }, shown.map(card), !shown.length && !cell && h("div", { class: "empty" }, "nothing here"), moreButton(allKey, total, cap, all)));
+  // write.js: the Backlog and ToDo columns take a dragged card while the page can write.
+  return writeUi.dropColumn(h("div", { class: cls }, cell ? null : head, h("div", { class: "cards" }, shown.map(card), !shown.length && !cell && h("div", { class: "empty" }, "nothing here"), moreButton(allKey, total, cap, all))), c);
 }
 function card(s) {
   const done = s.subtasks.filter((t) => t.done).length;
-  return h(
+  // write.js: a card is draggable when its story has a move to offer.
+  return writeUi.dragCard(h(
     "div",
     { class: "card", "data-key": `s:${s.ref}`, ...opens(() => openDrawer("story", s.ref), `${s.title}, ${s.column}, ${s.priority}${s.assignee ? `, for ${s.assignee}` : ""}`) },
     h("div", { class: "title" }, s.title),
@@ -599,7 +602,7 @@ function card(s) {
       s.awaiting ? h("span", { class: "chip flag" }, "awaiting close") : null,
       s.assignee && !HIDE.has("who") ? h("span", { class: "who" }, avatar(s.assignee)) : null,
     ),
-  );
+  ), s);
 }
 
 // ── Initiatives: from a proposal to done ──
