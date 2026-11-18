@@ -83,7 +83,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:scaffold
    ```
 
-   Creates whichever of `adr/`, `specs/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`, their `README.md` indexes and the top-level `README.md` are missing, in the vault's language, and never rewrites a file that is there. The layout is the binding's. From a terminal:
+   Creates whichever of `adr/`, `specs/`, `initiatives/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`, their `README.md` indexes and the top-level `README.md` are missing, in the vault's language, and never rewrites a file that is there. The layout is the binding's. From a terminal:
 
    ```bash
    npx projectstore scaffold --write

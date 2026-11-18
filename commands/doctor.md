@@ -205,6 +205,15 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   token in the project that cites a removed contract or step, with the why of
   its marker. None of them is repairable by `--fix`: the marker and the test
   are the author's text.
+- The initiative checks run when the layout has an `initiative` kind:
+  `initiative-links` (an issue: an epic's `initiative:` that is a list or the
+  id of no single file in the initiatives folder, or an initiative's
+  `elaboration:` that resolves to no story), `initiative-status` (a status
+  outside proposed, accepted, rejected, deferred) and `initiative-decision`
+  (an accepted initiative that no epic names; a decided one whose Outcome has
+  no line `- YYYY-MM-DD <status>: <reason>` for its status; and, as a note,
+  an accepted one with an empty Success criterion). None of them is
+  repairable by `--fix`: the link and the decision are the author's text.
 - The guide checks read the vault's `guides/` folder, the per-kind overrides
   of the authoring guides: `guide-shape` (an override that does not parse, so
   readers fall back to the package default), `guide-unknown` (a guide for a

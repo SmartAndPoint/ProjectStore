@@ -101,6 +101,12 @@ register a form per bundled language (en, ru, es, de, fr, zh) in
 `scaffold/headings.json` — matchers accept every registered language, so a
 ru-headed file lints in an en-bound vault.
 
+A kind with a command also needs its stage in `STAGE_OF`
+(`scripts/tokens.mjs`), or the token report counts its runs as `other`. A
+kind whose frontmatter links it to another kind (as an epic's `initiative:`
+names an initiative) needs that edge in `scripts/graph.mjs` and its check in
+doctor; the `initiative` kind is the worked example (`scripts/initiative.mjs`).
+
 ## Adding a new layout
 
 A layout is a JSON file at `scaffold/layouts/<name>.json` declaring folders,

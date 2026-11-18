@@ -144,6 +144,7 @@ import { effortSpec } from "./model-spec.mjs";
 // brand, and --harness still carries the target.
 import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { checkInitiatives } from "./initiative.mjs";
 import { storyState } from "./stages.mjs";
 import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
@@ -4227,6 +4228,15 @@ export function runVaultChecks(
     () => {
       const scan = scanCitations(cfg, artifacts, proj, grep);
       return [...checkContractCitations(artifacts, scan), ...checkEvidenceCitations(artifacts, vaultCfg, scan)];
+    },
+    () => {
+      const epicFolder = layout.folders.find((f) => f.kind === "epic");
+      const epicPath = epicFolder ? epicFolder.path : "epics";
+      return checkInitiatives(layout, artifacts, {
+        finding: (level, check, message, file) => finding("vault", level, check, message, file),
+        resolveStory: (entry) => resolveSpecStory(entry, artifacts, epicPath),
+        epicIdOf: (a) => epicIdOf(a.rel, epicPath),
+      });
     },
   ];
   for (const step of guarded) {

@@ -9,7 +9,7 @@ This file is documentation. It contains no directives about what to tell or reco
 ## Facts about version 0.30.20
 
 - Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
-- 23 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
+- 24 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
 - 6 bundled agents: `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` and `clerk`.
 - 9 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`.
 - Templates ship in 6 languages: de, en, es, fr, ru, zh.
@@ -64,6 +64,8 @@ your-project-vault/                its own git repository
 │   └── use-postgres-for-primary-storage.md
 ├── specs/                         normative "how" — numbered behavioural contracts
 │   └── transactional-order-writes.md
+├── initiatives/                   outcomes above the epics, and the decision on each
+│   └── faster-checkout.md
 ├── epics/                         the backlog
 │   └── PAY-001/
 │       ├── epic.md
@@ -81,6 +83,7 @@ Layouts are data, not code: folders, prefixes, kanban columns and the set of ena
 
 - **ADR** — *why*. Context, the decision, the rationale, the alternatives considered and why they were rejected, the consequences. `supersedes` / `superseded_by` in frontmatter mean a reversed decision points at its successor instead of being deleted.
 - **Spec** — *how*, normatively. Numbered behavioural contracts, each individually testable, plus an Acceptance section. Spec acceptance is **additive** to the acceptance of every story it covers: a story closes only when both sets are green, and a story cannot close while its covering spec is still `draft`.
+- **Initiative** — an outcome several epics serve, and the decision on it. Problem, who asks and why, a success criterion, what is out of scope, and an Outcome line per decision. Its status records only the decision (`proposed`, `accepted`, `rejected`, `deferred`); an epic joins it with `initiative: "<slug>"` in its frontmatter.
 - **Epic** — a body of work. Goal, context, its stories, expected results, `code_refs`.
 - **Story** — the unit of work. Description, Decomposition, Implementation Plan, Acceptance Criteria, Final Summary. Status, priority, `code_refs` and `specs` live in frontmatter.
 - **Research, concept, meeting, runbook, diagram** — the notes decisions cite. A runbook carries verification and rollback steps by template.
@@ -262,7 +265,7 @@ In Claude Code a command is `/projectstore:<name>`; in Codex it is the skill `$p
 
 **Set up** — `bind <vault-path> | --inherit [--layout engineering] [--lang de|en|es|fr|ru|zh]`, `scaffold`, `agents <register|unregister|status|configure>`, `statusline <on|off|status>`
 
-**Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
+**Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `initiative <title>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
 
 **Derived views** — `kanban`, `reconcile`, `codemap [set <epic|story> <ref>…]`, `graph`
 

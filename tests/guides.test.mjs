@@ -24,7 +24,7 @@ import { makeVaultProject } from "./fixtures/vault.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LAYOUT = JSON.parse(readFileSync(join(REPO, "scaffold", "layouts", "engineering.json"), "utf8"));
-const KINDS = ["adr", "concept", "epic", "meeting", "research", "runbook", "spec", "story"];
+const KINDS = ["adr", "concept", "epic", "initiative", "meeting", "research", "runbook", "spec", "story"];
 
 class Sink {
   constructor() {
@@ -212,7 +212,7 @@ test("guide verb: text and --json; --section; --source package behind an overrid
   assert.equal((await cli(["guide", "../x", "--project", proj])).code, 2);
   const none = await cli(["guide", "diagram", "--project", proj]);
   assert.equal(none.code, 1);
-  assert.match(none.err, /Kinds with a guide: adr, concept, epic, meeting, research, runbook, spec, story/);
+  assert.match(none.err, /Kinds with a guide: adr, concept, epic, initiative, meeting, research, runbook, spec, story/);
   // eject, then the vault side wins and the package stays readable behind it.
   assert.equal((await cli(["guide", "eject", "spec", "--write", "--json", "--project", proj])).code, 0);
   assert.equal((await cli(["guide", "spec", "--json", "--project", proj])).json.result.source, "vault");
