@@ -65,6 +65,17 @@ export function setFm(text, key, value) {
   return text.slice(0, m.index) + `---\n${fmLines.join("\n")}\n---` + text.slice(m.index + m[0].length);
 }
 
+// The text without the frontmatter line `key: ...`; unchanged when the key is
+// absent. Only a one-line value is removed (the keys the verbs write are).
+export function unsetFm(text, key) {
+  const m = text.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) throw new Error("the file has no frontmatter block");
+  const fmLines = m[1].split("\n");
+  const kept = fmLines.filter((l) => !l.startsWith(`${key}:`));
+  if (kept.length === fmLines.length) return text;
+  return text.slice(0, m.index) + `---\n${kept.join("\n")}\n---` + text.slice(m.index + m[0].length);
+}
+
 // End index of section `id` (position right before the next `## ` heading
 // after it), or null when the section is absent.
 export function sectionEnd(text, id) {
@@ -78,7 +89,7 @@ export function sectionEnd(text, id) {
 // The same, but a `---` rule line ends the section too: the last section of a
 // story is followed by the footer, and an insertion after it must land before
 // the footer, not after it.
-function sectionEndBeforeRule(text, id) {
+export function sectionEndBeforeRule(text, id) {
   const m = text.match(headingLineRe(id));
   if (!m) return null;
   const rest = text.slice(m.index + m[0].length);
@@ -153,21 +164,73 @@ function headerBlock(text) {
   return { start, end };
 }
 
+// The first form of field `id` in language `lang` (en when the language has
+// none): the label a writer gives a row it adds.
+export function fieldLabel(id, lang = "en") {
+  const entry = loadHeadingsRegistry().fields?.[id];
+  if (!entry) throw new Error(`headings.json has no fields entry "${id}"`);
+  return (entry[lang] || entry.en)[0];
+}
+
+const labelRe = (id) => new RegExp(`^\\*\\*\\s*(?:${fieldForms(id).map(escapeRe).join("|")})\\s*\\*\\*$`, "i");
+
+// The index, in the header block's lines, of the row labelled with field `id`
+// in any bundled language, or -1.
+function headerRowAt(lines, id) {
+  const label = labelRe(id);
+  for (let k = 0; k < lines.length; k++) {
+    if (!lines[k].startsWith("|")) continue;
+    const p = pipes(lines[k]);
+    if (p.length >= 3 && label.test(lines[k].slice(p[0] + 1, p[1]).trim())) return k;
+  }
+  return -1;
+}
+
+// The header table's row of field `id`, removed. Returns {text, found}.
+export function removeHeaderField(text, id) {
+  const { start, end } = headerBlock(text);
+  const lines = text.slice(start, end).split("\n");
+  const k = headerRowAt(lines, id);
+  if (k === -1) return { text, found: false };
+  lines.splice(k, 1);
+  return { text: text.slice(0, start) + lines.join("\n") + text.slice(end), found: true };
+}
+
+// The header table's row of field `id` holding `value`: rewritten when the
+// row is there, else added with the bound language's label after the first
+// row of `after` that is there, else after the table's last row. A file with
+// no header table is left as it is. Returns {text, found, added}.
+export function upsertHeaderField(text, id, value, { lang = "en", after = [] } = {}) {
+  const set = setHeaderField(text, id, value);
+  if (set.found) return { ...set, added: false };
+  const { start, end } = headerBlock(text);
+  const lines = text.slice(start, end).split("\n");
+  let at = -1;
+  for (const a of after) {
+    at = headerRowAt(lines, a);
+    if (at !== -1) break;
+  }
+  if (at === -1) {
+    const first = lines.findIndex((l) => l.startsWith("|"));
+    if (first === -1) return { text, found: false, added: false };
+    at = first;
+    while (at + 1 < lines.length && lines[at + 1].startsWith("|")) at++;
+  }
+  lines.splice(at + 1, 0, `| **${fieldLabel(id, lang)}** | ${cellValue(value)} |`);
+  return { text: text.slice(0, start) + lines.join("\n") + text.slice(end), found: false, added: true };
+}
+
 // The value cell of the header table's row labelled with field `id`, in any
 // bundled language. Only the header block is read; a row the story lacks is
 // not added. Returns {text, found}.
 export function setHeaderField(text, id, value) {
-  const label = new RegExp(`^\\*\\*\\s*(?:${fieldForms(id).map(escapeRe).join("|")})\\s*\\*\\*$`, "i");
   const { start, end } = headerBlock(text);
   const lines = text.slice(start, end).split("\n");
-  for (let k = 0; k < lines.length; k++) {
-    if (!lines[k].startsWith("|")) continue;
-    const p = pipes(lines[k]);
-    if (p.length < 3 || !label.test(lines[k].slice(p[0] + 1, p[1]).trim())) continue;
-    lines[k] = rewriteCell(lines[k], p[1], p[2], value);
-    return { text: text.slice(0, start) + lines.join("\n") + text.slice(end), found: true };
-  }
-  return { text, found: false };
+  const k = headerRowAt(lines, id);
+  if (k === -1) return { text, found: false };
+  const p = pipes(lines[k]);
+  lines[k] = rewriteCell(lines[k], p[1], p[2], value);
+  return { text: text.slice(0, start) + lines.join("\n") + text.slice(end), found: true };
 }
 
 // ─── The Status log ────────────────────────────────────────────────────

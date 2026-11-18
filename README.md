@@ -215,6 +215,16 @@ To pick the next task, `next` lists your started work first, and offers stories 
 npx projectstore next
 ```
 
+Beside `move` and `handover`, two verbs write an initiative. `initiative` records a decision on one, accepted, rejected or deferred, with a dated reason in its Outcome section, or edits its title, owner and priority. `epic` sets or clears the initiative an epic belongs to. Bare, each prints the plan; `--write` asks at a terminal:
+
+```
+npx projectstore epic PS-CORE --initiative faster-onboarding --write
+```
+
+```
+npx projectstore initiative faster-onboarding accepted --reason "groups the onboarding epics" --write
+```
+
 `npx projectstore dashboard` opens a page over the vault in your browser. On it you can also move stories between the backlog and ToDo, and send those moves as one pull request. It has its own section below, [The dashboard](#the-dashboard).
 
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).

@@ -11,13 +11,16 @@
 // it by an initiative field". Registered by doctor.mjs runVaultChecks, never by
 // runStartupChecks (ADR-005 decision 4). Imports nothing of doctor.mjs, which
 // imports this module; doctor hands in its finding factory and its story
-// resolver.
+// resolver. It imports only lib.mjs: doctor, the MCP server and the
+// SessionStart hook reach it, so the verbs that write an initiative live in
+// initiative-verbs.mjs (tests/initiative-verbs.test.mjs holds the fence).
 
 import { sectionOf } from "./lib.mjs";
 
 // The decision an initiative's file records (ADR, decision 3).
 export const INITIATIVE_STATUSES = Object.freeze(["proposed", "accepted", "rejected", "deferred"]);
-const DECIDED = new Set(["accepted", "rejected", "deferred"]);
+// The three a person decides; `proposed` is where a file starts.
+export const DECIDED = new Set(["accepted", "rejected", "deferred"]);
 
 // A status read trimmed and lower-cased; "" when there is none.
 export const statusOf = (fm) =>
@@ -25,10 +28,13 @@ export const statusOf = (fm) =>
     .trim()
     .toLowerCase();
 
+// A file's stem: its name without `.md`.
+export const stemOf = (rel) => String(rel).split("/").pop().replace(/\.md$/, "");
+
 // An initiative file's id: its frontmatter `id`, else its file stem.
 export function initiativeIdOf(a) {
   const id = typeof a.fm?.id === "string" ? a.fm.id.trim() : "";
-  return id || a.rel.split("/").pop().replace(/\.md$/, "");
+  return id || stemOf(a.rel);
 }
 
 // What a key such as an epic's `initiative:` holds: none (`""`, `null`, an

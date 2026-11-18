@@ -2868,6 +2868,8 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
       "session check [<path>…] [options]",
     ],
     move: ["move <story> <status> [options]"], // new in PS-FLOW (SPEC-001 contract 7, the ready step)
+    initiative: ["initiative <id> [<decision>] [options]"], // new in PS-BACKLOG (the initiative spec, contracts 9 and 10)
+    epic: ["epic <EPIC-ID> [options]"], // new in PS-BACKLOG (the initiative spec, contract 11)
     follow: ["follow [options]"], // new in PS-FLOW (the follow spec, contract 1)
     next: ["next [options]"], // new in PS-FLOW (the next verb's spec, contract 1)
     handover: ["handover [options]"], // new in PS-FLOW (the handover spec, contract 1)

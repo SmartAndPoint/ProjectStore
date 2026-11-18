@@ -722,6 +722,30 @@ test("locales: every bundled locale's templates spell the Status, Assignee, Upda
   }
 });
 
+// [initiative#12]
+test("locales: every bundled locale spells the initiative's Status, Priority and Owner rows, and the epic's Priority row, in the first registered form", () => {
+  const bold = (row) =>
+    row
+      .split("|")[1]
+      .trim()
+      .replace(/^\*\*|\*\*$/g, "");
+  const rows = (lang, name) =>
+    loadTemplate(lang, name)
+      .split("\n")
+      .filter((l) => /^\| \*\*/.test(l))
+      .map(bold);
+  for (const lang of LOCALES) {
+    for (const field of ["priority", "owner", "initiative"])
+      assert.ok(registry.fields[field][lang]?.[0]?.trim(), `${lang}: fields.${field} registered`);
+    assert.deepEqual(
+      rows(lang, "initiative"),
+      ["status", "priority", "owner"].map((f) => registry.fields[f][lang][0]),
+      `${lang}/initiative.md.tmpl`,
+    );
+    assert.equal(rows(lang, "epic")[1], registry.fields.priority[lang][0], `${lang}/epic.md.tmpl`);
+  }
+});
+
 // [SPEC-001#2] [epic-rule#1] [epic-rule#2] [epic-rule#4]
 test("locales: the epic rule reads every registered form of the Stories and Expected Results headings and the Status, Updated and Story labels", async () => {
   const { storiesRows, expectedResults, applyEpicDone } = await import("../scripts/epic-rule.mjs");
