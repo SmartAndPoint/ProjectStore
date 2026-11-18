@@ -526,6 +526,19 @@ test("dashboard delivery: the title is the subject for a batch of one, else the 
 });
 
 // [dashboard-delivery#3]
+test("dashboard delivery: a title past 250 code points is cut to 249 and ends with …, and the body holds the whole subject", () => {
+  const long = "é".repeat(400);
+  const { title, body } = prText([long]);
+  assert.equal([...title].length, 250);
+  assert.equal(title, `${"é".repeat(249)}…`);
+  assert.equal(body, `- ${long}\n\n${SENT_LINE}`);
+  const exact = "a".repeat(250);
+  assert.equal(prText([exact]).title, exact, "250 code points stay whole");
+  assert.equal([..."😀".repeat(300)].length, 300);
+  assert.equal(prText(["😀".repeat(300)]).title, `${"😀".repeat(249)}…`, "no surrogate pair is split");
+});
+
+// [dashboard-delivery#3]
 test("dashboard delivery: a batch of one commit is sent with that commit's subject as the pull request's title", async () => {
   await withWorld({}, async (w) => {
     const { writer } = await withBatch(w, {}, { reason: "this week" });

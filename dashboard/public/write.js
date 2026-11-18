@@ -17,9 +17,9 @@
 
 const writeUi = (() => {
   const ROUTES = ["/api/refresh", "/api/preview", "/api/action", "/api/send", "/api/discard"];
-  // The statuses each target of `move` comes from (the core's own rule; it refuses the others).
+  // The statuses each target of `move` comes from (the core's own rule; it
+  // refuses the others): where `move` is offered stays the page's own (contract 10).
   const FROM = { todo: ["planned"], planned: ["todo", "to-do"] };
-  const LABEL = { todo: "Move to ToDo", planned: "Back to Backlog" };
   const COLUMN_TO = { ToDo: "todo", Backlog: "planned" };
   const WORD = { planned: "Backlog", todo: "ToDo", "to-do": "ToDo" };
   let busy = null; // the step that runs now: "refresh", "preview", "action", "send", "discard"
@@ -101,7 +101,7 @@ const writeUi = (() => {
     }
   }
   // A first word that is a name, as gh, git, a path or a branch, keeps its case.
-  const NAMES = new Set(["gh", "git", "origin", "main", "move", "npm", "node", "projectstore"]);
+  const NAMES = new Set(["gh", "git", "origin", "main", "move", "handover", "npm", "node", "projectstore"]);
   const sentence = (t) => {
     const first = t.split(/\s/, 1)[0];
     const plain = /^[a-z][a-z'’-]*[,:;]?$/.test(first) && !NAMES.has(first.replace(/[,:;]$/, ""));
@@ -115,28 +115,40 @@ const writeUi = (() => {
   };
 
   // ── what may be offered ──
-  // The fields of a verb the page may run now, or null: `write.can`, and the verb in `write.verbs`.
-  function verbFields(verb) {
+  // A verb's entry the page may run now, or null: `write.can`, and the verb in
+  // `write.verbs` with its fields (contract 10 draws the dialog from it).
+  function entryOf(verb) {
     const x = w();
     if (!x || !x.can || !Array.isArray(x.verbs)) return null;
     const entry = x.verbs.find((v) => v && v.verb === verb);
-    return entry && entry.fields && typeof entry.fields === "object" ? entry.fields : null;
+    return entry && entry.fields && typeof entry.fields === "object" ? entry : null;
+  }
+  const valuesOf = (f) => (f && Array.isArray(f.values) ? f.values.map((v) => (v && typeof v === "object" ? v : { value: v, label: v })) : []);
+  // `move` with every field the page fills: story, to (its values) and reason.
+  function moveFields() {
+    const f = entryOf("move")?.fields;
+    return f && f.story && f.reason && f.to && Array.isArray(f.to.values) ? f : null;
   }
   // The moves a story can take from the page: [{ to, label }]. Empty while the
   // page cannot write, when `move` or one of its fields is not listed, and for
   // a target whose value `write.verbs` does not list.
-  // `move` with every field the page fills: story, to (its values) and reason.
-  function moveFields() {
-    const f = verbFields("move");
-    return f && f.story && f.reason && f.to && Array.isArray(f.to.values) ? f : null;
-  }
   function movesOf(s) {
     const f = moveFields();
     if (!s || !f) return [];
     const status = String(s.status || "").toLowerCase();
-    return f.to.values.filter((to) => (FROM[to] || []).includes(status)).map((to) => ({ to, label: LABEL[to] || `Move to ${to}` }));
+    return valuesOf(f.to)
+      .filter((v) => (FROM[v.value] || []).includes(status))
+      .map((v) => ({ to: v.value, label: v.label || `Move to ${v.value}` }));
   }
-  const maxReason = () => Number(moveFields()?.reason?.max) || 200;
+  // Whether a story can be handed over from the page: `handover` listed with
+  // its fields, an assignee in the state, and a column that is set and is not
+  // Done (a story set aside, or done, is one the core always refuses).
+  function canHandOver(s) {
+    const e = entryOf("handover");
+    const f = e && e.fields;
+    if (!s || !f || !f.story || !f.from || !f.to || !f.reason) return false;
+    return Boolean(s.assignee) && Boolean(s.column) && s.column !== "Done";
+  }
 
   // ── drag and drop on the board ──
   const clearDrag = () => {
@@ -167,7 +179,7 @@ const writeUi = (() => {
     const names = (c.shows || []).filter((n) => COLUMN_TO[n]);
     const to = names.length === 1 && c.shows.length === 1 ? COLUMN_TO[names[0]] : null;
     const f = moveFields();
-    if (!to || !f || !f.to.values.includes(to)) return el;
+    if (!to || !f || !valuesOf(f.to).some((v) => v.value === to)) return el;
     el.dataset.dropTo = to;
     const fits = () => dragging && dragging.to.includes(to);
     el.addEventListener("dragover", (e) => {
@@ -234,9 +246,9 @@ const writeUi = (() => {
     return { box, close, isOpen: () => !m.hidden && m.contains(box) };
   }
 
-  // ── move, with a preview ──
-  // The core's plan, as `result` holds it: the fields it names, in words.
-  function planView(result) {
+  // ── a verb's dialog, with a preview ──
+  // `move`'s plan, as `result` holds it: the fields it names, in words.
+  function movePlan(result) {
     if (!result || typeof result !== "object") return h("div", { class: "faint" }, "The core gave no plan.");
     const shown = new Set(["story", "from", "to", "reason", "path", "written", "actor", "already", "error"]);
     const word = (st) => `${WORD[st] || st} (${st})`;
@@ -254,45 +266,120 @@ const writeUi = (() => {
       result.already ? h("div", { class: "note" }, "The story is in that status already: the core will write nothing.") : null,
     );
   }
-  // What the click on the move button does, in words.
+  // `handover`'s plan: the story, who gives it and who takes it, the
+  // receiver's WIP when it would pass the limit, and each of the plan's notes.
+  function handoverPlan(result) {
+    if (!result || typeof result !== "object") return h("div", { class: "faint" }, "The core gave no plan.");
+    const items = Array.isArray(result.items) ? result.items : [];
+    const wip = result.wip && typeof result.wip === "object" ? result.wip : null;
+    const notes = Array.isArray(result.notes) ? result.notes.filter((n) => n && n.message) : [];
+    return h(
+      "div",
+      { class: "plan" },
+      kv(
+        ["Story", h("span", { class: "mono" }, result.story || items[0]?.story || "")],
+        ["People", `${result.from} → ${result.to}`],
+        result.reason ? ["Reason", result.reason] : null,
+        ...items.map((x) => ["File", h("span", { class: "mono path" }, x.path)]),
+      ),
+      !items.length && !result.error ? h("div", { class: "note" }, `The story is ${result.to}'s already: the core will write nothing.`) : null,
+      wip && wip.over ? h("div", { class: "note warn" }, `${wip.assignee} would hold ${wip.after} stories in progress against a limit of ${wip.limit}.`) : null,
+      ...notes.map((n) => h("div", { class: "note" }, String(n.message))),
+    );
+  }
+  // What the click on the verb's button does, in words.
   function landing() {
     const b = w()?.batch;
     return b
       ? `The click commits this change to the batch branch ${b.branch}, beside its ${plural(b.commits, "commit")}. Nothing reaches the vault before Send and a merge of the pull request.`
       : "The click commits this change to a new batch branch in the page's own clone. Nothing reaches the vault before Send and a merge of the pull request.";
   }
+  // The names a typed person field suggests: the vault's people and assignees,
+  // without anyone marked left and without `except` (the person who gives).
+  function namesFor(except) {
+    const left = new Set((S.people || []).filter((p) => p && p.left).map((p) => p.name));
+    const all = new Set([...(S.people || []).map((p) => p && p.name), ...(S.assignees || [])].filter(Boolean));
+    return [...all].filter((n) => !left.has(n) && n !== except).sort();
+  }
+  // A template's `{name}`s filled once from `values` (the server does the same).
+  const fillSubject = (template, values) => String(template || "").replace(/\{([a-z_]+)\}/g, (m, name) => (Object.hasOwn(values, name) && values[name] !== "" ? String(values[name]) : m));
 
-  function openMove(ref, to) {
-    const s = story(ref);
-    const move = s && movesOf(s).find((m) => m.to === to);
-    if (!move) return toast("refused", "This move is not offered", s ? `${s.title} is ${s.status}; the page offers no move to ${to} for it.` : `No story ${ref} on the board.`);
-    const max = maxReason();
-    const input = h("input", { type: "text", class: "reason", "aria-label": "Why, in one line", placeholder: "Why, in one line", autocomplete: "off", spellcheck: true });
-    const count = h("span", { class: "faint count" }, `0/${max}`);
-    const plan = h("div", { class: "plan-box" }, h("div", { class: "faint" }, "Write why, then Preview: the core shows what it will change, and nothing is written yet."));
+  // One verb's dialog, drawn from its entry: the title and the button's word
+  // (the entry's label, or the label of the preset choice), each field by its
+  // kind, the subject the commit will have, and the core's plan before the
+  // click. `opts` holds what stays the verb's own: what the dialog is about,
+  // how the plan reads, and the words after the click.
+  function openVerb(verb, s, preset, opts) {
+    const entry = entryOf(verb);
+    if (!entry) return toast("refused", "This change is not offered", `The page cannot run ${verb} now.`);
+    const fixed = {}; // name → value shown as text
+    const inputs = []; // [{ name, field, input, count }]
+    let title = entry.label || verb;
+    const rows = [];
+    let datalists = 0;
+    for (const [name, f] of Object.entries(entry.fields)) {
+      if (f.kind === "story") fixed[name] = s.ref;
+      else if (f.kind === "person" && f.filled === "assignee") {
+        fixed[name] = s.assignee || "";
+        rows.push(h("div", { class: "f fixed" }, h("span", null, `${f.label || name} `), h("b", null, fixed[name])));
+      } else if (f.kind === "choice") {
+        const v = valuesOf(f).find((x) => x.value === preset[name]);
+        if (!v) return toast("refused", "This change is not offered", `${name} ${preset[name]} is not among ${verb}'s values.`);
+        fixed[name] = v.value;
+        title = v.label || title;
+      } else if (f.kind === "line" || f.kind === "person") {
+        const max = Number(f.max) || null;
+        const label = f.label || name;
+        const attrs = { type: "text", class: name === "reason" ? "reason" : `field-${name}`, "aria-label": label, placeholder: label, autocomplete: "off", spellcheck: f.kind === "line" };
+        let list = null;
+        if (f.kind === "person") {
+          const id = `write-names-${++datalists}`;
+          attrs.list = id;
+          list = h("datalist", { id }, namesFor(fixed.from).map((n) => h("option", { value: n })));
+        }
+        const input = h("input", attrs);
+        const count = max ? h("span", { class: "faint count" }, `0/${max}`) : null;
+        const hint = f.kind === "line" ? `(one line${max ? `, at most ${max} characters` : ""}${name === "reason" ? "; it goes into the story's status log and the commit" : ""})` : max ? `(one name, at most ${max} characters)` : "(one name)";
+        rows.push(h("label", { class: "f" }, h("span", null, `${label} `, h("i", null, hint)), input, count, list));
+        inputs.push({ name, field: f, input, count, max });
+      }
+    }
+    const subject = h("div", { class: "faint subject mono" });
+    const plan = h("div", { class: "plan-box" }, h("div", { class: "faint" }, opts.hint || "Fill in the fields, then Preview: the core shows what it will change, and nothing is written yet."));
     const err = h("div", { class: "write-err", role: "alert" });
     const primary = h("button", { class: "btn primary", type: "button" }, "Preview");
     const cancel = h("button", { class: "btn", type: "button" }, "Cancel");
-    let planned = null; // the reason the plan on screen was made for
+    let planned = null; // the fields, as JSON, of the plan on screen
     let inFlight = false;
-    const reasonNow = () => input.value.trim();
+    const valuesNow = () => {
+      const out = { ...fixed };
+      for (const x of inputs) out[x.name] = x.input.value.trim();
+      return out;
+    };
+    const keyNow = () => JSON.stringify(valuesNow());
+    const fresh = () => planned !== null && planned === keyNow();
     const valid = () => {
-      const t = reasonNow();
-      const n = [...t].length;
-      if (!t) return "Say in one line why.";
-      if (n > max) return `The reason is ${n} characters long; it takes at most ${max}.`;
+      for (const x of inputs) {
+        const t = x.input.value.trim();
+        const n = [...t].length;
+        if (!t) return x.field.kind === "person" ? `Name the person for ${(x.field.label || x.name).toLowerCase()}.` : "Say in one line why.";
+        if (x.max && n > x.max) return x.name === "reason" ? `The reason is ${n} characters long; it takes at most ${x.max}.` : `${x.field.label || x.name} is ${n} characters long; it takes at most ${x.max}.`;
+      }
       return null;
     };
     const sync = () => {
-      const n = [...reasonNow()].length;
-      count.textContent = `${n}/${max}`;
-      count.classList.toggle("over", n > max);
-      const fresh = planned !== null && planned === reasonNow();
-      primary.textContent = fresh ? move.label : "Preview";
+      for (const x of inputs) {
+        if (!x.count) continue;
+        const n = [...x.input.value.trim()].length;
+        x.count.textContent = `${n}/${x.max}`;
+        x.count.classList.toggle("over", n > x.max);
+      }
+      subject.textContent = `Commit: ${fillSubject(entry.subject, valuesNow())}`;
+      primary.textContent = fresh() ? title : "Preview";
       primary.disabled = inFlight || !!valid();
     };
-    const fields = () => ({ story: s.ref, to, reason: reasonNow() });
     const showError = (text) => fill(err, text ? h("div", { class: "msg" }, text) : null);
+    const firstInput = () => inputs[0]?.input || primary;
     const doPreview = async () => {
       const bad = valid();
       if (bad) return showError(bad);
@@ -300,75 +387,103 @@ const writeUi = (() => {
       showError(null);
       fill(plan, h("div", { class: "faint" }, "Asking the core for its plan…"));
       sync();
-      const reason = reasonNow();
-      const a = await running("preview", () => post("/api/preview", { verb: "move", fields: fields() }));
+      const sent = valuesNow();
+      const key = JSON.stringify(sent);
+      const a = await running("preview", () => post("/api/preview", { verb, fields: sent }));
       inFlight = false;
       if (a.ok) {
-        planned = reason;
-        fill(plan, h("div", { class: "plan-h" }, "What the core will change"), planView(a.result), h("div", { class: "faint" }, landing()));
+        planned = key;
+        fill(plan, h("div", { class: "plan-h" }, "What the core will change"), opts.planView(a.result), h("div", { class: "faint" }, landing()));
       } else {
         planned = null;
-        fill(plan, a.result && typeof a.result === "object" && a.result.story ? planView(a.result) : null);
+        fill(plan, a.result && typeof a.result === "object" && a.result.story ? opts.planView(a.result) : null);
         showError(a.error);
       }
       sync();
       if (!dlg.isOpen()) return;
       // The button was disabled while the step ran, so the focus fell out of the dialog.
       if (a.ok) primary.focus();
-      else input.focus();
+      else firstInput().focus();
       render(); // the answer's write
     };
     const doAction = async () => {
+      // The fields of the plan on screen, as they were previewed.
+      const sent = JSON.parse(planned);
+      const before = w()?.batch?.commits || 0;
       inFlight = true;
       showError(null);
       sync();
-      primary.textContent = "Moving…";
-      const a = await running("action", () => post("/api/action", { verb: "move", fields: fields() }));
+      primary.textContent = opts.busyWord || `${title}…`;
+      const a = await running("action", () => post("/api/action", { verb, fields: sent }));
       inFlight = false;
       if (a.ok) {
         dlg.close();
         const b = w()?.batch;
-        const done = a.result && a.result.written === false ? `The core wrote nothing: ${s.title} is ${WORD[to] || to} already.` : `${s.title} is in ${WORD[to] || to}.${b ? ` The batch ${b.branch} holds ${plural(b.commits, "commit")}.` : ""}`;
-        say("ok", done);
+        const wrote = (b?.commits || 0) > before;
+        say("ok", wrote ? `${opts.doneText(sent)}${b ? ` The batch ${b.branch} holds ${plural(b.commits, "commit")}.` : ""}` : `Nothing was written: ${opts.sameText(sent)}`);
       } else {
         planned = null;
         showError(a.error);
         sync();
-        if (dlg.isOpen()) input.focus();
-        else say("error", `${move.label}: ${a.error}`);
+        if (dlg.isOpen()) firstInput().focus();
+        else say("error", `${title}: ${a.error}`);
       }
       await after();
     };
     primary.addEventListener("click", () => {
       if (primary.disabled) return;
-      if (planned !== null && planned === reasonNow()) doAction();
+      if (fresh()) doAction();
       else doPreview();
     });
     cancel.addEventListener("click", () => dlg.close());
-    input.addEventListener("input", () => {
-      if (planned !== null && planned !== reasonNow()) {
-        planned = null;
-        fill(plan, h("div", { class: "faint" }, "The reason changed: Preview again to see the plan with it."));
-      }
-      showError(null);
-      sync();
-    });
-    // Enter previews; with a fresh plan it moves to the button, whose own click is the approval.
-    input.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      if (planned !== null && planned === reasonNow()) primary.focus();
-      else if (!primary.disabled) doPreview();
-      else showError(valid());
-    });
-    const dlg = modal(move.label, [
-      h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, h("span", { class: "mono" }, s.ref), ` · ${s.column || s.status} → ${WORD[to] || to}`)),
-      h("label", { class: "f" }, h("span", null, "Why ", h("i", null, `(one line, at most ${max} characters; it goes into the story's status log and the commit)`)), input, count),
-      plan,
-      err,
-      h("div", { class: "btns" }, cancel, primary),
-    ]);
+    for (const x of inputs) {
+      x.input.addEventListener("input", () => {
+        if (planned !== null && !fresh()) {
+          planned = null;
+          fill(plan, h("div", { class: "faint" }, opts.changed || "A field changed: Preview again to see the plan with it."));
+        }
+        showError(null);
+        sync();
+      });
+      // Enter previews; with a fresh plan it moves to the button, whose own click is the approval.
+      x.input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        if (fresh()) primary.focus();
+        else if (!primary.disabled) doPreview();
+        else showError(valid());
+      });
+    }
+    const dlg = modal(title, [opts.what(title), ...rows, subject, plan, err, h("div", { class: "btns" }, cancel, primary)]);
     sync();
+    return dlg;
+  }
+
+  function openMove(ref, to) {
+    const s = story(ref);
+    const move = s && movesOf(s).find((m) => m.to === to);
+    if (!move) return toast("refused", "This move is not offered", s ? `${s.title} is ${s.status}; the page offers no move to ${to} for it.` : `No story ${ref} on the board.`);
+    return openVerb("move", s, { to }, {
+      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, h("span", { class: "mono" }, s.ref), ` · ${s.column || s.status} → ${WORD[to] || to}`)),
+      hint: "Write why, then Preview: the core shows what it will change, and nothing is written yet.",
+      changed: "The reason changed: Preview again to see the plan with it.",
+      planView: movePlan,
+      busyWord: "Moving…",
+      doneText: () => `${s.title} is in ${WORD[to] || to}.`,
+      sameText: () => `${s.title} is ${WORD[to] || to} already.`,
+    });
+  }
+  function openHandover(ref) {
+    const s = story(ref);
+    if (!s || !canHandOver(s)) return toast("refused", "This story cannot be handed over here", s ? `${s.title} has ${s.assignee ? `the column ${s.column || "none"}` : "no assignee"}; the page offers Hand over on an open story that someone holds.` : `No story ${ref} on the board.`);
+    return openVerb("handover", s, {}, {
+      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, h("span", { class: "mono" }, s.ref), ` · ${s.column} · held by ${s.assignee}`)),
+      hint: "Name who takes it and why, then Preview: the core shows what it will change, and nothing is written yet.",
+      planView: handoverPlan,
+      busyWord: "Handing over…",
+      doneText: (f) => `${s.title} is ${f.to}'s now.`,
+      sameText: (f) => `${s.title} is ${f.to}'s already.`,
+    });
   }
 
   // ── Send and Discard ──
@@ -543,19 +658,25 @@ const writeUi = (() => {
     return h("div", { style: "margin-top:10px" }, `The vault of ${name}. A change from this page is one commit on your batch branch, in the page's own clone; it reaches ${x.default_branch || "the default branch"} when its pull request is merged.${at} core ${S.coreVersion}`);
   }
 
-  // The story's side panel: its moves, as buttons (the keyboard's way to the drag).
+  // The story's side panel: its moves, as buttons (the keyboard's way to the
+  // drag), and Hand over when the story can be handed over.
   function storyButtons(s) {
     const moves = movesOf(s);
-    if (!moves.length) return null;
+    const hand = canHandOver(s) ? entryOf("handover") : null;
+    if (!moves.length && !hand) return null;
     return h(
       "div",
       { class: "row write-acts" },
       moves.map((m) => h("button", { class: "btn", type: "button", "data-focus": `move-${m.to}`, disabled: !!busy, onclick: () => openMove(s.ref, m.to) }, `${m.label}…`)),
+      hand ? h("button", { class: "btn", type: "button", "data-focus": "handover", disabled: !!busy, onclick: () => openHandover(s.ref) }, `${hand.label || "Hand over"}…`) : null,
     );
   }
-  // The palette's commands: a story's moves, and the batch's Send and Discard.
+  // The palette's commands: a story's moves and its handover, and the batch's Send and Discard.
   function storyCommands(s) {
-    return movesOf(s).map((m) => ({ label: `${m.label}…`, run: () => openMove(s.ref, m.to), kw: "move status todo backlog planned write" }));
+    const out = movesOf(s).map((m) => ({ label: `${m.label}…`, run: () => openMove(s.ref, m.to), kw: "move status todo backlog planned write" }));
+    const hand = canHandOver(s) ? entryOf("handover") : null;
+    if (hand) out.push({ label: `${hand.label || "Hand over"}…`, run: () => openHandover(s.ref), kw: "handover assignee give person write" });
+    return out;
   }
   function rootCommands() {
     const x = w();
@@ -572,5 +693,5 @@ const writeUi = (() => {
     refresh();
   }
 
-  return { post, movesOf, dragCard, dropColumn, openMove, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();

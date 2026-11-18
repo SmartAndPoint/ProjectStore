@@ -49,6 +49,7 @@ import {
   redactUrls,
   refusal,
   stampFor,
+  subjectOf,
   substitutePaths,
 } from "../dashboard/lib/write.mjs";
 import { VERBS } from "../scripts/verbs.mjs";
@@ -1315,7 +1316,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
       fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(70000) },
     });
     const bodies = [
-      [JSON.stringify({ verb: "rank" }), /not a verb the page may run \(write\.verbs: move\)/],
+      [JSON.stringify({ verb: "rank" }), /not a verb the page may run \(write\.verbs: move, handover\)/],
       [JSON.stringify({}), /not a verb the page may run/],
       [
         JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "done", reason: "r" } }),
@@ -1614,6 +1615,11 @@ const move = (fields = {}) => ({
   verb: "move",
   fields: { story: "PS-X/story-a", to: "todo", reason: "next up", ...fields },
 });
+// The fixture's story is assigned to "Other".
+const handover = (fields = {}) => ({
+  verb: "handover",
+  fields: { story: "PS-X/story-a", from: "Other", to: "Bea", reason: "Other is away", ...fields },
+});
 const cliCalls = (w, from, verb) =>
   w.record.slice(from).filter((e) => e.cmd === process.execPath && e.argv[1] === verb);
 const headOf = (w, clone) => w.git(clone, "rev-parse", "HEAD");
@@ -1637,15 +1643,15 @@ async function writable(w, opts) {
 }
 
 // [dashboard-writes#6]
-test("dashboard writes: write.verbs holds only verbs the core has, each a writing verb with a plan mode (--write), its fields the verb's positionals and options, and move's targets todo and planned", () => {
+test("dashboard writes: write.verbs holds only verbs the core has, each a writing verb with a plan mode (--write), its fields the verb's positionals and options, labelled, and move's targets todo and planned", () => {
   assert.deepEqual(
     WRITE_VERBS.map((v) => v.verb),
     Object.keys(VERB_ARGV),
   );
   assert.deepEqual(
     WRITE_VERBS.map((v) => v.verb),
-    ["move"],
-    "this story offers move only",
+    ["move", "handover"],
+    "the page offers move and handover",
   );
   for (const entry of WRITE_VERBS) {
     const row = VERBS.find((r) => r.verb === entry.verb);
@@ -1663,13 +1669,29 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
       const o = row.options.find((x) => x.name === name);
       assert.ok(o && typeof o.arg === "string", `--${name} is an option of ${entry.verb} that takes a value`);
     }
-    assert.equal(row.usage[0].split(" ").length, call.positionals.length, `${entry.verb}'s positionals`);
+    // A verb with no form takes no positional; one with a form takes each of its words.
+    const form = row.usage.length ? row.usage[0].split(" ").length : 0;
+    assert.equal(form, call.positionals.length, `${entry.verb}'s positionals`);
+    // What the page draws a dialog from (contract 10).
+    assert.ok(typeof entry.label === "string" && entry.label, `${entry.verb} has a label`);
+    for (const name of entry.subject.match(/\{([a-z_]+)\}/g).map((x) => x.slice(1, -1)))
+      assert.ok(Object.hasOwn(entry.fields, name), `${entry.verb}'s subject names its field ${name}`);
+    for (const [name, f] of Object.entries(entry.fields)) {
+      assert.ok(typeof f.label === "string" && f.label, `${entry.verb}.${name} has a label`);
+      if (f.kind === "choice")
+        for (const v of f.values) assert.ok(v.value && v.label, `${entry.verb}.${name}'s value ${v.value} has a label`);
+      if (f.kind === "person")
+        assert.ok(
+          f.filled === "assignee" ? f.max === undefined : f.max > 0,
+          `${entry.verb}.${name} is typed with a max, or filled with none`,
+        );
+    }
   }
   const src = readFileSync(join(REPO, "scripts", "move.mjs"), "utf8");
   const targets = /const TARGETS = Object\.freeze\(\{([^}]*)\}\)/.exec(src)?.[1] ?? "";
   assert.deepEqual(
     [...targets.matchAll(/(\w+):/g)].map((m) => m[1]),
-    WRITE_VERBS[0].fields.to.values,
+    WRITE_VERBS[0].fields.to.values.map((v) => v.value),
   );
 });
 
@@ -1962,6 +1984,9 @@ test("dashboard writes: with every manifest's session id and project variable an
     const r = await writer.action(move());
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.write.batch.commits, 1);
+    const h = await writer.action(handover());
+    assert.equal(h.status, 200, JSON.stringify(h.body));
+    assert.equal(h.body.write.batch.commits, 2, "the handover is the batch's second commit");
     assert.equal(treeHash(w.repo), bound, "the bound checkout is byte-identical");
     for (const dir of [w.project, writer.paths.binding]) {
       const sessions = stateDir(dir);
@@ -2558,4 +2583,139 @@ test("dashboard writes: every call of the file's tests is an argv with no shell,
     assert.ok(seen.has(s), `${s} is among the calls read (${[...seen].join(", ")})`);
   assert.ok(!ALL.some((e) => e.cmd === "git" && subOf(e.argv).name === "checkout"), "no checkout");
   assert.ok(MODULE.endsWith(`dashboard${sep}lib${sep}write.mjs`) && dirname(MODULE).endsWith("lib"));
+});
+
+// ─── handover from the page (contracts 6, 7 and 10) ─────────────────────
+
+// [dashboard-writes#6] [dashboard-writes#7]
+test("dashboard writes: a field of kind person is one trimmed line, a typed one at most its max, a filled one with no max; the subject fills each {name} once, so a value holding {to} stays as typed", () => {
+  const ok = checkRequest(handover({ to: "  Bea  " }));
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(ok.fields.to, "Bea");
+  assert.match(checkRequest(handover({ to: "" })).error, /to is empty: name a person/);
+  assert.match(checkRequest(handover({ to: "a\nb" })).error, /one name on one line/);
+  assert.match(checkRequest(handover({ to: "x".repeat(101) })).error, /101 characters long; a name takes at most 100/);
+  assert.equal(checkRequest(handover({ from: "y".repeat(300) })).ok, true, "a filled person has no max");
+  assert.match(
+    checkRequest({ verb: "handover", fields: { from: "Other", to: "Bea", reason: "r" } }).error,
+    /handover needs story as text/,
+  );
+  const req = checkRequest(handover({ reason: "keep {to} as {from}" }));
+  assert.equal(subjectOf(req), "hand over PS-X/story-a from Other to Bea: keep {to} as {from}");
+  assert.equal(subjectOf(checkRequest(move())), "move PS-X/story-a to todo: next up");
+});
+
+// [dashboard-writes#10] [dashboard-writes#6]
+test("dashboard writes: a handover request with no story, or with a typed name past its max, gets 400 and starts no process, so the core never plans all of a person's stories", async () => {
+  await withWorld({}, async (w) => {
+    const page = await w.start();
+    const token = await tokenOf(page);
+    assert.equal(page.writer.view().can, true, page.writer.view().reason);
+    const from = w.record.length;
+    for (const fields of [
+      { from: "Other", to: "Bea", reason: "r" },
+      { story: "PS-X/story-a", from: "Other", to: "x".repeat(101), reason: "r" },
+    ])
+      for (const path of ["/api/preview", "/api/action"]) {
+        const r = await post(page, path, own(page, token), JSON.stringify({ verb: "handover", fields }));
+        assert.equal(r.status, 400, `${path} ${JSON.stringify(fields).slice(0, 60)}`);
+        assert.deepEqual(Object.keys(r.json), ["ok", "error", "write"]);
+      }
+    assert.equal(w.record.length, from, "the spawn record shows no call");
+  });
+});
+
+// [dashboard-writes#10] [dashboard-writes#6]
+test("dashboard writes: a handover's preview answers with handover's plan for the one story, names no path under the place, and leaves the clone's HEAD and working tree as they were", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const from = w.record.length;
+    const r = await writer.preview(handover());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body), ["ok", "result", "write"]);
+    const { result } = r.body;
+    assert.equal(result.write, false);
+    assert.equal(result.from, "Other");
+    assert.equal(result.to, "Bea");
+    assert.equal(result.story, "PS-X/story-a");
+    assert.deepEqual(
+      result.items.map((x) => [x.story, x.from, x.to]),
+      [["PS-X/story-a", "Other", "Bea"]],
+    );
+    assert.ok(Array.isArray(result.notes));
+    assert.ok(!JSON.stringify(r.body).includes(writer.place), "no path under the place is named");
+    assert.deepEqual(cloneState(w, clone), before, "HEAD and the working tree are unchanged");
+    const calls = cliCalls(w, from, "handover");
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].argv.slice(1), [
+      "handover",
+      `--project=${writer.paths.binding}`,
+      "--json",
+      "--story=PS-X/story-a",
+      "--from=Other",
+      "--to=Bea",
+      "--reason=Other is away",
+      "--",
+    ]);
+  });
+});
+
+// [dashboard-writes#10] [dashboard-writes#7]
+test("dashboard writes: a handover that succeeds is one commit whose only file is the story, with the subject hand over <story> from <from> to <to>: <reason>, and the story is Bea's", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const base = headOf(w, clone);
+    const r = await writer.action(handover());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(Object.keys(r.body), ["ok", "result", "write"]);
+    assert.equal(r.body.ok, true);
+    assert.equal(r.body.write.batch.commits, 1);
+    assert.equal(w.git(clone, "rev-parse", "HEAD^"), base, "one new commit");
+    assert.deepEqual(committedFiles(w, clone), [STORY_REL]);
+    assert.equal(w.git(clone, "log", "-1", "--format=%s"), "hand over PS-X/story-a from Other to Bea: Other is away");
+    assert.match(readFileSync(join(clone, STORY_REL), "utf8"), /^assignee: "?Bea"?$/m);
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+    assert.ok(!JSON.stringify(r.body).includes(writer.place));
+  });
+});
+
+// [dashboard-writes#10]
+test("dashboard writes: a handover the core refuses (to equals from: 400; the story held by someone else, or to marked left: 200 with ok false) answers in the core's words and leaves the clone and the batch as they were", async () => {
+  await withWorld({ vaultSettings: { flow: { people: { Cid: { left: "2026-11-01" } } } } }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    for (const [fields, status, why] of [
+      [{ to: "Other" }, 400, /./],
+      [{ from: "Nobody" }, 200, /assigned to Other, not to Nobody/],
+      [{ to: "Cid" }, 200, /--to Cid is marked left/],
+    ]) {
+      for (const step of ["preview", "action"]) {
+        const r = await writer[step](handover(fields));
+        assert.equal(r.status, status, `${step} ${JSON.stringify(fields)}: ${JSON.stringify(r.body)}`);
+        assert.equal(r.body.ok, false);
+        assert.match(String(r.body.error ?? r.body.result?.error), why);
+        assert.deepEqual(cloneState(w, clone), before, "HEAD and the working tree are unchanged");
+        assert.equal(r.body.write.batch, null, "no batch starts");
+      }
+    }
+  });
+});
+
+// [dashboard-writes#10] [dashboard-writes#7]
+test("dashboard writes: a handover of a story held by to already makes no commit and starts no batch", async () => {
+  await withWorld({}, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const r = await writer.action(handover({ from: "Bea", to: "Other" }));
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ok, true);
+    assert.deepEqual(r.body.result.items, []);
+    assert.deepEqual(cloneState(w, clone), before, "no commit");
+    assert.equal(r.body.write.batch, null, "no batch starts");
+  });
 });
