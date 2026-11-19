@@ -51,12 +51,15 @@ vault-link-graph-derived-view-and-shared-link-resolver).
   artifact's full typed neighborhood — outgoing AND incoming edges — in one
   call. Node keys are full vault-relative paths, never short names.
 - Edge kinds: wikilink, mdlink, supersedes, spec-covers, spec-implements-adr,
-  initiative-contains, epic-contains, amends, dead, ambiguous, out-of-scope.
+  spec-part-of, initiative-contains, epic-contains, amends, dead, ambiguous, out-of-scope.
   Nothing resolves silently. `amends` runs from a story to a spec one of its
   amendment markers (`> amended YYYY-MM-DD by <ref>: <KIND> — <why>` under a
   contract) changes: one edge per pair; a marker whose ref resolves to no story
   is a `dead` edge from the spec. `initiative-contains` runs from an initiative
   to each epic whose `initiative:` names it; a value that names no initiative,
-  or a list, is a `dead` edge from the epic.
+  or a list, is a `dead` edge from the epic. `spec-part-of` runs from a spec to
+  the parent spec its `parent:` names; a spec tree is read from its root down
+  with `projectstore graph lineage <root path> --kind spec-part-of --depth <n>`,
+  and from any spec up to its root with `graph lineage <spec path>`.
 - Hand-edits to graph.md never stick: doctor flags staleness, reconcile
   repairs. Fix the source artifact, then regenerate.

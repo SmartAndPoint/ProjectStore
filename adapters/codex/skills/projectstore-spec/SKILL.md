@@ -56,7 +56,9 @@ Dispatch on the first argument:
 
 3. **Fill before preview**: populate `adr: []` and `stories: []` (path form:
    `"EPIC-ID/story-002"`, inline flow) from the conversation context when
-   known; write the mandatory sections (How we solve with ADR wiki-links,
+   known; set `parent:` to the id of the spec this one is part of, when it
+   describes a piece of a larger spec (a spec tree, read from its root down),
+   and leave it `null` otherwise; write the mandatory sections (How we solve with ADR wiki-links,
    numbered Behavioral contracts, Acceptance checkboxes with `— stories:`
    attribution where items are story-specific). Optional sections (Modules &
    files on disk, Testing) may be omitted for research spikes.

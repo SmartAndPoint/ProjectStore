@@ -157,12 +157,31 @@ const AMENDMENT_CANDIDATE_RE = /^amended\s+\S+\s+by(?:\s|$)/i;
 const AMENDMENT_REF_RE = /^amended\s+\S+\s+by\s+([^\s:：]+)/i;
 const AMENDMENT_RE = /^amended (\d{4}-\d{2}-\d{2}) by ([^\s:：]+)\s*[:：]\s*(ADDED|MODIFIED|REMOVED)\s*[—–-]\s*(\S.*)$/;
 
-// The markers of one spec body, in file order. Each is
+// The `checked` marker (the spec staleness spec, contract 7): a contract was
+// read against its code and needs no change. `checked` and `by` are English
+// in every locale. It is valid under a contract (that contract) or directly
+// under the section heading before the first contract (every contract), it
+// changes no text and draws no edge, and a malformed one is `checked-form`.
+const CHECKED_GRAMMAR = "checked YYYY-MM-DD by <ref>: <why>";
+const CHECKED_CANDIDATE_RE = /^checked\s+\S+\s+by(?:\s|$)/i;
+const CHECKED_REF_RE = /^checked\s+\S+\s+by\s+([^\s:：]+)/i;
+const CHECKED_RE = /^checked (\d{4}-\d{2}-\d{2}) by ([^\s:：]+)\s*[:：]\s*(\S.*)$/;
+
+// The amendment markers of one spec body, in file order. Each is
 //   { contract: "<n>" | null, index: <contract's position> | -1, line,
 //     date, ref, kind, why, form: null | "<what is wrong>", valid }
 // where `line` is 1-based in the body, and `valid` means no form warn (a date
 // or link finding does not make a marker invalid).
 export function parseAmendmentMarkers(body) {
+  return parseSpecMarkers(body)
+    .filter((m) => m.marker === "amended")
+    .map(({ marker, ...m }) => m); // eslint-disable-line no-unused-vars
+}
+
+// Both marker kinds of one spec body, in file order: the shape above plus
+// `marker: "amended" | "checked"`, the candidate's word even when the rest is
+// malformed. A valid `checked` marker has `kind: "checked"`.
+export function parseSpecMarkers(body) {
   const text = String(body || "");
   const m = text.match(headingLineRe("spec_contracts"));
   if (!m) return [];
@@ -189,6 +208,25 @@ export function parseAmendmentMarkers(body) {
     const para = firstPara.join(" ").trim();
     const at = run.line;
     run = null;
+    if (CHECKED_CANDIDATE_RE.test(para)) {
+      const refHit = para.match(CHECKED_REF_RE);
+      if (refHit && refHit[1].split("/")[0] === CITATION_EXAMPLE_KEY) return;
+      const g = para.match(CHECKED_RE);
+      const entry = {
+        contract,
+        index,
+        line: lineBase + at,
+        date: g ? g[1] : null,
+        ref: g ? g[2] : refHit ? refHit[1] : null,
+        kind: g ? "checked" : null,
+        why: g ? g[3].trim() : null,
+        form: g ? null : `the first paragraph is not \`${CHECKED_GRAMMAR}\``,
+        valid: Boolean(g),
+        marker: "checked",
+      };
+      out.push(entry);
+      return;
+    }
     if (!AMENDMENT_CANDIDATE_RE.test(para)) return;
     const refHit = para.match(AMENDMENT_REF_RE);
     if (refHit && refHit[1].split("/")[0] === CITATION_EXAMPLE_KEY) return;
@@ -203,6 +241,7 @@ export function parseAmendmentMarkers(body) {
       why: g ? g[4].trim() : null,
       form: null,
       valid: false,
+      marker: "amended",
     };
     if (!g) entry.form = `the first paragraph is not \`${AMENDMENT_GRAMMAR}\``;
     else if (contract === null) entry.form = "it comes before the first contract";

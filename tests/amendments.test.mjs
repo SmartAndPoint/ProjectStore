@@ -419,8 +419,15 @@ test("graph golden: one amends edge per story–spec pair, superseded specs incl
   assert.ok(g.content.includes("| epics/PS-A/stories/story-change-it.md | amends | specs/old.md |"));
 });
 
-test("lineage walks amends: from the story, --kind amends reaches the superseded spec; the kind is one of the five", () => {
-  assert.deepEqual(LINEAGE_KINDS, ["supersedes", "spec-covers", "spec-implements-adr", "epic-contains", "amends"]);
+test("lineage walks amends: from the story, --kind amends reaches the superseded spec; the kind is one of the six", () => {
+  assert.deepEqual(LINEAGE_KINDS, [
+    "supersedes",
+    "spec-covers",
+    "spec-implements-adr",
+    "epic-contains",
+    "amends",
+    "spec-part-of",
+  ]);
   const { vault } = seedAmendsFixture();
   const cfg = { vault_path: vault, layout: "engineering", language: "en" };
   const l = lineage(cfg, "epics/PS-A/stories/story-change-it.md", { kinds: ["amends"], depth: 1 });
@@ -448,14 +455,16 @@ const flat = (s) => s.replace(/\s+/g, " ");
 test("spec guide: the eight Must items, then the amendment items doctor cannot check; blocks under contracts are out of its Length", () => {
   const g = resolveGuide("spec", { root: REPO });
   assert.equal(g.source, "package");
-  assert.equal(g.guide_version, 2);
+  assert.equal(g.guide_version, 3);
   const must = g.sections.Must;
-  assert.equal(must.length, 12);
+  assert.equal(must.length, 13);
   assert.match(must[7], /^No TODOs/, "the eighth of the 0.30.9 checklist is still eighth");
   assert.match(must[8], /amended YYYY-MM-DD by .*no new block is written in the older `> \*Amended …` form/);
   assert.match(must[9], /No contract or step number is reused/);
   assert.match(must[10], /Under MODIFIED the body is rewritten to the text in force/);
   assert.match(must[11], /folds that contract's older blocks into the body without changing their meaning/);
+  // [spec-tree#11] the citing rule for a parent spec, at guide_version 3
+  assert.match(must[12], /a parent states a child's rule only by citing the child's contract token/);
   assert.match(g.sections.Length, /Blocks under contracts .* do not count toward this length/);
 });
 
@@ -471,7 +480,7 @@ test("guide spec --json: the package Must list through the CLI", () => {
   assert.equal(r.status, 0, r.stderr);
   const res = JSON.parse(r.stdout).result;
   assert.equal(res.source, "package");
-  assert.equal(res.sections.Must.length, 12);
+  assert.equal(res.sections.Must.length, 13);
 });
 
 test("agents and commands: the planner names the contracts a story amends with the kind; the reviewer checks the markers; story, graph and doctor say it", () => {

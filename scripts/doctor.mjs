@@ -142,9 +142,21 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
+import {
+  uncommittedProjectFiles,
+  lastCommitMs,
+  grepProjectLines,
+  commitsSince,
+  gitRun,
+  trackedFiles,
+  trunkHistory,
+} from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
+import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
+import { checkSpecCode } from "./spec-code.mjs";
+import { checkSpecStale, checkParentStale } from "./spec-stale.mjs";
+import { parseSpecMarkers } from "./grammar.mjs";
 import { checkRankTies } from "./rank.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
 import { checkVerbMarks } from "./verb-mark.mjs";
@@ -2473,6 +2485,10 @@ export function checkSpecLinks(cfg, layout, artifacts) {
 //   amendment-date  (warn)  not a calendar date, before the spec's `date:`,
 //                           after tomorrow, or before the previous marker
 //                           under the same contract.
+//   checked-form    (warn)  a `checked` marker not in its grammar; the date
+//                           and story rules read `checked` markers too, the
+//                           link rule does not (the spec staleness spec,
+//                           contract 7).
 // One finding per spec and fact: two markers of one unlinked story warn once.
 export function checkAmendments(layout, artifacts, now = new Date().toISOString()) {
   const out = [];
@@ -2481,7 +2497,9 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
   const t = Date.parse(now);
   const tomorrow = new Date((Number.isFinite(t) ? t : Date.now()) + 86400000).toISOString().slice(0, 10);
   for (const spec of artifacts.filter((a) => a.kind === "spec")) {
-    const markers = parseAmendmentMarkers(spec.body);
+    // Both marker kinds: a `checked` marker shares the date and story rules,
+    // not the link rule (the spec staleness spec, contract 7).
+    const markers = parseSpecMarkers(spec.body);
     if (!markers.length) continue;
     const seen = new Set();
     const once = (key, f) => {
@@ -2493,13 +2511,15 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
     const prevDate = new Map();
     for (const m of markers) {
       const where = m.contract === null ? `line ${m.line}` : `contract ${m.contract} (line ${m.line})`;
+      const checked = m.marker === "checked";
+      const label = checked ? "Checked marker" : "Amendment marker";
       if (!m.valid) {
         out.push(
           finding(
             "vault",
             "warn",
-            "amendment-form",
-            `Amendment marker at ${where} counts for nothing: ${m.form}.`,
+            checked ? "checked-form" : "amendment-form",
+            `${label} at ${where} counts for nothing: ${m.form}.`,
             spec.rel,
           ),
         );
@@ -2507,13 +2527,7 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
       }
       if (!isCalendarDate(m.date)) {
         out.push(
-          finding(
-            "vault",
-            "warn",
-            "amendment-date",
-            `Amendment marker at ${where}: ${m.date} is not a date.`,
-            spec.rel,
-          ),
+          finding("vault", "warn", "amendment-date", `${label} at ${where}: ${m.date} is not a date.`, spec.rel),
         );
       } else {
         const prev = prevDate.get(m.index);
@@ -2523,13 +2537,7 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
         else if (prev && m.date < prev) why = `before the previous marker under the same contract (${prev})`;
         if (why) {
           out.push(
-            finding(
-              "vault",
-              "warn",
-              "amendment-date",
-              `Amendment marker at ${where} is dated ${m.date}, ${why}.`,
-              spec.rel,
-            ),
+            finding("vault", "warn", "amendment-date", `${label} at ${where} is dated ${m.date}, ${why}.`, spec.rel),
           );
         }
         prevDate.set(m.index, m.date);
@@ -2539,17 +2547,18 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
         : { error: "the layout has no epic folder" };
       if (r.error) {
         once(
-          `story ${m.ref}`,
+          `${m.marker} story ${m.ref}`,
           finding(
             "vault",
             "issue",
             "amendment-story",
-            `Amendment marker at ${where} names "${m.ref}", which resolves to no single story: ${r.error}.`,
+            `${label} at ${where} names "${m.ref}", which resolves to no single story: ${r.error}.`,
             spec.rel,
           ),
         );
         continue;
       }
+      if (checked) continue; // no link rule: a story with no_spec may check a spec
       const storyListsSpec = listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec);
       const specListsStory = listOf(spec.fm, "stories").some(
         (e) => resolveSpecStory(e, artifacts, epicFolder.path).story === r.story,
@@ -4219,6 +4228,8 @@ export function runVaultChecks(
     policy = null,
     now = new Date().toISOString(),
     commits = commitsSince,
+    lsFiles = trackedFiles,
+    history = trunkHistory,
   } = {},
 ) {
   let layout;
@@ -4280,9 +4291,59 @@ export function runVaultChecks(
     }
   }
   const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
+  const nodeIndex = buildNodeIndex(cfg, layout);
+  // The spec tree, once per run (the spec tree spec, contracts 4 to 6).
+  const specParents = resolveSpecParents(nodeIndex, vaultFiles);
+  const specTree = analyseSpecTree(nodeIndex, specParents);
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
-    ...checkWikilinks(cfg, artifacts, vaultFiles, buildNodeIndex(cfg, layout)),
+    ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
+    ...checkSpecTree(nodeIndex, specParents, specTree, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
+    // The code a spec in the tree owns (the spec-owned-code spec, contracts 1 to 4).
+    ...checkSpecCode(nodeIndex, specTree, {
+      layout,
+      proj,
+      vault: cfg.vault_path,
+      lsFiles,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
+    // A parent behind its children (the spec staleness spec, contracts 5 and 6).
+    ...(() => {
+      const keys = citationKeys(artifacts);
+      const epicFolder = layout.folders.find((f) => f.kind === "epic");
+      return checkParentStale(nodeIndex, specTree, {
+        layout,
+        now,
+        files: vaultFiles,
+        keyPath: (k) => keys.get(k)?.rel ?? null,
+        resolveStory: (ref) => resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics"),
+        finding: (level, check, message, file, extra) => ({
+          ...finding("vault", level, check, message, file ?? undefined),
+          ...extra,
+        }),
+      });
+    })(),
+    // Code newer than its spec (the spec staleness spec, contracts 1 to 4).
+    ...checkSpecStale(nodeIndex, specTree, {
+      layout,
+      proj,
+      vault: cfg.vault_path,
+      now,
+      history,
+      resolveStory: (ref) => {
+        const epicFolder = layout.folders.find((f) => f.kind === "epic");
+        return resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics");
+      },
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
