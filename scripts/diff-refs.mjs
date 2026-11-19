@@ -216,6 +216,91 @@ export function trackedFiles(cwd, { timeout = 10000, env = process.env } = {}) {
   return { status: "ok", files: String(r.stdout).split("\0").filter(Boolean) };
 }
 
+// The branches the trunk may be, in the order tried (the spec staleness spec,
+// contract 3): the remote's default branch, the remote's main or master, the
+// local main or master, else HEAD. Full ref names, so a tag of the same name
+// never wins.
+export const TRUNK_REFS = Object.freeze([
+  "refs/remotes/origin/HEAD",
+  "refs/remotes/origin/main",
+  "refs/remotes/origin/master",
+  "refs/heads/main",
+  "refs/heads/master",
+]);
+
+// The first-parent history of the trunk from `since` (a day, read as 00:00
+// UTC) on: one entry per commit with its committer day in the committer's
+// own offset, its committer instant, and the paths it changed relative to
+// `cwd` (a merge, against its first parent). Returns {status: "ok", ref,
+// commits: [{day, committerMs, paths}]} or {status: "unknown", reason} with a
+// reason of ACTIVITY_REASONS.
+export function trunkHistory(cwd, since, { timeout = 10000, env = process.env } = {}) {
+  const opts = { cwd, encoding: "utf8", timeout, env: { ...env, LC_ALL: "C" }, maxBuffer: 256 * 1024 * 1024 };
+  const probe = spawnSync("git", ["rev-parse", "--is-shallow-repository"], opts);
+  const probeWhy = whyGitFailed(probe);
+  if (probeWhy) return { status: "unknown", reason: probeWhy };
+  if (String(probe.stdout).trim() === "true") return { status: "unknown", reason: "shallow" };
+  const refs = spawnSync("git", ["for-each-ref", "--format=%(refname) %(symref)", ...TRUNK_REFS], opts);
+  const refsWhy = whyGitFailed(refs);
+  if (refsWhy) return { status: "unknown", reason: refsWhy };
+  const symref = new Map(
+    String(refs.stdout)
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => l.split(" ")),
+  );
+  const present = new Set(symref.keys());
+  const ref =
+    TRUNK_REFS.find(
+      (r) => present.has(r) && whyGitFailed(spawnSync("git", ["rev-parse", "--verify", "-q", r], opts)) === null,
+    ) ?? "HEAD";
+  const sinceArg = /^\d{4}-\d{2}-\d{2}$/.test(String(since)) ? `${since}T00:00:00Z` : String(since);
+  const r = spawnSync(
+    "git",
+    [
+      "log",
+      ref,
+      "--first-parent",
+      "-m",
+      "--no-renames",
+      "--name-only",
+      "--relative",
+      "-z",
+      "--no-show-signature",
+      "--format=%x1e%cI",
+      `--since=${sinceArg}`,
+      "--",
+    ],
+    opts,
+  );
+  if (
+    r.status !== 0 &&
+    !r.error &&
+    ref === "HEAD" &&
+    /bad revision 'HEAD'|unknown revision[^\n]*HEAD/.test(r.stderr || "")
+  )
+    return { status: "ok", ref, branch: "HEAD", commits: [] };
+  const runWhy = whyGitFailed(r);
+  if (runWhy) return { status: "unknown", reason: runWhy };
+  const commits = [];
+  for (const chunk of String(r.stdout).split("\x1e")) {
+    if (!chunk) continue;
+    const cut = chunk.indexOf("\n");
+    const stamp = (cut === -1 ? chunk : chunk.slice(0, cut)).replace(/\0/g, "").trim();
+    const ms = Date.parse(stamp);
+    if (!Number.isFinite(ms)) continue;
+    const paths = (cut === -1 ? "" : chunk.slice(cut + 1))
+      .split("\0")
+      .map((p) => p.replace(/^\n/, ""))
+      .filter(Boolean);
+    commits.push({ day: stamp.slice(0, 10), committerMs: ms, paths });
+  }
+  // The branch the trunk names, for a person: the remote's default branch
+  // read through to the branch it points at.
+  const branch = (symref.get(ref) || ref).replace(/^refs\/(?:heads|remotes)\//, "");
+  return { status: "ok", ref, branch, commits };
+}
+
 // The `--since` window git is given, shared with spec-drift.mjs.
 //
 // A bare YYYY-MM-DD gets midnight appended, and it is not cosmetic. Git's

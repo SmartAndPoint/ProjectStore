@@ -133,6 +133,7 @@
   "node_modules/projectstore/scripts/skeleton.mjs",
   "node_modules/projectstore/scripts/spec-code.mjs",
   "node_modules/projectstore/scripts/spec-drift.mjs",
+  "node_modules/projectstore/scripts/spec-stale.mjs",
   "node_modules/projectstore/scripts/spec-tree.mjs",
   "node_modules/projectstore/scripts/stages.mjs",
   "node_modules/projectstore/scripts/status-change.mjs",

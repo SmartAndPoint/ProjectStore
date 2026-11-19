@@ -17,7 +17,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const load = (n) => import(pathToFileURL(join(ROOT, "scripts", n)).href);
 const json = (rel) => JSON.parse(readFileSync(join(ROOT, rel), "utf8"));
 // What the leaves export for lib.mjs's own use, and lib.mjs does not re-export.
-const INTERNAL = ["escapeRe", "INLINE_CODE_SPAN_RE"];
+// The `checked` marker's parser (PS-SPECTREE "Code newer than its
+// spec") are read from grammar.mjs directly, so lib.mjs's names stay pinned.
+const INTERNAL = ["escapeRe", "INLINE_CODE_SPAN_RE", "parseSpecMarkers"];
 
 test("lib modules: lib.mjs exports exactly the names it exported before the move", async () => {
   const lib = await load("lib.mjs");

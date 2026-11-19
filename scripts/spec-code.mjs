@@ -106,6 +106,11 @@ export function coveringStories(index, layout) {
   return new Map([...out].map(([k, v]) => [k, [...v.values()]]));
 }
 
+// Whether a spec covers a story in progress or in review, from
+// coveringStories' map: its code may not be committed yet.
+export const specInFlight = (covers) => (spec) =>
+  (covers.get(spec) || []).some((s) => sameStatus(s.status, "in-progress") || sameStatus(s.status, "review"));
+
 // Ownership over a tree (contracts 1 and 2). `files()` lists the project's
 // tracked files once, the vault left out, or {reason} when git cannot.
 export function specOwnership(index, tree, { proj, vault, lsFiles = trackedFiles } = {}) {
@@ -167,9 +172,7 @@ export function checkSpecCode(index, tree, { layout, proj, vault, lsFiles = trac
   }
   const files = listed.files;
   const out = [];
-  const covers = coveringStories(index, layout);
-  const inFlight = (spec) =>
-    (covers.get(spec) || []).some((s) => sameStatus(s.status, "in-progress") || sameStatus(s.status, "review"));
+  const inFlight = specInFlight(coveringStories(index, layout));
 
   for (const spec of own.participating) {
     const refs = own.refsOf.get(spec);
