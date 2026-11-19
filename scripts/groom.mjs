@@ -132,15 +132,15 @@ const rerunCommand = () => packageCommand([], "groom", { args: "--write" });
 function epicLines(epics) {
   const lines = [];
   if (epics.single_story.length) {
-    lines.push(`One-story epics (${epics.single_story.length}):`);
+    lines.push(`Epics with only one story (${epics.single_story.length}):`);
     for (const e of epics.single_story)
       lines.push(`  ${e.epic}${e.title ? ` — ${e.title}` : ""}: ${e.story.ref} (${e.story.status || "no status"})`);
-  } else lines.push("No one-story epic.");
+  } else lines.push("No epic has only one story.");
   const a = epics.active;
   lines.push(
     a.cap === null
-      ? `${a.count} active epics, no cap set.`
-      : `${a.count} active epics, cap ${a.cap}${a.over ? `: over the cap by ${a.count - a.cap}` : ""}.`,
+      ? `${plural(a.count, "active epic")}, no cap set (flow.active_epics_max).`
+      : `${plural(a.count, "active epic")}, cap ${a.cap} (flow.active_epics_max)${a.over ? `: over the cap by ${a.count - a.cap}` : ""}.`,
   );
   return lines;
 }
@@ -150,11 +150,12 @@ function epicLines(epics) {
 // --write form alone on its line, and what the command adds.
 export function renderPlan(run, plan, { project = null, asking = false, env = process.env } = {}) {
   const lines = [];
-  if (plan.days === null) lines.push("No story moves: flow.age_days.todo is not set.");
-  else if (!plan.items.length) lines.push(`No ToDo story is at or past flow.age_days.todo of ${plan.days}.`);
+  if (plan.days === null) lines.push("No story moves: the ToDo age limit, flow.age_days.todo, is not set.");
+  else if (!plan.items.length)
+    lines.push(`No story has been in ToDo for ${plural(plan.days, "day")} or more (flow.age_days.todo).`);
   else {
     lines.push(
-      `Back to the backlog: ${plural(plan.items.length, "story", "stories")} in ToDo at or past flow.age_days.todo of ${plan.days}:`,
+      `Back to the backlog: ${plural(plan.items.length, "story has", "stories have")} been in ToDo for ${plural(plan.days, "day")} or more (flow.age_days.todo):`,
     );
     for (const f of plan.items) {
       const title = titleOf(f.fm);
@@ -168,7 +169,7 @@ export function renderPlan(run, plan, { project = null, asking = false, env = pr
   for (const n of plan.notes) lines.push("", `Note (${n.id}): ${n.message}`);
   lines.push(
     "",
-    `Writes each story's status, its stamp, its header's Status row, one Status log line and its epic's Stories row, then flow.groomed_at (${run.at.slice(0, 10)}), also with no story to move, then the derived views. No epic is merged or moved.`,
+    `Each story above goes to planned: its status, its Status log and its row in the epic's Stories table change. Then the date of this pass, ${run.at.slice(0, 10)}, goes into flow.groomed_at, also when no story moves, and the derived views are rebuilt. No epic is merged or moved.`,
   );
   if (!asking)
     lines.push(
@@ -177,7 +178,7 @@ export function renderPlan(run, plan, { project = null, asking = false, env = pr
       "",
       `  ${rerunCommand()}`,
       "",
-      `In an agent session, ${commandForm("groom", { env })} also hands the one-story epics to the librarian, which proposes merges.`,
+      `In an agent session, ${commandForm("groom", { env })} also hands the one-story epics to the librarian agent. It suggests which epic each could join and changes nothing.`,
     );
   return lines.join("\n") + "\n";
 }
@@ -196,7 +197,11 @@ function renderDone(run, plan, items, stamp, reconcile) {
   }
   lines.push(...epicLines(plan.epics));
   for (const n of run.notes) lines.push(`  note (${n.id}): ${n.message}`);
-  lines.push(stamp.written ? `flow.groomed_at: ${stamp.after}` : "flow.groomed_at: not written");
+  lines.push(
+    stamp.written
+      ? `This pass is recorded in flow.groomed_at: ${stamp.after}`
+      : "This pass is not recorded: flow.groomed_at is not written",
+  );
   if (reconcile) lines.push(`derived views: ${reconcile.written ?? 0} regenerated`);
   return lines.join("\n") + "\n";
 }

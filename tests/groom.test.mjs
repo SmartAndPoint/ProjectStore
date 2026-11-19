@@ -578,7 +578,7 @@ test("groom: no stale story, flow.grooming_days of 7 and three other flow keys: 
   assert.deepEqual(r.result.items, []);
   assert.deepEqual(cfgOf(fx), { spec_policy: "optional", flow: { ...flow, groomed_at: NOW } });
   assert.deepEqual(r.result.stamp, { before: null, after: NOW, written: true });
-  assert.match(r.text, /^flow\.groomed_at: 2026-11-11T12:00:00\.000Z$/m);
+  assert.match(r.text, /^This pass is recorded in flow\.groomed_at: 2026-11-11T12:00:00\.000Z$/m);
 });
 
 // [groom#4]
@@ -697,7 +697,7 @@ test("groom: that vault with no flow.active_epics_max, bare: active is count 2, 
     ["PS-A"],
   );
   const text = await groom(fx);
-  assert.match(text.out, /^2 active epics, no cap set\.$/m);
+  assert.match(text.out, /^2 active epics, no cap set \(flow\.active_epics_max\)\.$/m);
   assert.match(text.out, /^ {2}PS-A — PS-A: PS-A\/story-one \(planned\)$/m);
 });
 
@@ -714,11 +714,11 @@ test("groom: flow.active_epics_max of 2 and three active epics gives over true a
   const over = await direct(fx);
   assert.equal(over.result.epics.active.over, true);
   assert.equal(over.result.epics.active.count, 3);
-  assert.match(over.text, /^3 active epics, cap 2: over the cap by 1\.$/m);
+  assert.match(over.text, /^3 active epics, cap 2 \(flow\.active_epics_max\): over the cap by 1\.$/m);
   writeFileSync(configOf(fx), js({ flow: { active_epics_max: 3 } }));
   const at = await direct(fx);
   assert.equal(at.result.epics.active.over, false);
-  assert.match(at.text, /^3 active epics, cap 3\.$/m);
+  assert.match(at.text, /^3 active epics, cap 3 \(flow\.active_epics_max\)\.$/m);
 });
 
 // [groom#5]
@@ -800,7 +800,7 @@ test("doctor: flow.active_epics_max of 2 and three active epics, one a one-story
   const over = byCheck(found, "active-epics-over-cap");
   assert.equal(over.length, 1);
   assert.equal(over[0].level, "warn");
-  assert.match(over[0].message, /^3 epics are active, over flow\.active_epics_max of 2/);
+  assert.match(over[0].message, /^3 epics are active, 1 more than the cap of 2 \(flow\.active_epics_max\)/);
   setEpicStatus(fx, "PS-C", "parked");
   assert.equal(byCheck(doctorRun(fx), "active-epics-over-cap").length, 0);
 });
@@ -959,7 +959,7 @@ test("groom: commands/groom.md and its generated copies exist; the row writes, n
   assert.deepEqual(row.mcp, []);
   assert.equal(row.module, "./groom.mjs");
   const readme = read(join(REPO, "README.md"));
-  assert.match(readme, /`groom`[^\n]*`\/projectstore:groom`[^\n]*\n\n```\nnpx projectstore groom --write\n```/);
+  assert.match(readme, /`groom`[^\n]*\n\n```\nnpx projectstore groom --write\n```\n\n[^\n]*`\/projectstore:groom`/);
   const at = readme.indexOf("npx projectstore groom --write");
   assert.ok(at > readme.indexOf("npx projectstore move ") && at - readme.indexOf("npx projectstore move ") < 2000);
 });

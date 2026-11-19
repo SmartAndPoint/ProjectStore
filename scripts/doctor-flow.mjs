@@ -387,11 +387,11 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
     const age = at === null ? null : ageDays(at, asOf);
     let why = null;
     if (raw === undefined || raw === null)
-      why = `flow.groomed_at holds no stamp, so no grooming pass is recorded under flow.grooming_days of ${groomDays}`;
+      why = `No grooming pass is recorded yet: flow.groomed_at holds no stamp, and a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
     else if (at === null)
-      why = `flow.groomed_at does not read as a date, so the last grooming pass is unknown under flow.grooming_days of ${groomDays}`;
+      why = `flow.groomed_at does not read as a date, so the date of the last grooming pass is unknown; a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
     else if (meets(age, groomDays))
-      why = `The last grooming pass, on ${day(at)}, was ${plural(age, "day")} ago, at or past flow.grooming_days of ${groomDays}`;
+      why = `The last grooming pass, on ${day(at)}, was ${plural(age, "day")} ago, and a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
     if (why)
       out.push(
         finding(
@@ -409,7 +409,7 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
       out.push(
         finding(
           "epic-single-story",
-          `${e.epic} is an active epic with one story, ${refOf(e.story)} (${e.story.status || "no status"}). A one-story epic is often a story in the wrong place: the grooming pass, ${commandForm("groom")}, hands it to the librarian, which proposes a merge.`,
+          `${e.epic} is an active epic with one story, ${refOf(e.story)} (${e.story.status || "no status"}). A one-story epic is often a story in the wrong place: the grooming pass, ${commandForm("groom")}, hands it to the librarian agent, which suggests an epic it could join and changes nothing.`,
           { file: e.rel },
         ),
       );
@@ -422,7 +422,7 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
       out.push(
         finding(
           "active-epics-over-cap",
-          `${counts.active.length} epics are active, over flow.active_epics_max of ${epicsMax}: ${shown}. An active epic holds an open story; one done, parked, deferred or superseded does not.`,
+          `${counts.active.length} epics are active, ${counts.active.length - epicsMax} more than the cap of ${epicsMax} (flow.active_epics_max): ${shown}. An epic is active while it holds an open story; a done, parked, deferred or superseded epic is not.`,
         ),
       );
     }

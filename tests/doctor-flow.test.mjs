@@ -795,7 +795,7 @@ test("policy gate: a policy that triggers every check, and flow.active_epics_max
   assert.equal(one(all, "epic-single-story").file, "epics/PS-Y/epic.md");
   assert.match(
     one(all, "active-epics-over-cap").message,
-    /^2 epics are active, over flow\.active_epics_max of 1: PS-X, PS-Y\./,
+    /^2 epics are active, 1 more than the cap of 1 \(flow\.active_epics_max\): PS-X, PS-Y\./,
   );
   const [again, noGroom] = twoPolicies(EVERY, without(EVERY, ["grooming_days"]));
   one(again, "grooming-due");
