@@ -142,6 +142,7 @@ export function specOwnership(index, tree, { proj, vault, lsFiles = trackedFiles
     hasRefs: participating.some((p) => refsOf.get(p).length),
     ownersOf,
     deepestOf,
+    isAncestor,
     files,
     isRoot: (p) => roots.has(p),
   };

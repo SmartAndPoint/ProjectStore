@@ -155,7 +155,7 @@ import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
 import { checkSpecCode } from "./spec-code.mjs";
-import { checkSpecStale } from "./spec-stale.mjs";
+import { checkSpecStale, checkParentStale } from "./spec-stale.mjs";
 import { parseSpecMarkers } from "./grammar.mjs";
 import { checkRankTies } from "./rank.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
@@ -4312,6 +4312,22 @@ export function runVaultChecks(
         ...extra,
       }),
     }),
+    // A parent behind its children (the spec staleness spec, contracts 5 and 6).
+    ...(() => {
+      const keys = citationKeys(artifacts);
+      const epicFolder = layout.folders.find((f) => f.kind === "epic");
+      return checkParentStale(nodeIndex, specTree, {
+        layout,
+        now,
+        files: vaultFiles,
+        keyPath: (k) => keys.get(k)?.rel ?? null,
+        resolveStory: (ref) => resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics"),
+        finding: (level, check, message, file, extra) => ({
+          ...finding("vault", level, check, message, file ?? undefined),
+          ...extra,
+        }),
+      });
+    })(),
     // Code newer than its spec (the spec staleness spec, contracts 1 to 4).
     ...checkSpecStale(nodeIndex, specTree, {
       layout,

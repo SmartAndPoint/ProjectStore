@@ -17,7 +17,7 @@ import { loadLayout } from "../scripts/lib.mjs";
 import { parseSpecMarkers, parseAmendmentMarkers } from "../scripts/grammar.mjs";
 import { trunkHistory } from "../scripts/diff-refs.mjs";
 import { specTreeOf } from "../scripts/spec-code.mjs";
-import { specAnchors } from "../scripts/spec-stale.mjs";
+import { specAnchors, citationTokensOf } from "../scripts/spec-stale.mjs";
 import { buildSpecDrift } from "../scripts/spec-drift.mjs";
 import { git, gitCommit } from "./fixtures/flow.mjs";
 import { seedSpecCodeFixture, REFS, SOURCES } from "./fixtures/spec-code.mjs";
@@ -33,13 +33,28 @@ const failingSeam = () => {
 
 // A spec file with its parent, refs, date and markers. A marker under 0 sits
 // above the first contract.
-function writeSpec(fx, id, { parent = null, refs = [], date = "2026-11-01", markers = [], stories = [], title = id }) {
-  const fm = ["---", "type: spec", `id: "${id}"`, `title: "${title}"`, "status: active", `date: ${date}`];
+function writeSpec(
+  fx,
+  id,
+  {
+    parent = null,
+    refs = [],
+    date = "2026-11-01",
+    markers = [],
+    stories = [],
+    title = id,
+    alias = null,
+    prose = "Fixture.",
+    status = "active",
+  },
+) {
+  const fm = ["---", "type: spec", `id: "${id}"`, `title: "${title}"`, `status: ${status}`, `date: ${date}`];
+  if (alias) fm.push(`alias: ${alias}`);
   fm.push("adr: []", `stories: ${JSON.stringify(stories)}`);
   if (parent) fm.push(`parent: "${parent}"`);
   fm.push(`code_refs: ${JSON.stringify(refs)}`, "---", "");
   const at = (n) => markers.filter((m) => m.under === n).map((m) => `> ${m.text}\n`);
-  const body = [`# ${title}`, "", "## How we solve", "", "Fixture.", "", "## Behavioral contracts", ""];
+  const body = [`# ${title}`, "", "## How we solve", "", prose, "", "## Behavioral contracts", ""];
   body.push(...at(0), "1. **One.** A thing happens.", "", ...at(1), "2. **Two.** Another.", "", ...at(2));
   body.push("## Acceptance", "", "- [ ] It happens", "");
   writeFileSync(join(fx.vault, "specs", `${id}.md`), fm.join("\n") + body.join("\n"));
@@ -367,4 +382,207 @@ test("history: when every spec with code covers work in flight, git is not start
   writeSpec(fx, "api", { parent: "app", refs: [] });
   writeSpec(fx, "web", { parent: "app", refs: [] });
   assert.deepEqual(stale(fx, { history: failingSeam }), [], "only api-queue names code, and story-t is in progress");
+});
+
+const parentFindings = (fx, opts) =>
+  doctorOf(fx, opts).filter((f) => f.check === "spec-stale-parent" || f.check === "spec-child-unlinked");
+
+// The fixture's leaf api-queue as `queue`, amended on contract 2 on 2026-11-05.
+function amendedLeaf(fx, extra = {}) {
+  writeSpec(fx, "api-queue", {
+    parent: "api",
+    refs: REFS["api-queue"],
+    alias: "queue",
+    stories: ["PS-X/story-t"],
+    markers: [{ under: 2, text: "amended 2026-11-05 by PS-X/story-t: MODIFIED — the queue's default" }],
+    ...extra,
+  });
+}
+
+// [spec-stale#5]
+test("parent behind: a root citing a leaf's amended contract is one warn naming the root, the token and the day", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { refs: REFS.app, prose: "Jobs go through the queue, see [queue#2]." });
+  amendedLeaf(fx);
+  const found = parentFindings(fx, { history: () => ({ status: "ok", ref: "HEAD", branch: "main", commits: [] }) });
+  const stale = found.filter((f) => f.check === "spec-stale-parent");
+  assert.deepEqual(
+    stale.map((f) => [f.level, f.file, f.token, f.day]),
+    [["warn", "specs/app.md", "[queue#2]", "2026-11-05"]],
+  );
+  assert.match(
+    stale[0].message,
+    /^Spec specs\/app\.md cites \[queue#2\].*amended on 2026-11-05.*Update specs\/app\.md's text.*> checked/,
+  );
+});
+
+// [spec-stale#5]
+test("parent behind: the close of a story covering the root does not clear it, and a checked marker does", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { refs: REFS.app, prose: "See [queue#2].", stories: ["PS-X/story-t"] });
+  amendedLeaf(fx);
+  writeStory(fx, { status: "done", closedAt: "2026-11-06T10:00:00.000Z", specs: ["app", "api-queue"] });
+  assert.equal(parentFindings(fx).filter((f) => f.check === "spec-stale-parent").length, 1);
+  writeSpec(fx, "app", {
+    refs: REFS.app,
+    prose: "See [queue#2].",
+    markers: [{ under: 0, text: "checked 2026-11-06 by PS-X/story-t: the queue paragraph against queue#2" }],
+  });
+  assert.deepEqual(
+    parentFindings(fx).filter((f) => f.check === "spec-stale-parent"),
+    [],
+  );
+});
+
+// [spec-stale#5]
+test("parent behind: a token in a fence, a comment, the example key, a non-descendant or a draft child gives nothing", () => {
+  const fx = staleFixture();
+  amendedLeaf(fx);
+  writeSpec(fx, "web-cart", {
+    parent: "web",
+    alias: "cart",
+    markers: [{ under: 2, text: "amended 2026-11-05 by PS-X/story-t: MODIFIED — x" }],
+  });
+  const prose = ["```", "[queue#2]", "```", "<!-- [queue#2] -->", "[example#2]"].join("\n");
+  writeSpec(fx, "api", { parent: "app", refs: REFS.api, prose: `${prose}\nAnd the cart: [cart#2].` });
+  assert.deepEqual(
+    parentFindings(fx).filter((f) => f.check === "spec-stale-parent"),
+    [],
+  );
+  amendedLeaf(fx, { status: "draft" });
+  writeSpec(fx, "api", { parent: "app", refs: REFS.api, prose: "See `[queue#2]`." });
+  assert.deepEqual(
+    parentFindings(fx).filter((f) => f.check === "spec-stale-parent"),
+    [],
+    "the leaf is a draft",
+  );
+});
+
+// [spec-stale#5]
+test("parent behind: a grandchild cited by its id counts, and a marker dated after tomorrow does not", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { refs: REFS.app, prose: "Inline too: `[api-queue#2]`." });
+  amendedLeaf(fx);
+  assert.equal(parentFindings(fx).filter((f) => f.check === "spec-stale-parent").length, 1);
+  amendedLeaf(fx, { markers: [{ under: 2, text: "amended 2099-01-01 by PS-X/story-t: MODIFIED — later" }] });
+  assert.deepEqual(
+    parentFindings(fx).filter((f) => f.check === "spec-stale-parent"),
+    [],
+  );
+});
+
+// [spec-stale#6]
+test("child unlinked: a new leaf the component does not mention is one warn, and a link or a checked marker clears it", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "api-retry", { parent: "api", date: "2026-11-08" });
+  const found = parentFindings(fx).filter((f) => f.check === "spec-child-unlinked");
+  assert.deepEqual(
+    found.map((f) => [f.level, f.file, f.child]),
+    [["warn", "specs/api.md", "specs/api-retry.md"]],
+  );
+  assert.match(
+    found[0].message,
+    /specs\/api-retry\.md is a child of specs\/api\.md, dated 2026-11-08.*Link or cite the child/,
+  );
+  for (const prose of ["See [[api-retry]].", "See [[specs/api-retry|retries]].", "See [retries](./api-retry.md)."]) {
+    writeSpec(fx, "api", { parent: "app", refs: REFS.api, prose });
+    assert.deepEqual(
+      parentFindings(fx).filter((f) => f.check === "spec-child-unlinked"),
+      [],
+      prose,
+    );
+  }
+  writeSpec(fx, "api", { parent: "app", refs: REFS.api, prose: "See `[[api-retry]]`." });
+  assert.equal(
+    parentFindings(fx).filter((f) => f.check === "spec-child-unlinked").length,
+    1,
+    "a link in code does not count",
+  );
+  writeSpec(fx, "api", {
+    parent: "app",
+    refs: REFS.api,
+    markers: [{ under: 0, text: "checked 2026-11-08 by PS-X/story-t: the overview holds without the retry stage" }],
+  });
+  assert.deepEqual(
+    parentFindings(fx).filter((f) => f.check === "spec-child-unlinked"),
+    [],
+  );
+});
+
+// [spec-stale#1] [spec-stale#5] [spec-stale#6]
+test("parent checks: an anchorless parent with no code is one no-anchor info, and a vault without a tree starts nothing", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { date: "soon" });
+  const info = doctorOf(fx).filter((f) => f.reason === "no-anchor");
+  assert.deepEqual(
+    info.map((f) => f.file),
+    ["specs/app.md"],
+  );
+  const flat = seedSpecCodeFixture({ refs: {}, commit: false });
+  assert.deepEqual(parentFindings(flat, { history: failingSeam, lsFiles: failingSeam }), []);
+});
+
+// [spec-stale#4] [spec-stale#5] [spec-stale#6]
+test("issue #140 replayed: the overview behind an amended leaf, the leaf behind its code, a new stage unmentioned", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { refs: REFS.app, prose: "Jobs wait in the queue for at most an hour ([queue#2])." });
+  amendedLeaf(fx);
+  writeStory(fx, { status: "done", closedAt: "2026-11-05T12:00:00.000Z" });
+  commitAt(fx, "2026-11-06T09:00:00Z", { "src/api/queue.mjs": "export const MAX_WAIT = 7200;\n" });
+  writeSpec(fx, "api-retry", { parent: "api", date: "2026-11-08" });
+  const found = doctorOf(fx).filter((f) =>
+    ["spec-stale-parent", "spec-stale-code", "spec-child-unlinked"].includes(f.check),
+  );
+  const has = (check, file) => found.some((f) => f.check === check && f.file === file);
+  assert.ok(has("spec-stale-parent", "specs/app.md"));
+  assert.ok(has("spec-stale-code", "specs/api-queue.md"));
+  assert.ok(has("spec-child-unlinked", "specs/api.md"));
+  writeSpec(fx, "app", { refs: REFS.app, prose: "Jobs wait in the queue for at most an hour." });
+  assert.ok(
+    !doctorOf(fx).some((f) => f.check === "spec-stale-parent"),
+    "an overview that cites nothing is caught only by spec-child-unlinked",
+  );
+});
+
+// [spec-stale#5]
+test("parent behind: a primed contract is its own contract, and two keys of one contract give one warn", () => {
+  const fx = staleFixture();
+  writeSpec(fx, "app", { refs: REFS.app, prose: "See [queue#2'] and [queue#2] and [api-queue#2]." });
+  amendedLeaf(fx);
+  const found = parentFindings(fx).filter((f) => f.check === "spec-stale-parent");
+  assert.deepEqual(
+    found.map((f) => f.token),
+    ["[queue#2]"],
+    "the amendment is under contract 2, not 2'",
+  );
+  assert.match(
+    found[0].message,
+    /\(2026-11-01\).*under its contract that cites the token, or above its first contract/,
+  );
+});
+
+// [spec-stale#5]
+test("tokens: fences of either kind, an unclosed fence, comments, frontmatter and the example key are not read", () => {
+  const body = [
+    "---",
+    'title: "[queue#9]"',
+    "---",
+    "Prose [queue#1] and `[queue#2]`.",
+    "~~~",
+    "[queue#3]",
+    "~~~",
+    "<!-- [queue#4] -->",
+    "[example#5]",
+    "````",
+    "```",
+    "[queue#6]",
+    "````",
+    "Then [queue#7].",
+    "```",
+    "[queue#8]",
+  ].join("\n");
+  assert.deepEqual(
+    citationTokensOf(body).map((t) => t.token),
+    ["[queue#1]", "[queue#2]", "[queue#7]"],
+  );
 });
