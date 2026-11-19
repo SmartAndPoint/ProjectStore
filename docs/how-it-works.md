@@ -359,6 +359,17 @@ initiative to each such epic, and doctor's `initiative-links`,
 report a link that names nothing, a status outside the four, and a decision
 without its epic or its Outcome line.
 
+Two CLI verbs write them (`scripts/initiative-verbs.mjs`), while the slash
+commands of the same names create. `initiative <id> accepted|rejected|deferred
+--reason "<why>"` sets the status and the header's Status row and appends the
+dated line to Outcome; `accepted` needs an epic that names the initiative
+first. `initiative <id> --title|--owner|--priority` edits those fields, and a
+new title keeps the file name. `epic <EPIC-ID> --initiative <id>` sets the
+epic's `initiative:` and an Initiative row that links to the file, and
+`--initiative ""` removes both. Bare, each prints the plan; with `--write`
+it asks at a terminal, writes through the same read-again writer `move` uses,
+and refreshes the derived views, as `move` does. They have no MCP tool.
+
 ## The epic ↔ code mapping
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature

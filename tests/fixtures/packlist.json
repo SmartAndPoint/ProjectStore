@@ -98,6 +98,7 @@
   "scripts/guides.mjs",
   "scripts/handover.mjs",
   "scripts/harness.mjs",
+  "scripts/initiative-verbs.mjs",
   "scripts/initiative.mjs",
   "scripts/install-handlers.mjs",
   "scripts/install-harness.mjs",

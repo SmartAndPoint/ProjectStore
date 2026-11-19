@@ -421,6 +421,43 @@ test("node writers: move puts a planned story in ToDo, then handover --write giv
 });
 
 // [writerecord#5]
+test("node writers: epic --initiative, then initiative accepted, each leave one event with the verb as the tool", async () => {
+  const { proj, vault } = moveFixture();
+  mkdirSync(join(vault, "initiatives"), { recursive: true });
+  const init = join(vault, "initiatives", "faster.md");
+  writeFileSync(
+    init,
+    renderTemplate(loadTemplate("en", "initiative"), {
+      id: "faster",
+      title: "Faster",
+      date: "2026-11-01",
+      author: "A",
+      tags: "[]",
+    }),
+  );
+  const env = { ...process.env, [SID_ENV]: "s1" };
+  const epicPath = join(vault, "epics", "PS-X", "epic.md");
+  const epicBefore = readFileSync(epicPath, "utf8");
+  const e = await cli(proj, ["epic", "PS-X", "--initiative", "faster", "--write", "--json"], env);
+  assert.equal(e.code, 0, e.err);
+  const initBefore = readFileSync(init, "utf8");
+  const d = await cli(proj, ["initiative", "faster", "accepted", "--reason", "grouped work", "--write", "--json"], env);
+  assert.equal(d.code, 0, d.err);
+  const ev = events(proj, "s1");
+  assert.deepEqual(
+    ev.map((x) => [x.tool, x.rel]),
+    [
+      ["epic", "epics/PS-X/epic.md"],
+      ["initiative", "initiatives/faster.md"],
+    ],
+  );
+  assert.equal(ev[0].before, sha(epicBefore));
+  assert.equal(ev[0].after, sha(readFileSync(epicPath, "utf8")));
+  assert.equal(ev[1].before, sha(initBefore));
+  assert.equal(ev[1].after, sha(readFileSync(init, "utf8")));
+});
+
+// [writerecord#5]
 test("node writers: configure --set flow.window_weeks=4 leaves one event for .projectstore.json", async () => {
   const { proj, vault } = moveFixture();
   writeFileSync(join(vault, ".projectstore.json"), "{}\n");

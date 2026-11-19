@@ -265,6 +265,11 @@ each key activates.
   person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
   `assignee-left` then lists their open work, and the verb refuses them as
   `--to`.
+- An initiative's `status` and Outcome, its `title`, `owner` and `priority`,
+  and an epic's `initiative:` are written by the `initiative` and `epic` verbs
+  (`scripts/initiative-verbs.mjs`). They find the header rows by the registry's
+  `fields` (`priority`, `owner`, `initiative`, any bundled language) and add
+  an epic's Initiative row with the bound language's first form.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

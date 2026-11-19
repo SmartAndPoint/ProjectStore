@@ -102,6 +102,7 @@
   "node_modules/projectstore/scripts/guides.mjs",
   "node_modules/projectstore/scripts/handover.mjs",
   "node_modules/projectstore/scripts/harness.mjs",
+  "node_modules/projectstore/scripts/initiative-verbs.mjs",
   "node_modules/projectstore/scripts/initiative.mjs",
   "node_modules/projectstore/scripts/install-handlers.mjs",
   "node_modules/projectstore/scripts/install-harness.mjs",

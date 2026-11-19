@@ -24,6 +24,10 @@ import {
   STATUS_ACTORS,
   isAwaitingClose,
   AWAITING_REASON,
+  fieldLabel,
+  upsertHeaderField,
+  removeHeaderField,
+  unsetFm,
 } from "../scripts/status-log.mjs";
 import {
   loadTemplate,
@@ -404,4 +408,31 @@ test("equal sides: a review story gets a review → review line and status_chang
   const moved = applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER, equal: true });
   assert.equal(moved.text, applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER }).text);
   assert.match(moved.line, /status: in-progress → review — /);
+});
+
+// ─── The header-row helpers the initiative verbs share ─────────────────
+
+const HEADED =
+  "---\nid: x\nstatus: proposed\n---\n\n# X\n\n| Field | Value |\n|---|---|\n| **Status** | proposed |\n| **Приоритет** | p2 |\n\n---\n\n## Problem\n";
+
+// [initiative#12]
+test("header rows: a row is found by any registered form, added after the first anchor that is there with the bound language's label, and removed", () => {
+  assert.equal(fieldLabel("initiative", "ru"), "Инициатива");
+  assert.equal(fieldLabel("owner", "xx"), "Owner", "an unknown language falls back to en");
+  const set = upsertHeaderField(HEADED, "priority", "p1");
+  assert.equal(set.found, true);
+  assert.match(set.text, /^\| \*\*Приоритет\*\* \| p1 \|$/m);
+  const add = upsertHeaderField(HEADED, "initiative", "[[a|b]]", { lang: "de", after: ["priority", "status"] });
+  assert.equal(add.added, true);
+  assert.match(add.text, /\| \*\*Приоритет\*\* \| p2 \|\n\| \*\*Initiative\*\* \| \[\[a\\\|b\]\] \|\n\n---/);
+  assert.equal(removeHeaderField(add.text, "initiative").text, HEADED);
+  assert.deepEqual(removeHeaderField(HEADED, "owner"), { text: HEADED, found: false });
+  const bare = "---\nid: x\n---\n\n# X\n\n## Problem\n";
+  assert.deepEqual(upsertHeaderField(bare, "owner", "Ada"), { text: bare, found: false, added: false });
+});
+
+// [initiative#11]
+test("unsetFm removes one key's line and leaves a file without it as it is", () => {
+  assert.equal(unsetFm(HEADED, "status"), HEADED.replace("status: proposed\n", ""));
+  assert.equal(unsetFm(HEADED, "initiative"), HEADED);
 });

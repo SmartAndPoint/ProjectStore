@@ -530,6 +530,48 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // An initiative's decision, or its title, owner and priority (the
+  // initiative spec, contracts 9, 10 and 12): bare, the plan; --write applies
+  // it, asking at a terminal. The slash command of the same name creates one.
+  Object.freeze({
+    verb: "initiative",
+    summary: "Decide an initiative, or edit its title, owner and priority.",
+    usage: Object.freeze(["<id> [<decision>]"]),
+    module: "./initiative-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("reason", "<text>", "why it was decided, one line (required with a decision): it goes into Outcome"),
+      opt("title", "<text>", "a new title; the file name stays"),
+      opt("owner", "<name>", "a new owner, as a name"),
+      opt("priority", "<p>", "a new priority, p and digits, such as p1"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // An epic's initiative (the initiative spec, contracts 11 and 12): bare, the
+  // plan; --write applies it. The slash command of the same name creates one.
+  Object.freeze({
+    verb: "epic",
+    summary: "Set or clear the initiative an epic belongs to.",
+    usage: Object.freeze(["<EPIC-ID>"]),
+    module: "./initiative-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("initiative", "<id>", 'the initiative id (required); "" clears it'),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   // A story's status that follows its pull request (the follow spec,
   // contract 1): bare, the plan; --write applies it, asking at a terminal.
   Object.freeze({
@@ -778,6 +820,12 @@ const EXAMPLES = {
     '{cmd} move PS-CORE/story-x todo --reason "next up" --write',
     '{cmd} move PS-CORE/story-x planned --reason "not this week" --write',
   ],
+  initiative: [
+    '{cmd} initiative faster-onboarding accepted --reason "groups the onboarding epics"  # the plan; nothing is written',
+    '{cmd} initiative faster-onboarding deferred --reason "after the release" --write',
+    '{cmd} initiative faster-onboarding --owner "First Last" --priority p1 --write',
+  ],
+  epic: ["{cmd} epic PS-CORE --initiative faster-onboarding --write", '{cmd} epic PS-CORE --initiative "" --write'],
   follow: [
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
@@ -845,6 +893,9 @@ const PURPOSE = "project memory for coding agents, in markdown";
 // What a verb's help says beneath its Usage when the summary has no room for
 // it: here, how mcp is told its project.
 const NOTES = {
+  initiative:
+    "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use the agent command of the same name.",
+  epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use the agent command of the same name.",
   dashboard:
     "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. A story moved on the page is committed in the page's own clone of the vault, and reaches the vault only when a pull request you send from the page is merged.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
