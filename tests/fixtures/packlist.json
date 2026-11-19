@@ -118,6 +118,8 @@
   "scripts/precommit.mjs",
   "scripts/provenance.mjs",
   "scripts/query.mjs",
+  "scripts/rank-verb.mjs",
+  "scripts/rank.mjs",
   "scripts/read-verbs.mjs",
   "scripts/reconcile.mjs",
   "scripts/run-host.mjs",

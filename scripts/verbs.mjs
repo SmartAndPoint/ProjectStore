@@ -572,6 +572,29 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // A story's or an epic's place among its siblings (the rank spec, contracts
+  // 3 to 8): bare, the plan; --write writes only the `rank:` lines, asking at a
+  // terminal. No date moves and no derived view is refreshed.
+  Object.freeze({
+    verb: "rank",
+    summary: "Order an open story in its epic, or an epic in its initiative.",
+    usage: Object.freeze(["story <EPIC-ID>/<story-id>", "epic <EPIC-ID>"]),
+    module: "./rank-verb.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("before", "<sibling>", "put it right before this sibling, named as the item is"),
+      opt("after", "<sibling>", "put it right after this sibling, named as the item is"),
+      opt("first", false, "put it first in its group"),
+      opt("last", false, "put it last in its group"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   // A new initiative, epic or story, outside an agent session (the create
   // spec, contracts 1 to 5): bare, the plan; --write writes it, asking at a
   // terminal, and marks it not reviewed until a review clears the mark.
@@ -871,6 +894,11 @@ const EXAMPLES = {
     '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
   ],
   reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
+  rank: [
+    "{cmd} rank story PS-CORE/story-x --before PS-CORE/story-y  # the plan; nothing is written",
+    "{cmd} rank story PS-CORE/story-x --first --write",
+    "{cmd} rank epic PS-CORE --after PS-AUTH --write",
+  ],
   follow: [
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
@@ -941,6 +969,7 @@ const NOTES = {
   initiative:
     "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use create initiative.",
   epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use create epic.",
+  rank: "It orders the open stories of one epic, or the epics of one initiative, apart from priority. It writes only a rank: line in each file whose value changes, and moves no date.",
   create:
     "What it writes is marked not reviewed (written_by_verb) until a review clears the mark; the story gates run the critic on a marked file. A file that exists is never overwritten.",
   dashboard:

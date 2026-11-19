@@ -275,6 +275,14 @@ each key activates.
   command alike. The mark's key and the one predicate every reader asks,
   `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
   the key, and only its `reviewed` removes it.
+- `rank` is ranked only as a string the frontmatter parser returns that
+  matches `^-?[0-9]{1,15}$`; any other value is unranked, never an error.
+  `siblingOrder` in `scripts/rank.mjs` is the one comparator of a group: the
+  verb, doctor's `rank-tie` and any page that draws the backlog tree sort
+  through it, so the verb's renumber gives the order a reader sees. The
+  groups (an epic's open stories, an initiative's epics, the epics of no
+  initiative) come from the same module; only `scripts/rank-verb.mjs` writes
+  the key.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

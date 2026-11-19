@@ -383,6 +383,22 @@ first; `/projectstore:review` then runs `reviewed <path> --write`, the one
 writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
 `follow` names a marked story it closes. Neither verb has an MCP tool.
 
+An optional `rank` key orders the open work by hand, apart from priority: the
+open stories of one epic, the epics of one initiative, and the epics of no
+initiative. One comparator, `siblingOrder` in `scripts/rank.mjs`, sorts a
+group: ranked members first by value, then a story's column (Review, In
+Progress, ToDo, Backlog), priority and title, then the id. With no `rank` in
+the vault that is the backlog tree's old order. The `rank` verb
+(`scripts/rank-verb.mjs`) moves an item `--before` or `--after` a sibling, or
+`--first` or `--last`, and writes only the `rank:` line of each file whose
+value changes, with steps of 1048576 so a move rarely writes more than one
+file. It moves no `updated` date, footer or Status log, sets no review mark,
+and refreshes no derived view: kanban, the graph, the code map and `next` do
+not read `rank`. Each file is judged again on its bytes at the time of the
+write, and a failed write puts back the files already written. Doctor's
+`rank-tie` (info) names members of one group that share a value. The verb has
+no MCP tool.
+
 ## The epic ↔ code mapping
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature

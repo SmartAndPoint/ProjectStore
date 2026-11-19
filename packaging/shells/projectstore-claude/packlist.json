@@ -120,6 +120,8 @@
   "node_modules/projectstore/scripts/precommit.mjs",
   "node_modules/projectstore/scripts/provenance.mjs",
   "node_modules/projectstore/scripts/query.mjs",
+  "node_modules/projectstore/scripts/rank-verb.mjs",
+  "node_modules/projectstore/scripts/rank.mjs",
   "node_modules/projectstore/scripts/read-verbs.mjs",
   "node_modules/projectstore/scripts/reconcile.mjs",
   "node_modules/projectstore/scripts/run-host.mjs",
