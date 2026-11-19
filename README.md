@@ -239,6 +239,12 @@ npx projectstore initiative faster-onboarding accepted --reason "groups the onbo
 npx projectstore create story PS-CORE "Faster login" --write
 ```
 
+`rank` orders the open work by hand, apart from priority: an open story among the open stories of its epic, or an epic among the epics of its initiative. It writes only a `rank:` line in each file whose rank value changes, and moves no date, so the age of a story does not reset. Bare, it prints the plan, each file with its old and new value; `--write` asks at a terminal:
+
+```
+npx projectstore rank story PS-CORE/faster-login --before PS-CORE/sso --write
+```
+
 `npx projectstore dashboard` opens a page over the vault in your browser. On it you can also move stories between the backlog and ToDo, and send those moves as one pull request. It has its own section below, [The dashboard](#the-dashboard).
 
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).

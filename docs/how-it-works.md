@@ -20,6 +20,13 @@ Every create command follows the same shape:
    session added a moment before; the next regeneration of that folder's index
    restores it.
 
+   A story's Yes also covers its row in the epic's Stories table: after the
+   file lands, `status-change.mjs epic-row <story> --add` links it there, by
+   the table's own columns (a row that already names the story by its title
+   gets the link, else one row is added), re-reading `epic.md` before it
+   replaces it. An epic whose stories are a list is left as it is, with the
+   note `epic-row-missing`; no table is invented.
+
 **Who holds the pen.** Content and the gate never delegate: the session's main
 agent composes the artifact (it holds the conversation the artifact captures)
 and answers to you at the approval gate. What *can* delegate is everything after
@@ -397,6 +404,22 @@ epic and the epic's initiative on a plan) and the story command reviews each
 first; `/projectstore:review` then runs `reviewed <path> --write`, the one
 writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
 `follow` names a marked story it closes. Neither verb has an MCP tool.
+
+An optional `rank` key orders the open work by hand, apart from priority: the
+open stories of one epic, the epics of one initiative, and the epics of no
+initiative. One comparator, `siblingOrder` in `scripts/rank.mjs`, sorts a
+group: ranked members first by value, then a story's column (Review, In
+Progress, ToDo, Backlog), priority and title, then the id. With no `rank` in
+the vault that is the backlog tree's old order. The `rank` verb
+(`scripts/rank-verb.mjs`) moves an item `--before` or `--after` a sibling, or
+`--first` or `--last`, and writes only the `rank:` line of each file whose
+value changes, with steps of 1048576 so a move rarely writes more than one
+file. It moves no `updated` date, footer or Status log, sets no review mark,
+and refreshes no derived view: kanban, the graph, the code map and `next` do
+not read `rank`. Each file is judged again on its bytes at the time of the
+write, and a failed write puts back the files already written. Doctor's
+`rank-tie` (info) names members of one group that share a value. The verb has
+no MCP tool.
 
 ## The epic ↔ code mapping
 

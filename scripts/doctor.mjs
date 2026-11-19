@@ -146,6 +146,8 @@ import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, 
 import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
+import { checkRankTies } from "./rank.mjs";
+import { readFlowStories } from "./flow-stories.mjs";
 import { checkVerbMarks } from "./verb-mark.mjs";
 import { storyState } from "./stages.mjs";
 import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
@@ -4193,6 +4195,23 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   return foldIntoMove(out);
 }
 
+// `rank-tie` (the rank spec, contract 10): the rule and the text live in
+// rank.mjs; doctor reads the stories through the flow reader, so the groups
+// are the ones the rank verb orders, and the epics from its own scan.
+function rankTieFindings(cfg, layout, artifacts) {
+  const epicFolder = layout.folders.find((f) => f.kind === "epic");
+  if (!epicFolder) return [];
+  const { stories } = readFlowStories(cfg.vault_path, epicFolder.path);
+  const epics = artifacts
+    .filter((a) => a.kind === "epic")
+    .map((a) => ({ id: epicIdOf(a.rel, epicFolder.path), rel: a.rel, fm: a.fm }));
+  const initiatives = artifacts.filter((a) => a.kind === "initiative");
+  return checkRankTies(
+    { stories, epics, initiatives },
+    { finding: (level, check, message, file) => finding("vault", level, check, message, file) },
+  );
+}
+
 export function runVaultChecks(
   cfg,
   {
@@ -4251,6 +4270,7 @@ export function runVaultChecks(
         epicIdOf: (a) => epicIdOf(a.rel, epicPath),
       });
     },
+    () => rankTieFindings(cfg, layout, artifacts),
   ];
   for (const step of guarded) {
     try {

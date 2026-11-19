@@ -328,6 +328,44 @@ test("epic row add: the epic rule counts the row the add wrote, as the story's o
   assert.deepEqual(rows[0].links, [{ type: "mdlink", target: "./stories/story-a.md" }]);
 });
 
+// [SPEC-001#7]
+test("commands/story.md and its generated copies: the create step links the story into its epic under the one approval, and exit 1 never undoes it", () => {
+  const COPIES = [
+    "commands/story.md",
+    "adapters/codex/skills/projectstore-story/SKILL.md",
+    "packaging/shells/projectstore-codex/skills/projectstore-story/SKILL.md",
+  ];
+  const flat = (s) => s.replace(/\s+/g, " ");
+  for (const rel of COPIES) {
+    const t = readFileSync(join(REPO, rel), "utf8");
+    const create = t.slice(t.indexOf("# Create flow"), t.indexOf("# Lifecycle gate flow"));
+    const preview = create.slice(create.indexOf("4. **Preview**"), create.indexOf("5. **Approval**"));
+    assert.match(
+      flat(preview),
+      /linked into its epic's Stories table when the epic has a table with a Status column/,
+      rel,
+    );
+    assert.match(flat(preview), /An epic whose stories are a list is left as it is/, rel);
+    const approval = create.slice(create.indexOf("5. **Approval**"), create.indexOf("6. **Post-approval"));
+    assert.match(flat(approval), /A Yes also covers the story's row in its epic's Stories table \(step 7a\)/, rel);
+    const s7 = create.indexOf("7. **On Yes**");
+    const s7a = create.indexOf("7a. **The epic's Stories row.**");
+    assert.ok(s7 > 0 && s7a > s7 && s7a < create.indexOf("8. **Suggest next**"), rel + ": 7a after the write");
+    const a = create.slice(s7a, create.indexOf("8. **Suggest next**"));
+    assert.match(a, /node "\$\{[A-Z_]+\}\/scripts\/status-change\.mjs" epic-row "<story-path>" --add\n/, rel);
+    for (const needle of [
+      "under the one approval of step 5",
+      "`epic-row-missing`, exit 0",
+      "no table is invented",
+      "`epic-row-unlinkable`, exit 0",
+      "do not edit it yourself",
+      "`story-changed-meanwhile`",
+      "It never undoes the create, and a second run of the same command finishes it",
+    ])
+      assert.ok(flat(a).includes(needle), rel + ": " + needle);
+  }
+});
+
 // ─── The gates ─────────────────────────────────────────────────────────
 
 function gate(proj, mode, path, extra = []) {

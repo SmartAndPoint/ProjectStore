@@ -204,9 +204,13 @@ Domain terms follow the language's practitioners, not the dictionary. `epic`
 and `story` are localized where the field localizes them (`ru` "Эпик", `es`
 "Épica") and left in English where teams say the English word (`de`, `fr`,
 `zh`). Nothing reads most table labels, so the only cost of getting one wrong
-is that the document reads like a translation. Two are read: the story
-header's **Status** and **Assignee** rows, and the Status column of an epic's
-Stories table. Scripts find them through `fields` in the registry, so the
+is that the document reads like a translation. These are read: the story
+header's **Status** and **Assignee** rows, the epic header's **Status** and
+**Updated** rows, the **Priority**, **Owner** and **Initiative** rows the
+initiative and epic verbs write, and the Status, Story and Description columns
+of an epic's Stories table (creating a story writes its row there by those
+three).
+Scripts find them through `fields` in the registry, so the
 template must spell them in the first registered form;
 `tests/locales.test.mjs` checks it for every bundled locale.
 
@@ -283,6 +287,14 @@ each key activates.
   command alike. The mark's key and the one predicate every reader asks,
   `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
   the key, and only its `reviewed` removes it.
+- `rank` is ranked only as a string the frontmatter parser returns that
+  matches `^-?[0-9]{1,15}$`; any other value is unranked, never an error.
+  `siblingOrder` in `scripts/rank.mjs` is the one comparator of a group: the
+  verb, doctor's `rank-tie` and any page that draws the backlog tree sort
+  through it, so the verb's renumber gives the order a reader sees. The
+  groups (an epic's open stories, an initiative's epics, the epics of no
+  initiative) come from the same module; only `scripts/rank-verb.mjs` writes
+  the key.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

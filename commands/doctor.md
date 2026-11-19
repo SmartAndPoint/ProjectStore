@@ -219,6 +219,12 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   no line `- YYYY-MM-DD <status>: <reason>` for its status; and, as a note,
   an accepted one with an empty Success criterion). None of them is
   repairable by `--fix`: the link and the decision are the author's text.
+- `rank-tie` (info) names two or more members of one group that hold the same
+  `rank` value: the open stories of one epic, the epics of one initiative, or
+  the epics of none. One finding per group and value; the order of those
+  members falls back to the column, priority and title of a story, or the id
+  of an epic. Moving one past the other with `rank`, or editing a value by hand,
+  sets them apart (a move to its own place writes nothing); `--fix` does not.
 - The guide checks read the vault's `guides/` folder, the per-kind overrides
   of the authoring guides: `guide-shape` (an override that does not parse, so
   readers fall back to the package default), `guide-unknown` (a guide for a
