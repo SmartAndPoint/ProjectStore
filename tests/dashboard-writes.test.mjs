@@ -1832,6 +1832,19 @@ test("dashboard writes: a reason that starts with - reaches move as the reason, 
   });
 });
 
+// [dashboard-writes#7] [spec-tree#8]
+test("dashboard writes: a move in a vault with spec-tree.md leaves the view out of its commit and back at the branch head", async () => {
+  await withWorld({ specTree: true }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(committedFiles(w, clone), [EPIC_REL, STORY_REL]);
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+    assert.equal(readFileSync(join(clone, "spec-tree.md"), "utf8"), "stub spec tree\n");
+  });
+});
+
 // [dashboard-writes#7] [dashboard-writes#4]
 test("dashboard writes: a move that succeeds is one commit of the story and its epic.md and no derived view, the first one puts the clone on dashboard/<person>/<YYYYMMDDTHHMMSSZ> at it (the next free second), the derived views go back to the branch head, and write.batch.commits is 1", async () => {
   await withWorld({}, async (w) => {

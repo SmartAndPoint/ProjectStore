@@ -133,6 +133,7 @@
   "scripts/spec-code.mjs",
   "scripts/spec-drift.mjs",
   "scripts/spec-stale.mjs",
+  "scripts/spec-tree-view.mjs",
   "scripts/spec-tree.mjs",
   "scripts/stages.mjs",
   "scripts/status-change.mjs",

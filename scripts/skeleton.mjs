@@ -26,6 +26,8 @@ export const TITLE_CELL = 80; // contract 1
 export const PATH_CELL = 200; // contracts 1, 19 — measured: longest path here is 123
 export const INFLIGHT_CAP = 5; // contracts 1, 19
 export const ERROR_CELL = 500; // contract 3
+export const SPEC_TREE_FILE = "spec-tree.md"; // the spec tree spec, contracts 7 and 10
+const ROOT_CELL = 60; // the spec tree spec, contract 10
 
 // A truncation marks itself, and the mark counts toward the budget (contract 1).
 export function truncEnd(s, max) {
@@ -94,6 +96,21 @@ function descentOrder({ kanbanFile, adrIndex, epicFile }) {
     `4. **Before authoring an ADR or spec, or making an architectural choice — read \`${adrIndex}\`.** This step fires on *deciding*, not on searching: it is the one moment the decision index is load-bearing, and skipping it is how a settled question gets re-decided.`,
     "5. **An artifact's neighbourhood** — `grep '<vault-relative-path>' graph.md` returns its typed links in both directions, in one call.",
   ];
+}
+
+// The spec tree spec, contract 10 — one line from spec-tree.md's frontmatter,
+// or none: counts that are not 1 to 5 digits, no tree, or no root title give
+// no line rather than a wrong one. At most 79 fixed characters, 15 digits and
+// the 60-character title: 154.
+function specTreeLine(t) {
+  const n = (v) => (/^\d{1,5}$/.test(String(v ?? "")) ? Number(v) : null);
+  const [trees, specs, depth] = [n(t?.trees), n(t?.specs), n(t?.depth)];
+  if (!trees || specs === null || depth === null || typeof t.largestRoot !== "string") return null;
+  const root = truncEnd(t.largestRoot.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " "), ROOT_CELL);
+  return (
+    `**Spec trees**: ${trees} tree${trees === 1 ? "" : "s"} · ${specs} specs · depth ${depth} · ` +
+    `largest root: ${root} — see \`${SPEC_TREE_FILE}\`.`
+  );
 }
 
 export function renderVaultSkeleton(facts) {
@@ -213,6 +230,8 @@ export function renderVaultSkeleton(facts) {
       " slug). `code-map.md` answers where code for an epic already lives — read it before" +
       " deciding where new code goes.",
   );
+  const tree = specTreeLine(f.specTree);
+  if (tree) L.push("", tree);
 
   return L.join("\n") + "\n";
 }

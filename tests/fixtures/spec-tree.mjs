@@ -3,7 +3,8 @@
 // seedSpecTreeFixture() writes the spec tree spec's fixture: a root `app`,
 // components `api` and `web`, leaves `api-queue`, `api-auth` and `web-cart`,
 // a cycle `loop-a` ⇄ `loop-b` with `below-loop` under it, a lone spec, and a
-// story covered by `api-queue`. With `parents: false` every `parent:` is
+// story covered by `api-queue`. specText's `adr`, `refs`, `prose` and
+// `marker` change nothing at their defaults. With `parents: false` every `parent:` is
 // left out, which is the vault the goldens in tests/fixtures/spec-tree-golden/
 // were recorded from, with the code before the PS-SPECTREE story "A spec
 // names its parent" (3d7337a). Later stories test that this vault still gives
@@ -39,6 +40,10 @@ export function specText({
   status = "active",
   date = "2026-11-01",
   stories = [],
+  adr = [],
+  refs = null,
+  prose = "Fixture.",
+  marker = null,
   extra = "",
 }) {
   const lines = [
@@ -48,13 +53,17 @@ export function specText({
     `title: "${title}"`,
     `status: ${status}`,
     `date: ${date}`,
-    "adr: []",
+    `adr: ${JSON.stringify(adr)}`,
     `stories: ${JSON.stringify(stories)}`,
   ];
   if (parent !== undefined && parent !== null) lines.push(`parent: ${parent.startsWith("[") ? parent : `"${parent}"`}`);
+  if (refs) lines.push(`code_refs: ${JSON.stringify(refs)}`);
   if (extra) lines.push(extra);
-  lines.push("---", "", `# ${title}`, "", "## How we solve", "", "Fixture.", "", "## Behavioral contracts", "");
-  lines.push("1. **One.** A thing happens.", "", "## Acceptance", "", "- [ ] It happens", "");
+  lines.push("---", "", `# ${title}`, "", "## How we solve", "", prose, "", "## Behavioral contracts", "");
+  lines.push("1. **One.** A thing happens.", "");
+  // A marker under contract 1, as `amended YYYY-MM-DD by <story>: <KIND> — <why>`.
+  if (marker) lines.push(`> ${marker}`, "");
+  lines.push("## Acceptance", "", "- [ ] It happens", "");
   return lines.join("\n");
 }
 

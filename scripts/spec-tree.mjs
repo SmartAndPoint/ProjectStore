@@ -10,11 +10,15 @@
 // edges from the same resolution.
 //
 // Pure: it reads only the node index and the file list its caller passes in.
-// It imports lib.mjs and initiative.mjs, never doctor.mjs or graph.mjs, so
-// both of those can import it.
+// It imports lib.mjs, initiative.mjs and skeleton.mjs, never doctor.mjs or
+// graph.mjs, so both of those can import it.
 
 import { resolveLinkTarget } from "./lib.mjs";
 import { referenceOf } from "./initiative.mjs";
+
+// The view's file name (contract 7), for the readers of the derived-view
+// list; its builder is spec-tree-view.mjs.
+export { SPEC_TREE_FILE } from "./skeleton.mjs";
 
 // The value of one frontmatter key as written, for a message or a dead edge.
 function rawFrontmatterValue(body, key) {
