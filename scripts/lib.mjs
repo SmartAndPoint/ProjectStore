@@ -1755,6 +1755,7 @@ export function derivedViewPaths(layout) {
     codeMap: "code-map.md",
     graph: "graph.md",
     flow: layout.flow ? layout.flow.file || "flow.md" : null,
+    specTree: "spec-tree.md",
     indexes: layout.folders.map((f) => ({ folder: f, path: `${f.path}/README.md` })),
   };
 }
@@ -2691,6 +2692,12 @@ export async function gatherVaultFacts(cfg, opts = {}) {
   const continuity = wantContinuity ? { status: "ok", paths: [], total: 0, artifact: null } : null;
 
   const done = { readmes: false, inFlight: false, activity: false };
+  // The spec tree spec, contract 10: spec-tree.md's frontmatter, one read.
+  let specTree = null;
+  const tree = (async () => {
+    const fm = parseFrontmatter(String(await readFile(join(vault, derivedViewPaths(layout).specTree)))).data;
+    specTree = { trees: fm.trees, specs: fm.specs, depth: fm.depth, largestRoot: fm.largest_root };
+  })();
 
   const readmes = (async () => {
     for (const f of folders) {
@@ -2760,7 +2767,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
   // which is the "a hook never breaks session startup" contract 17 forbids. The
   // reachable trigger is a corrupt activity entry whose `path` is not a string.
   await Promise.race([
-    Promise.all([readmes, stories, activity].map((p) => p.catch(() => {}))).then(() => "ok"),
+    Promise.all([readmes, stories, activity, tree].map((p) => p.catch(() => {}))).then(() => "ok"),
     deadline,
   ]);
   clearTimeout(timer);
@@ -2783,6 +2790,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
     folders,
     inFlight,
     continuity,
+    ...(specTree && { specTree }),
   };
 }
 

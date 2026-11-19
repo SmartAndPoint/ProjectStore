@@ -54,6 +54,7 @@ import {
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 import { buildGraph } from "./graph.mjs";
+import { SPEC_TREE_FILE } from "./spec-tree.mjs";
 import { findStories, statusToColumn } from "./kanban.mjs";
 // status's text screen is drawn with the presentation primitives; term.mjs
 // has no side effect at import, so the MCP server's graph gains nothing it
@@ -91,12 +92,13 @@ export function vaultOf(cfg) {
 }
 
 // The derived views by name: the board's file is a layout value, the code
-// map and the graph are fixed by their generators, and the flow page, when
-// the layout has its view block, is a fourth that no freshness row reads (the
-// flow-view spec, contract 11).
+// map, the graph and spec-tree.md are fixed by their generators, and the flow
+// page, when the layout has its view block, is one that no freshness row reads
+// (the flow-view spec, contract 11).
 export function derivedViews(layout) {
   const views = [(layout && layout.kanban && layout.kanban.file) || "kanban.md", "code-map.md", "graph.md"];
   if (layout && layout.flow) views.push(layout.flow.file || "flow.md");
+  views.push(SPEC_TREE_FILE);
   return views;
 }
 

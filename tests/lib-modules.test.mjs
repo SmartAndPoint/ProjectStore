@@ -19,7 +19,9 @@ const json = (rel) => JSON.parse(readFileSync(join(ROOT, rel), "utf8"));
 // What the leaves export for lib.mjs's own use, and lib.mjs does not re-export.
 // The `checked` marker's parser (PS-SPECTREE "Code newer than its
 // spec") are read from grammar.mjs directly, so lib.mjs's names stay pinned.
-const INTERNAL = ["escapeRe", "INLINE_CODE_SPAN_RE", "parseSpecMarkers"];
+// So is the spec tree view's file name (PS-SPECTREE "The spec tree view and
+// orientation"), which spec-tree.mjs re-exports.
+const INTERNAL = ["escapeRe", "INLINE_CODE_SPAN_RE", "parseSpecMarkers", "SPEC_TREE_FILE"];
 
 test("lib modules: lib.mjs exports exactly the names it exported before the move", async () => {
   const lib = await load("lib.mjs");

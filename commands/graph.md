@@ -19,6 +19,9 @@ vault-link-graph-derived-view-and-shared-link-resolver).
 
    The `graph` entry carries `{ path, changed, content?, stats }` — stats:
    node count, edge count, edges by kind.
+   Once `spec-tree.md` exists, a `spectree` entry comes too: every reconcile
+   keeps that view fresh, so when its `changed` is true, show it in the preview
+   as well; the write below rewrites it with the rest.
 
 3. **Nothing changed** (`changed: false`) → report "graph.md already matches
    the vault — nothing to regenerate." and stop.
@@ -61,5 +64,7 @@ vault-link-graph-derived-view-and-shared-link-resolver).
   the parent spec its `parent:` names; a spec tree is read from its root down
   with `projectstore graph lineage <root path> --kind spec-part-of --depth <n>`,
   and from any spec up to its root with `graph lineage <spec path>`.
+  `spec-tree.md` draws the same trees, one diagram per tree; create it with
+  `reconcile --write --only spectree`.
 - Hand-edits to graph.md never stick: doctor flags staleness, reconcile
   repairs. Fix the source artifact, then regenerate.

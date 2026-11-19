@@ -157,6 +157,7 @@ import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
 import { checkSpecCode } from "./spec-code.mjs";
 import { checkSpecStale, checkParentStale } from "./spec-stale.mjs";
+import { buildSpecTreeView, checkSpecTreeView } from "./spec-tree-view.mjs";
 import { parseSpecMarkers } from "./grammar.mjs";
 import { checkRankTies } from "./rank.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
@@ -4296,6 +4297,16 @@ export function runVaultChecks(
   // The spec tree, once per run (the spec tree spec, contracts 4 to 6).
   const specParents = resolveSpecParents(nodeIndex, vaultFiles);
   const specTree = analyseSpecTree(nodeIndex, specParents);
+  // What the parent checks and the view's check share (the spec staleness
+  // spec, contracts 5 and 6; the spec tree spec, contract 9).
+  const keys = citationKeys(artifacts);
+  const epicFolder = layout.folders.find((f) => f.kind === "epic");
+  const behindOpts = {
+    layout,
+    files: vaultFiles,
+    keyPath: (k) => keys.get(k)?.rel ?? null,
+    resolveStory: (ref) => resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics"),
+  };
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
     ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
@@ -4314,21 +4325,22 @@ export function runVaultChecks(
       }),
     }),
     // A parent behind its children (the spec staleness spec, contracts 5 and 6).
-    ...(() => {
-      const keys = citationKeys(artifacts);
-      const epicFolder = layout.folders.find((f) => f.kind === "epic");
-      return checkParentStale(nodeIndex, specTree, {
-        layout,
-        now,
-        files: vaultFiles,
-        keyPath: (k) => keys.get(k)?.rel ?? null,
-        resolveStory: (ref) => resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics"),
-        finding: (level, check, message, file, extra) => ({
-          ...finding("vault", level, check, message, file ?? undefined),
-          ...extra,
-        }),
-      });
-    })(),
+    ...checkParentStale(nodeIndex, specTree, {
+      ...behindOpts,
+      now,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
+    // spec-tree.md (the spec tree spec, contract 9): in process, no spawn.
+    ...checkSpecTreeView({
+      vault: cfg.vault_path,
+      hasTree: specTree.hasTree,
+      build: () => buildSpecTreeView(nodeIndex, specTree, behindOpts).content,
+      where: fromTerminalIn(proj),
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
     // Code newer than its spec (the spec staleness spec, contracts 1 to 4).
     ...checkSpecStale(nodeIndex, specTree, {
       layout,
@@ -4336,10 +4348,7 @@ export function runVaultChecks(
       vault: cfg.vault_path,
       now,
       history,
-      resolveStory: (ref) => {
-        const epicFolder = layout.folders.find((f) => f.kind === "epic");
-        return resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics");
-      },
+      resolveStory: behindOpts.resolveStory,
       finding: (level, check, message, file, extra) => ({
         ...finding("vault", level, check, message, file ?? undefined),
         ...extra,
