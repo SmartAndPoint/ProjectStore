@@ -27,7 +27,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { statusToColumn } from "../scripts/stages.mjs";
-import { WRITE_ROUTES } from "../dashboard/server.mjs";
+import { WRITE_ROUTES, CODE_ROUTE } from "../dashboard/server.mjs";
 import { WRITE_VERBS } from "../dashboard/lib/write.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 
@@ -196,7 +196,8 @@ test("dashboard page: it listens on 127.0.0.1, refuses another Host with 403, a 
         assert.match(r.headers.allow || "", /GET/);
       }
     // A write route is answered under the write path's guard (dashboard-writes, contract 8).
-    for (const path of ["/api/refresh", "/api/preview", "/api/action", "/api/send", "/api/discard"]) {
+    // So is the Code block's read (dashboard-code, contract 1).
+    for (const path of ["/api/refresh", "/api/preview", "/api/action", "/api/send", "/api/discard", "/api/code"]) {
       const r = await call(port, path, { method: "POST" });
       assert.equal(r.status, 403, `POST ${path}`);
       assert.equal(JSON.parse(r.body).write.can, false, "a vault in no git repository");
@@ -268,6 +269,10 @@ test("dashboard page: no file of the page but its write module starts a process 
   walk(PAGE);
   assert.ok(files.length > 3, "the page's files are read");
   assert.ok(files.includes(WRITER), "the write module is among them");
+  assert.ok(
+    files.includes(join(PAGE, "lib", "code.mjs")),
+    "the Code block's read is among them, and starts nothing itself",
+  );
   assert.match(readFileSync(WRITER, "utf8"), /from "node:child_process"/, "the write module is the one that spawns");
   for (const f of files) {
     if (f === WRITER) continue;
@@ -309,6 +314,10 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "graph.mjs",
     "binding.mjs",
     "rank.mjs",
+    // The Code block's read (dashboard-code): the core's link rules, code paths and spec bundle.
+    "follow-plan.mjs",
+    "code-refs.mjs",
+    "spec-drift.mjs",
   ]);
   const seen = new Set();
   let size = 0;
@@ -399,6 +408,8 @@ test("dashboard page: a document is read only from the layout's folders or initi
       "/api/action",
       "/api/send",
       "/api/discard",
+      // So does the Code block's read (dashboard-code, contract 1).
+      "/api/code",
     ])
       assert.equal((await call(port, path)).status, 404, path);
     assert.equal(
@@ -808,9 +819,18 @@ test("dashboard page: write.js sends every POST with the run's token, and only w
     const src = readFileSync(join(PUBLIC, f), "utf8");
     if (f === "write.js") {
       assert.equal([...src.matchAll(/\bfetch\(/g)].length, 1, "write.js has one fetch, the POST");
+      assert.ok(!src.includes(CODE_ROUTE), "write.js does not name the Code block's route");
       continue;
     }
     for (const r of WRITE_ROUTES) assert.ok(!src.includes(r), `${f} names ${r}`);
+    // [dashboard-code#1] The Code block's one POST, in code.js alone, to its own route only.
+    if (f === "code.js") {
+      assert.equal([...src.matchAll(/\bfetch\(/g)].length, 1, "code.js has one fetch, the POST");
+      assert.match(src, /const ROUTE = "\/api\/code"/);
+      assert.match(src, /"x-projectstore-token": token\(\)/);
+      continue;
+    }
+    assert.ok(!src.includes(CODE_ROUTE), `${f} names ${CODE_ROUTE}`);
     assert.doesNotMatch(src, /fetch\([^)]*method/, `${f} fetches with a method`);
   }
 });
@@ -1526,4 +1546,214 @@ test("dashboard page: a handover previews the core's plan with both people, the 
     ctx.document.root.querySelector("#write")?.text ?? els["#write"].text,
     /Nothing was written: H is Dan's already/,
   );
+});
+
+// ── the Code block (dashboard/public/code.js; the spec alias `dashboard-code`) ──
+// code.js in a context of its own, as write.js above: `answer` is what
+// POST /api/code answers; `calls` records every fetch.
+function loadCodeUi(answer) {
+  const calls = [];
+  const counts = { render: 0 };
+  const meta = new FakeEl("meta", { name: "projectstore-token", content: "the-run-token" });
+  const h = (tag, attrs, ...kids) => new FakeEl(tag, attrs, kids);
+  const ctx = {
+    ui: { drawer: null },
+    document: { querySelector: (sel) => (sel === 'meta[name="projectstore-token"]' ? meta : null) },
+    h,
+    ico: (name) => h("i", { class: `ico ${name}` }),
+    story: (ref) => (ref === "PS-X/story-a" ? { ref, rel: "epics/PS-X/stories/story-a.md" } : null),
+    artByRel: new Map([["specs/s.md", { type: "spec" }]]),
+    statusPill: (s) => h("span", { class: "pill" }, s),
+    openByRel: () => {},
+    renderDrawer: () => counts.render++,
+    fetch: async (url, opts = {}) => {
+      calls.push({ url, method: opts.method || "GET", headers: { ...(opts.headers || {}) }, body: opts.body ?? null });
+      return { status: 200, json: async () => answer };
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${readFileSync(join(PUBLIC, "code.js"), "utf8")}\nglobalThis.codeUi = codeUi;`, ctx, {
+    filename: "code.js",
+  });
+  return { code: ctx.codeUi, ctx, calls, counts };
+}
+const MAIN = {
+  ref: "refs/remotes/origin/main",
+  short: "main",
+  fetched: true,
+  hash: "abc123456",
+  date: "2026-11-18T10:00:00Z",
+  fetchedAt: "2026-11-18T09:00:00Z",
+  shallow: false,
+  behind: 3,
+};
+const prRow = (number, how, more = {}) => ({
+  number,
+  url: `https://github.com/acme/app/pull/${number}`,
+  title: `pull request ${number}`,
+  state: "merged",
+  mergedAt: "2026-11-10T00:00:00Z",
+  how,
+  link: how.some((x) => x === "recorded" || x === "closes"),
+  files: 4,
+  inside: 2,
+  ...more,
+});
+const storyResult = (more = {}) => ({
+  kind: "story",
+  rel: "epics/PS-X/stories/story-a.md",
+  repo: "acme/app",
+  main: MAIN,
+  listFull: false,
+  unknown: { git: null, prs: null },
+  refs: ["scripts/"],
+  refsForm: "json",
+  skipped: [],
+  window: { since: "2026-11-10", until: null },
+  windowReason: null,
+  commits: [{ hash: "abc123456", date: "2026-11-10T10:00:00Z", subject: "a commit", files: 1, pr: 1 }],
+  commitCount: 1,
+  truncated: false,
+  loose: 0,
+  prs: [prRow(1, ["recorded"]), prRow(2, ["named"]), prRow(3, ["named", "mentioned"]), prRow(4, ["derived"])],
+  ...more,
+});
+async function drawn(answer, d = { kind: "story", id: "PS-X/story-a" }) {
+  const { code, ctx, calls } = loadCodeUi(answer);
+  ctx.ui.drawer = d;
+  await code.ask(d);
+  await settle();
+  return { el: code.block(d), calls, code, d };
+}
+const texts = (el, sel) => el.querySelectorAll(sel).map((x) => x.text);
+
+// [dashboard-code#11]
+test("dashboard page: the Code block lists the links and the leads apart, each tie labelled, and the derived rows folded", async () => {
+  const { el, calls } = await drawn({ ok: true, result: storyResult() });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, CODE_ROUTE);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].headers["x-projectstore-token"], "the-run-token");
+  assert.deepEqual(JSON.parse(calls[0].body), { rel: "epics/PS-X/stories/story-a.md" });
+  assert.deepEqual(texts(el, ".code-h"), ["Links", "Leads, not links"]);
+  const rows = el.querySelectorAll(".code-pr");
+  assert.deepEqual(
+    rows.map((r) => r.querySelectorAll(".chip.how").map((c) => c.text)),
+    [["recorded"], ["named"], ["named", "in the story's text"], ["by its commits"]],
+  );
+  assert.ok(rows[0].classes.has("code-pr") && !rows[0].classes.has("code-lead"), "the link is no lead");
+  assert.ok(rows[1].classes.has("code-lead"));
+  const folded = el.querySelectorAll("details").find((x) => x.text.includes("Found by commits alone"));
+  assert.ok(folded && folded.attrs.open === undefined, "the derived rows stand folded");
+  assert.ok(folded.contains(rows[3]));
+  assert.match(el.text, /2 of 4 files in the story's code paths/);
+  assert.match(el.text, /main at abc123456/);
+  assert.match(el.text, /3 commits behind/);
+  const level = await drawn({ ok: true, result: storyResult({ main: { ...MAIN, behind: 0 } }) });
+  assert.match(level.el.text, /the checkout is not behind it/);
+  const unknown = await drawn({ ok: true, result: storyResult({ main: { ...MAIN, behind: null } }) });
+  assert.match(unknown.el.text, /how far the checkout is behind is unknown/);
+  assert.match(el.text, /last fetched/);
+});
+
+// [dashboard-code#11]
+test("dashboard page: with gh logged out the Code block says the pull requests are unknown and why, and lists the commits", async () => {
+  const { el } = await drawn({
+    ok: true,
+    result: storyResult({
+      unknown: { git: null, prs: "gh is not logged in (gh auth login)" },
+      prs: [
+        prRow(1, ["recorded"], {
+          state: null,
+          files: null,
+          inside: null,
+          filesReason: "the pull requests could not be read",
+        }),
+      ],
+      loose: null,
+    }),
+  });
+  assert.match(el.text, /Pull requests: unknown\. gh is not logged in/);
+  assert.match(el.text, /Commits while it was open/);
+  assert.match(el.text, /a commit/);
+});
+
+// [dashboard-code#11]
+test("dashboard page: a title from the code host is text, and only an https url becomes a link", async () => {
+  const { el } = await drawn({
+    ok: true,
+    result: storyResult({
+      prs: [
+        prRow(1, ["recorded"], { title: "<img src=x onerror=alert(1)>" }),
+        prRow(2, ["named"], { url: "javascript:alert(1)" }),
+      ],
+    }),
+  });
+  assert.deepEqual(el.querySelectorAll("img"), [], "no element made from a title");
+  assert.ok(el.text.includes("<img src=x onerror=alert(1)>"), "the title stands as text");
+  const links = el.querySelectorAll("a");
+  assert.deepEqual(
+    links.map((a) => a.attrs.href),
+    ["https://github.com/acme/app/pull/1"],
+  );
+  assert.equal(links[0].attrs.rel, "noopener noreferrer");
+});
+
+// [dashboard-code#11]
+test("dashboard page: the block's button asks gh again with fresh, an item opening asks without, and a spec gets its block", async () => {
+  const { el, calls, code, d } = await drawn({ ok: true, result: storyResult() });
+  const again = el.querySelectorAll("button").find((b) => b.text === "Ask gh again");
+  assert.ok(again);
+  again.click();
+  await settle();
+  assert.deepEqual(JSON.parse(calls[1].body), { rel: "epics/PS-X/stories/story-a.md", fresh: true });
+  assert.equal(code.block({ kind: "epic", id: "PS-X" }), null, "an epic has no Code block");
+  void d;
+  const spec = await drawn(
+    {
+      ok: true,
+      result: {
+        kind: "spec",
+        rel: "specs/s.md",
+        repo: "acme/app",
+        main: MAIN,
+        listFull: false,
+        unknown: { git: null, prs: null },
+        anchors: [
+          {
+            anchor: "2026-11-14",
+            from: ["marker"],
+            contracts: [{ n: "2", heading: "Two" }],
+            commits: 2,
+            files: 1,
+            prCount: 1,
+            prs: [{ number: 8, title: "t", url: "https://github.com/acme/app/pull/8", mergedAt: null }],
+            loose: 0,
+          },
+        ],
+        stories: [],
+        files: [{ path: "scripts/e.mjs", class: "source", lines: 2 }],
+        totals: {},
+      },
+    },
+    { kind: "doc", id: "specs/s.md" },
+  );
+  assert.match(spec.el.text, /Contract 2/);
+  assert.match(spec.el.text, /amended 2026-11-14/);
+  assert.match(spec.el.text, /not drift/);
+});
+
+// [dashboard-code#11] The item asks for the block when it opens and on R (fetchItem), and draws it after Related.
+test("dashboard page: item.js asks for the Code block in fetchItem and draws it after Related", () => {
+  const src = readFileSync(join(PUBLIC, "item.js"), "utf8");
+  const fetchItem = src.slice(src.indexOf("function fetchItem()"), src.indexOf("function closeDrawer()"));
+  assert.match(fetchItem, /codeUi\.ask\(d\)/);
+  assert.match(src, /relatedSide\(d\) : null, item && !item\.missing \? codeUi\.block\(d\) : null/);
+  assert.ok(PAGE_SCRIPTS.indexOf("code.js") > PAGE_SCRIPTS.indexOf("related.js"), "code.js loads after related.js");
+  const names = [
+    ...readFileSync(join(PUBLIC, "code.js"), "utf8").matchAll(
+      /^(?:async\s+)?function\s+([\w$]+)|^(?:const|let|var|class)\s+([\w$]+)/gm,
+    ),
+  ].map((m) => m[1] || m[2]);
+  assert.deepEqual(names, ["codeUi"], "code.js declares one top-level name, codeUi");
 });

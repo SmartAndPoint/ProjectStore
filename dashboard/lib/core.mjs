@@ -8,7 +8,10 @@
 //
 // The core's modules this file imports, and no other (the spec "The dashboard
 // package and its launcher…", Modules & files on disk): lib, stages,
-// flow-stories, flow-policy, flow-counts, graph and binding. Layouts are read
+// flow-stories, flow-policy, flow-counts, graph and binding; and for the Code
+// block (the spec "The dashboard's Code block…", alias `dashboard-code`),
+// follow-plan, code-refs and spec-drift, whose git and grep seams the read
+// replaces, so they start nothing. Layouts are read
 // from `core` by name. The core's other in-process reads (the headings
 // registry) find their root as the core always does: the harness's plugin-root
 // variable when the launcher's environment sets it, else the core these
@@ -19,7 +22,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const OWN_PACKAGE = new URL("../package.json", import.meta.url);
-const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs"];
+const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs", "follow-plan.mjs", "code-refs.mjs", "spec-drift.mjs"];
 
 function versionAt(file) {
   try {
@@ -56,7 +59,7 @@ export async function openCore({ core, project } = {}) {
     throw new Error(`version mismatch: the core at ${root} is ${theirs}, the dashboard is ${mine ?? "unknown"}. The two ship together; run the dashboard of that core.`);
 
   const load = (name) => import(pathToFileURL(join(root, "scripts", name)).href);
-  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank] = await Promise.all(CORE_MODULES.map(load));
+  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank, followPlan, codeRefs, specDrift] = await Promise.all(CORE_MODULES.map(load));
 
   const bound = lib.readConfigAt(dir);
   if (!bound || typeof bound !== "object") throw new Error(`${dir} is not bound to a vault: it has no readable .projectstore/projectstore.json. Bind it first (projectstore bind <vault>).`);
@@ -80,5 +83,8 @@ export async function openCore({ core, project } = {}) {
     flowPolicy,
     graph,
     rank,
+    followPlan,
+    codeRefs,
+    specDrift,
   };
 }

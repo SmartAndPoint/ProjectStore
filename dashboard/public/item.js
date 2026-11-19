@@ -138,6 +138,8 @@ function fetchItem() {
       renderDrawer();
     }
   });
+  // The Code block of a story or a spec (code.js), asked for when the item opens and on R.
+  codeUi.ask(d);
 }
 function closeDrawer() {
   ui.drawer = null;
@@ -187,7 +189,7 @@ function renderDrawer() {
     h("h2", null, info.title),
     // The side panel in three parts. Beside the text they stand in one column; in a narrow pane
     // the fields go above the text and the rest below it, so the text is not pushed out of sight.
-    h("div", { class: "item-grid" }, main, h("div", { class: "item-side" }, h("div", { class: "side-fields" }, info.fields), item && !item.missing ? relatedSide(d) : null, info.more ? h("div", { class: "side-more" }, info.more) : null)),
+    h("div", { class: "item-grid" }, main, h("div", { class: "item-side" }, h("div", { class: "side-fields" }, info.fields), item && !item.missing ? relatedSide(d) : null, item && !item.missing ? codeUi.block(d) : null, info.more ? h("div", { class: "side-more" }, info.more) : null)),
   );
   pane.hidden = false;
   pane.scrollTop = scroll;

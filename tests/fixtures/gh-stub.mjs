@@ -22,7 +22,8 @@
 //
 // `pr view` and `pr list` print only the fields --json names; `pr list
 // --state closed --search "closed:>=<day>"` returns the merged and closed
-// pull requests whose closedAt (else mergedAt) is on or after that day.
+// pull requests whose closedAt (else mergedAt) is on or after that day, and
+// `pr list --state=all` (with no --head) returns every one of them.
 // Options are read in both forms, `--name value` and `--name=value`.
 //
 // `pr list --head=<branch>` answers from `pulls`, those of that head branch
@@ -126,6 +127,8 @@ export function ghAnswer(argv, table = {}) {
     const state = after(argv, "--state") || "open";
     if (table.full) {
       const many = Array.from({ length: limit }, (_, i) => ({
+        number: 100000 + i,
+        title: `pull request ${100000 + i}`,
         url: `https://github.com/acme/app/pull/${100000 + i}`,
         state: "OPEN",
         isDraft: false,
@@ -138,6 +141,8 @@ export function ghAnswer(argv, table = {}) {
     const since = (String(after(argv, "--search") || "").match(/closed:>=(\d{4}-\d\d-\d\d)/) || [])[1] || null;
     const list = prs.filter((p) => {
       const s = String(p.state).toUpperCase();
+      // The dashboard's Code block asks for every state at once.
+      if (state === "all") return true;
       if (state === "open") return s === "OPEN";
       if (s === "OPEN") return false;
       const at = String(p.closedAt || p.mergedAt || "");

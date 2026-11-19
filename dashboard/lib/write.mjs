@@ -36,6 +36,7 @@
 //     writer.view()                   `write` as the last step left it
 //     writer.readCtx()                the context the readers take: the clone's while `write.can`, else the bound one
 //     writer.writeBindingFolder(prefix) project/.projectstore/projectstore.json, its vault_path in the clone
+//     writer.reader                   the Code block's calls in the project: { git(cwd, args), gh(cwd, args) }, marked as the read's
 //     writer.stop()                   ends every running call with its process group
 //   anchorOf(dir, opts)               the code repository's main checkout (the core's worktree rule)
 //   placePaths(place)                 clone/, clone.tmp/, project/ and the lock file
@@ -86,7 +87,7 @@ export const PROMPT_ENV = Object.freeze({ GIT_TERMINAL_PROMPT: "0", GCM_INTERACT
 // What would point a git call at a repository other than its working directory's.
 const LOCATING_ENV = Object.freeze(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX"]);
 // The variables each record entry carries.
-export const RECORDED_ENV = Object.freeze(["GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES", "GH_PROMPT_DISABLED", "GH_REPO", "GH_HOST"]);
+export const RECORDED_ENV = Object.freeze(["GIT_NO_LAZY_FETCH", "GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "SSH_ASKPASS_REQUIRE", "GIT_SSH_COMMAND", "GIT_SSH", "GIT_CEILING_DIRECTORIES", "GH_PROMPT_DISABLED", "GH_REPO", "GH_HOST"]);
 // What every gh call adds: no question asked (gh's own switch, beside the
 // long-form options that leave it nothing to ask), and no look for a newer gh.
 export const GH_ENV = Object.freeze({ GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" });
@@ -340,6 +341,15 @@ const FORCING = Object.freeze(["--force", "-f", "--force-with-lease", "--force-i
 const PUSH_OPTIONS = Object.freeze(["--porcelain", "--quiet", "--dry-run"]);
 // Only pushBatch holds this, so only it can make run() push.
 const PUSHER = Symbol("pushBatch");
+// The mark of the Code block's read (the spec "The dashboard's Code block…",
+// alias `dashboard-code`, contract 9): only `writer.reader` holds it, and a
+// call so marked runs only these git subcommands, in the project, or
+// `gh pr list`.
+const READER = Symbol("readCode");
+export const READ_GIT = Object.freeze(["log", "rev-list", "rev-parse", "show", "diff"]);
+// What the read adds to each git call's environment: git does not fetch an
+// object it lacks (a partial clone), where git knows the variable.
+export const READ_ENV = Object.freeze({ GIT_NO_LAZY_FETCH: "1" });
 
 // A step's failure with the status it answers (contract 8): 502 for a call
 // the step cannot go on without, 409 for the lock, and so on.
@@ -410,6 +420,7 @@ function gitSubcommand(argv) {
 // never `pr merge`, and `pr close` keeps the branch.
 export function refusal(cmd, argv, via = null) {
   if (cmd !== "git" && cmd !== "gh" && cmd !== process.execPath) return `the module runs git, gh and this Node only, not ${cmd}`;
+  if (via === READER) return readRefusal(cmd, argv);
   if (cmd === "git") {
     const { name, rest } = gitSubcommand(argv);
     if (name !== "push") return null;
@@ -433,6 +444,34 @@ export function refusal(cmd, argv, via = null) {
     return null;
   }
   return null;
+}
+
+// The settings a call of the read may carry ahead of its subcommand.
+const READ_CONFIG = /^(core\.quotePath=false|core\.hooksPath=.*)$/;
+// The options `gh pr list` may carry for the read.
+const READ_GH = /^--(state|limit|json)=/;
+// Why a call of the Code block's read may not run, or null (dashboard-code,
+// contract 9): git with only `-c core.quotePath=false` (and the hooks pair)
+// ahead of one subcommand of READ_GIT and no `--output`, or `gh pr list` with
+// only `--state=`, `--limit=` and `--json=`. Nothing else, and never this Node.
+function readRefusal(cmd, argv) {
+  if (cmd === "git") {
+    let i = 0;
+    while (argv[i] === "-c") {
+      if (!READ_CONFIG.test(argv[i + 1] ?? "")) return `the code read sets no ${argv[i + 1] ?? "(nothing)"}`;
+      i += 2;
+    }
+    const name = argv[i] ?? null;
+    if (!READ_GIT.includes(name)) return `the code read runs only git ${READ_GIT.join(", ")}, not git ${name ?? "(nothing)"}`;
+    for (const a of argv.slice(i + 1)) if (a === "--output" || a.startsWith("--output=")) return "the code read writes no file";
+    return null;
+  }
+  if (cmd === "gh") {
+    if (argv[0] !== "pr" || argv[1] !== "list") return `the code read runs only gh pr list, not gh ${argv.slice(0, 2).join(" ")}`;
+    for (const a of argv.slice(2)) if (!READ_GH.test(a)) return `the code read's gh pr list carries no ${a}`;
+    return null;
+  }
+  return "the code read runs no core verb";
 }
 
 const groupAlive = (pid) => {
@@ -483,7 +522,7 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
 
   const stoppedPids = new Set();
   const named = (e) => Object.fromEntries(RECORDED_ENV.filter((k) => e[k] !== undefined).map((k) => [k, e[k]]));
-  const viaName = (via) => (via === PUSHER ? "pushBatch" : via);
+  const viaName = (via) => (via === PUSHER ? "pushBatch" : via === READER ? "readCode" : via);
   const sink = (entry) => {
     if (!record) return;
     if (typeof record === "function") record(entry);
@@ -611,10 +650,10 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
   // git in `cwd`. `config` becomes `-c <k>=<v>` pairs ahead of the subcommand;
   // `need` makes a failure the step's 502 (contract 8); `literal` reads every
   // pathspec as the path it is (`--literal-pathspecs`, ahead of the subcommand).
-  async function git(cwd, args, { config = null, budget = B.git, need = false, via = "git", literal = false } = {}) {
+  async function git(cwd, args, { config = null, budget = B.git, need = false, via = "git", literal = false, edit = null } = {}) {
     const hooks = ceilingFor(cwd) ? ["-c", `core.hooksPath=${NO_HOOKS}`] : [];
     const pairs = Object.entries(config || {}).flatMap(([k, v]) => ["-c", `${k}=${v}`]);
-    const r = await run("git", [...hooks, ...pairs, ...(literal ? ["--literal-pathspecs"] : []), ...args], { cwd, budget, via });
+    const r = await run("git", [...hooks, ...pairs, ...(literal ? ["--literal-pathspecs"] : []), ...args], { cwd, budget, via, edit });
     r.ok = r.status === 0;
     if (!r.ok) {
       r.reason = failure("git", args[0], r, budget);
@@ -703,6 +742,31 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
       return personSsh;
     },
     pusher: PUSHER,
+    // The Code block's calls (dashboard-code, contract 9), bound to one
+    // project: git with `core.quotePath=false` and READ_ENV, or `gh pr list`,
+    // each marked as the read's, so refusal() holds them to its list. A call
+    // with another working directory, or any call on Windows, is refused and
+    // starts nothing.
+    readerFor(project, { windows = false } = {}) {
+      const top = resolve(project);
+      const refuse = (why) => ({ ok: false, status: null, stdout: "", stderr: "", refused: true, reason: `refused: ${why}` });
+      const where = (cwd) => (windows ? "the code side is not read on Windows" : resolve(cwd) !== top ? `the code read runs in the project ${top} only, not in ${cwd}` : null);
+      return Object.freeze({
+        project: top,
+        windows,
+        async git(cwd, args, { budget = B.git } = {}) {
+          const why = where(cwd);
+          if (why) return refuse(why);
+          const edit = (e) => Object.assign(e, READ_ENV);
+          return git(cwd, args, { config: { "core.quotePath": "false" }, budget, via: READER, edit });
+        },
+        async gh(cwd, args, { budget = B.gh } = {}) {
+          const why = where(cwd);
+          if (why) return { ok: false, unavailable: false, timedOut: false, refused: true, reason: `refused: ${why}` };
+          return gh(cwd, args, { budget, via: READER });
+        },
+      });
+    },
   };
 }
 
@@ -1855,5 +1919,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     view,
     readCtx: () => readable ?? ctx,
     writeBindingFolder,
+    // The Code block's calls, in the project (dashboard-code, contract 9).
+    reader: proc.readerFor(project, { windows }),
   };
 }

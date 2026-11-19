@@ -90,6 +90,9 @@ const code = (rel) => stripComments(read(rel));
 // ADR, decision 1). It is not shipped in the plugin, so MODULES does not hold
 // it; the browser row discloses it, and a test below reads its calls.
 const WRITE_MODULE = "dashboard/lib/write.mjs";
+// The file that names the Code block's calls, which the module starts (the
+// processes ADR as amended 2026-11-19; the spec alias `dashboard-code`).
+const CODE_MODULE = "dashboard/lib/code.mjs";
 const manifest = (id) => harness.loadHarness(id);
 const catalogs = (id) => manifest(id)?.agent_translation?.models?.catalogs || [];
 const hostCli = () =>
@@ -193,6 +196,13 @@ const ROWS = {
         '"pr", "close"',
         code(WRITE_MODULE),
       ],
+      // The Code block's read (dashboard-code, contract 3).
+      [
+        "When you open a story or a spec on the page, it also runs `gh pr list` in your project's repository for up to 1000 of its pull requests",
+        "--limit=${LIST_LIMIT}",
+        code(CODE_MODULE),
+      ],
+      ["are never written to a file or sent to the page", "delete p.body", code(CODE_MODULE)],
     ],
   },
   // The dashboard spec, contracts 5 and 6: the page's own server through this
@@ -242,6 +252,18 @@ const ROWS = {
       ],
       ["ProjectStore's own `move`, `handover` and `rank` in the clone", 'verb: "handover"', code(WRITE_MODULE)],
       ["ProjectStore's own `move`, `handover` and `rank` in the clone", 'verb: "rank"', code(WRITE_MODULE)],
+      // The Code block's read in the project's repository (dashboard-code, contracts 2 and 9).
+      [
+        "When you open a story or a spec, the page reads its code there and changes nothing",
+        '"rev-list", "--count"',
+        code(CODE_MODULE),
+      ],
+      ["it keeps git from fetching an object a partial clone lacks", "GIT_NO_LAZY_FETCH", code(WRITE_MODULE)],
+      [
+        "their descriptions stay on this machine, in the server's memory, never in a file and never sent to the page",
+        "delete p.body",
+        code(CODE_MODULE),
+      ],
     ],
   },
   npm: {
@@ -570,6 +592,7 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The page's git and gh, and where its sends stop (the dashboard-writes spec's acceptance).
   for (const s of [
     "On the dashboard's page, `gh` reads, opens and closes the page's own pull request",
+    "and reads your project's pull requests for a story or a spec you open",
     "`git clone` and `git fetch` and `git ls-remote` read from it, and Send's `git push` writes one branch there",
     "Nothing the page sends reaches the vault's default branch until a person merges that pull request",
   ])
@@ -674,6 +697,21 @@ test("disclosure: the browser row names every git and gh subcommand of the page'
     ["gh pr create"],
     "the row's own spans are what is read",
   );
+});
+
+// The processes ADR as amended 2026-11-19 and dashboard-code, contract 9: the
+// Code block's calls are named in lib/code.mjs and started by the module; the
+// browser row names them too, and a call planted there fails, named.
+test("disclosure: the browser row names every call of the Code block's read too; one planted in lib/code.mjs fails, named", () => {
+  const row = rowsOf(sub(RUNS)).get(ROWS.browser.lead);
+  const src = code(CODE_MODULE);
+  const git = moduleGit(src);
+  assert.deepEqual(git, ["diff", "log", "rev-list", "rev-parse", "show"], "the read's git calls");
+  assert.deepEqual(moduleGh(src), ["pr list"], "the read's gh call");
+  assert.deepEqual(unnamed(row, src), [], "the browser row names each of the read's calls");
+  assert.doesNotMatch(src, /child_process/, "lib/code.mjs starts nothing itself");
+  const planted = `${src}\nawait git(project, ["gc", "--prune=now"]);\nawait gh(project, ["api", "graphql"]);\n`;
+  assert.deepEqual(unnamed(row, planted), ["git gc", "gh api graphql"]);
 });
 
 test("disclosure: the hooks start only git, from SessionStart, and fetch nothing", () => {
