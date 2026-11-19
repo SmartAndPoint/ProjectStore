@@ -281,7 +281,7 @@ test("reconcile: --only spectree is refused in a layout with no spec folder, as 
   const r = resolveSelection(specless, "spectree");
   assert.match(r.error, /no spec folder/);
   assert.ok(!r.error.includes("spectree,"), "not offered as valid");
-  assert.match(resolveSelection(LAYOUT, "nope").error, /graph, spectree, indexes/);
+  assert.match(resolveSelection(LAYOUT, "nope").error, /graph, (flow, )?spectree, indexes/);
 });
 
 // [spec-tree#8]

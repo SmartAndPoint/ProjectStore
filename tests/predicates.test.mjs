@@ -196,7 +196,7 @@ test("resolveSelection: flow is in a bare run and a selector of its own on a lay
   const one = resolveSelection(layout, "flow");
   assert.ok(one.explicit && one.flow && !one.kanban && !one.graph);
   assert.equal(resolveSelection(layout, "kanban").flow, false);
-  assert.ok(resolveSelection(layout, "kanbn").error.includes("graph, flow, indexes"));
+  assert.ok(resolveSelection(layout, "kanbn").error.includes("graph, flow, spectree, indexes"));
 
   const flowless = { ...layout };
   delete flowless.flow;
