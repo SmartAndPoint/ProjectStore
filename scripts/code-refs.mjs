@@ -41,10 +41,19 @@ export const normalRef = (ref) => String(ref).replace(/^\.\//, "");
 
 // Whether a glob ref covers `path`: the path matches it, or one of its
 // folders does; a ref ending in `/` covers only paths under a matched folder.
+// One compiled pattern per glob: a caller may test thousands of paths
+// against a few refs.
+const GLOB_CACHE = new Map();
+const compiled = (glob) => {
+  let re = GLOB_CACHE.get(glob);
+  if (!re) GLOB_CACHE.set(glob, (re = globRe(glob)));
+  return re;
+};
+
 export function globCovers(ref, path) {
   const r = normalRef(ref);
   const dirGlob = r.endsWith("/");
-  const re = globRe(dirGlob ? r.slice(0, -1) : r);
+  const re = compiled(dirGlob ? r.slice(0, -1) : r);
   if (re.test(path)) return !dirGlob;
   const parts = path.split("/");
   for (let i = 1; i < parts.length; i++) if (re.test(parts.slice(0, i).join("/"))) return true;

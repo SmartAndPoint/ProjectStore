@@ -1140,6 +1140,10 @@ const SCRIPT_ONLY = [
   },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
   {
+    script: "spec-code.mjs",
+    why: "a planner helper like spec-drift.mjs: `owners` prints which specs own a file, from the vault only, with no verb and no MCP tool (the spec-owned-code spec, contract 7)",
+  },
+  {
     script: "spec-drift.mjs",
     why: "a standalone reviewer helper like diff-refs.mjs: the spec-drift mode's read-only fact bundle, with no verb and no MCP tool by the plan gate's decision",
   },

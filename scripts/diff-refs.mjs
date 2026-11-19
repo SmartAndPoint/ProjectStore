@@ -148,14 +148,17 @@ export function grepProjectLines(cwd, pattern, { exclude = [], timeout = 10000, 
 // committerMs, paths}]} or {status: "unknown", reason}.
 export const ACTIVITY_REASONS = Object.freeze(["no-git", "not-a-repository", "shallow", "timeout", "failed"]);
 const LOG_FORMAT = "--format=%x1e%at%x1f%aN%x1f%ct%x1f%cN";
+// Why a git call gave no answer, as one of ACTIVITY_REASONS, or null.
+function whyGitFailed(r) {
+  if (r.error?.code === "ENOENT") return "no-git";
+  if (r.error || r.signal) return r.error?.code === "ETIMEDOUT" || r.signal ? "timeout" : "failed";
+  if (r.status !== 0) return /not a git repository/i.test(r.stderr || "") ? "not-a-repository" : "failed";
+  return null;
+}
+
 export function commitsSince(cwd, since, { timeout = 10000, env = process.env } = {}) {
   const opts = { cwd, encoding: "utf8", timeout, env: { ...env, LC_ALL: "C" }, maxBuffer: 256 * 1024 * 1024 };
-  const why = (r) => {
-    if (r.error?.code === "ENOENT") return "no-git";
-    if (r.error || r.signal) return r.error?.code === "ETIMEDOUT" || r.signal ? "timeout" : "failed";
-    if (r.status !== 0) return /not a git repository/i.test(r.stderr || "") ? "not-a-repository" : "failed";
-    return null;
-  };
+  const why = whyGitFailed;
   const probe = spawnSync("git", ["rev-parse", "--is-shallow-repository"], opts);
   const probeWhy = why(probe);
   if (probeWhy) return { status: "unknown", reason: probeWhy };
@@ -199,6 +202,18 @@ export function commitsSince(cwd, since, { timeout = 10000, env = process.env } 
     commits.push({ authorName, authorMs: Number(at) * 1000, committerName, committerMs: Number(ct) * 1000, paths });
   }
   return { status: "ok", commits };
+}
+
+// The files in the project's git index, relative to `cwd` (the project
+// root): one `git ls-files -z` (the spec-owned-code spec, contract 2). Paths
+// under `cwd` only, as written. Returns {status: "ok", files} or
+// {status: "unknown", reason} with a reason of ACTIVITY_REASONS.
+export function trackedFiles(cwd, { timeout = 10000, env = process.env } = {}) {
+  const opts = { cwd, encoding: "utf8", timeout, env: { ...env, LC_ALL: "C" }, maxBuffer: 256 * 1024 * 1024 };
+  const r = spawnSync("git", ["ls-files", "-z"], opts);
+  const reason = whyGitFailed(r);
+  if (reason) return { status: "unknown", reason };
+  return { status: "ok", files: String(r.stdout).split("\0").filter(Boolean) };
 }
 
 // The `--since` window git is given, shared with spec-drift.mjs.

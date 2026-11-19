@@ -142,10 +142,18 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
+import {
+  uncommittedProjectFiles,
+  lastCommitMs,
+  grepProjectLines,
+  commitsSince,
+  gitRun,
+  trackedFiles,
+} from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
+import { checkSpecCode } from "./spec-code.mjs";
 import { checkRankTies } from "./rank.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
 import { checkVerbMarks } from "./verb-mark.mjs";
@@ -4220,6 +4228,7 @@ export function runVaultChecks(
     policy = null,
     now = new Date().toISOString(),
     commits = commitsSince,
+    lsFiles = trackedFiles,
   } = {},
 ) {
   let layout;
@@ -4290,6 +4299,17 @@ export function runVaultChecks(
     ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
     ...checkSpecTree(nodeIndex, specParents, specTree, {
       finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
+    // The code a spec in the tree owns (the spec-owned-code spec, contracts 1 to 4).
+    ...checkSpecCode(nodeIndex, specTree, {
+      layout,
+      proj,
+      vault: cfg.vault_path,
+      lsFiles,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
     }),
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
