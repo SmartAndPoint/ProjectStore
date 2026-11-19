@@ -15,7 +15,7 @@ Steps:
 
    The project resolves from the session's project directory; do not pass `--project`. Exit 3 means the project is unbound — say so and point at `/projectstore:bind <vault-path>`; exit 2 is a usage error — relay its message.
 
-2. Print the output verbatim. It is already grouped by the vault's top-level folder with a count per group and `path:line  snippet` lines; the header says how many matches there are, whether the list was cut (`--limit`, default 20, cap 100) and whether a file hit the per-file cap (`[N in file]`). The search is literal substring, case-insensitive unless `--case-sensitive`, over artifact bodies and `title:` lines; the derived views (the board, `code-map.md`, `graph.md`) are excluded unless `--include-derived`.
+2. Print the output verbatim. It is already grouped by the vault's top-level folder with a count per group and `path:line  snippet` lines; the header says how many matches there are, whether the list was cut (`--limit`, default 20, cap 100) and whether a file hit the per-file cap (`[N in file]`). The search is literal substring, case-insensitive unless `--case-sensitive`, over artifact bodies and `title:` lines; the derived views (the board, `code-map.md`, `graph.md`, `spec-tree.md`) are excluded unless `--include-derived`.
 
 3. Zero matches is exit 0 and the output already suggests a shorter or case-insensitive phrase. Do not fall back to a shell `grep`: the verb is the search.
 

@@ -361,6 +361,21 @@ test("views: kanban.md and the flow page rewritten while every other changed fil
   assert.equal(r.exit, 0);
 });
 
+// [precommit#5] [spec-tree#8]
+test("views: spec-tree.md rewritten while every other changed file is the session's own is a derived view, consistent", () => {
+  const f = fixture();
+  writeFileSync(join(f.vault, "spec-tree.md"), "---\n\nprojectstore: derived\ntrees: 0\n\n---\n");
+  git(f.vault, "add", "-A");
+  git(f.vault, "commit", "-qm", "the view");
+  edit(f, "s1", "specs/y.md", "parent: none\n");
+  writeFileSync(join(f.vault, "spec-tree.md"), "---\n\nprojectstore: derived\ntrees: 1\n\n---\n"); // reconcile, not recorded
+  const r = check(f, "s1");
+  const v = fileOf(r, "spec-tree.md");
+  assert.equal(v.verdict, "consistent");
+  assert.equal(v.rule, "sources");
+  assert.equal(r.exit, 0);
+});
+
 // [precommit#5]
 test("views: kanban.md changed while another session's story is uncommitted names that story and its session", () => {
   const f = fixture();

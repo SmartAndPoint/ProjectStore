@@ -1,6 +1,6 @@
 ---
 name: projectstore-reconcile
-description: "Re-derive every derived view (kanban, folder-index READMEs, code-map, graph, flow) from the vault's source of truth — the repair half of doctor's vault checks. Hand-edits can never permanently desync the board."
+description: "Re-derive every derived view (kanban, folder-index READMEs, code-map, graph, flow, spec-tree) from the vault's source of truth — the repair half of doctor's vault checks. Hand-edits can never permanently desync the board."
 ---
 
 ## Runtime path
@@ -34,20 +34,23 @@ You are reconciling the vault's derived views with their source of truth (frontm
    node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile
    ```
 
-   Output JSON: `kanban` / `codemap` / `graph` / `flow` / `indexes[]`, each
-   `{path, changed, content?}`, plus `summary.changed`. A graph.md that does
-   not exist yet reports `skipped` — bare reconcile never mints the file;
-   first creation goes through `$projectstore-graph` (or `--only graph`).
-   The same holds for flow.md, the flow page (WIP, the date each open story
-   entered its status, weekly throughput, cumulative flow): an absent one
-   reports `skipped`, and first creation is `--only flow`.
+   Output JSON: `kanban` / `codemap` / `graph` / `flow` / `spectree` /
+   `indexes[]`, each `{path, changed, content?}`, plus `summary.changed`. A
+   graph.md that does not exist yet reports `skipped` — bare reconcile never
+   mints the file; first creation goes through `$projectstore-graph` (or
+   `--only graph`). The same holds for flow.md, the flow page (WIP, the date
+   each open story entered its status, weekly throughput, cumulative flow): an
+   absent one reports `skipped`, and first creation is `--only flow`.
+   `spec-tree.md`, the view of the spec trees, is created only by
+   `--only spectree` too; once it exists, every reconcile keeps it fresh,
+   whatever `--only` names.
 
 3. **Nothing changed** (`summary.changed == 0` and `summary.failed == 0`) →
    report "Derived views already match frontmatter — nothing to reconcile."
    and stop.
 
 4. **Preview**: list each changed target (path + a one-line what: "kanban board",
-   "adr/ index", "code map", "link graph", "flow page"). Show a short diff excerpt for indexes.
+   "adr/ index", "code map", "link graph", "flow page", "spec tree"). Show a short diff excerpt for indexes.
    **Surface any target carrying `error` first** — an errored target has no
    `changed` flag, so it never appears in the changed list; a broken board
    must not hide behind a clean-looking preview.
@@ -55,6 +58,8 @@ You are reconciling the vault's derived views with their source of truth (frontm
 5. **Approval** via the harness's user-input mechanism: **Apply all** / **Select targets** / **Cancel**.
    Disclose in the question that content is recomputed from the vault at write
    time — the preview is advisory, the approval covers the regeneration action.
+   When `spec-tree.md` exists, say that every write refreshes it: leaving its
+   `spectree` target out of a selection does not keep the old file.
 
 5a. **Delegate the apply — enumerated case: two or more targets** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
@@ -75,7 +80,8 @@ You are reconciling the vault's derived views with their source of truth (frontm
    node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile --write --only <approved,targets>
    ```
 
-   Selectors: `kanban`, `codemap`, `graph`, `flow`, `indexes` (all), `indexes=<folder>` (one).
+   Selectors: `kanban`, `codemap`, `graph`, `flow`, `spectree` (needs a spec
+   folder), `indexes` (all), `indexes=<folder>` (one).
    "Apply all" means the targets previewed in step 4, passed explicitly — not a
    bare `--write`. The script recomputes each target immediately before its own
    atomic replace; manual prose outside the managed Index tables is preserved by

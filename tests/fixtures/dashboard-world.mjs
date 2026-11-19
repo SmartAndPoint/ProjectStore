@@ -98,6 +98,8 @@ export async function makeWorld({
   flowPage = false,
   // More files of the vault, { "<vault-relative path>": "<text>" }, put before the seed commit.
   files = {},
+  // A stale spec-tree.md in the vault, which every reconcile rewrites once it exists.
+  specTree = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "ps-dash-world-")));
   // A stub gh first on PATH, so no call reaches the person's own gh.
@@ -133,6 +135,7 @@ export async function makeWorld({
   put("graph.md", "stub graph\n");
   put("code-map.md", "stub code map\n");
   if (flowPage) put("flow.md", "stub flow\n");
+  if (specTree) put("spec-tree.md", "stub spec tree\n");
   if (vaultSettings) put(".projectstore.json", `${JSON.stringify(vaultSettings, null, 2)}\n`);
   for (const [rel, text] of Object.entries(files)) put(rel, text);
   for (const f of ["adr", "specs", "epics"]) put(`${f}/README.md`, `# ${f}\n`);

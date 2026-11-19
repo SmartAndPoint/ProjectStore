@@ -34,6 +34,9 @@ You are managing the epic↔code mapping (ADR-004).
    ```
 
    The `codemap` entry carries `{ path, changed, content?, stats }`.
+   Once `spec-tree.md` exists, a `spectree` entry comes too: every reconcile
+   keeps that view fresh, so when its `changed` is true, show it in the preview
+   as well; the write below rewrites it with the rest.
 3. Show `stats` (epics, epics_with_refs, story_rows) + first ~15 lines of
    `content` when changed.
 4. **Approval** via the harness's user-input mechanism: Yes / No (disclose: content is recomputed

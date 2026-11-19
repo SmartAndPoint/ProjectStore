@@ -35,6 +35,9 @@ Steps:
    ```
 
    The `kanban` entry carries `{ path, changed, content?, stats }`.
+   Once `spec-tree.md` exists, a `spectree` entry comes too: every reconcile
+   keeps that view fresh, so when its `changed` is true, show it in the preview
+   as well; the write below rewrites it with the rest.
 
 3. **Show stats**: print `stats.total` (total stories) and `stats.by_column`
    (how many in each column). If `changed` is false, report "board already
