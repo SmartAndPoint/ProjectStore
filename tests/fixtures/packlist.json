@@ -131,6 +131,7 @@
   "scripts/skeleton.mjs",
   "scripts/spec-code.mjs",
   "scripts/spec-drift.mjs",
+  "scripts/spec-stale.mjs",
   "scripts/spec-tree.mjs",
   "scripts/stages.mjs",
   "scripts/status-change.mjs",
