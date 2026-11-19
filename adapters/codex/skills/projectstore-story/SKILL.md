@@ -139,6 +139,22 @@ cannot collide).
    reason of the run's lines, and its `content` is the one you fill and
    preview. `--over-wip` is for `plan` only; `close` refuses it.
 
+   **Files a verb wrote.** Both gates' JSON carries `marked`: the
+   vault-relative paths of the files that hold `written_by_verb` (written by
+   a create or an edit verb, and read by no review since): on a plan the
+   story, its epic and the epic's initiative, on a close the story; `[]` when
+   the vault's gates are off. When `marked` is not empty and `outside` is
+   `true` (the story is in a worktree of the vault), stop the gate before
+   any review: name the files, say that a mark is cleared in the bound
+   vault, and write nothing. Otherwise run the steps of `$projectstore-review`
+   for each path in turn (a marked story gets the critic although the story
+   guide does not ask for one), then run this step again: on a plan, step
+   2a and its round follow, the WIP question first; on a close, step 3
+   follows, and the clerk's baseline in step 5a is that second run's
+   `content`. A Skip, or a dismissed question, stops the gate, names the
+   file, and writes nothing. A non-empty `marked` from the second run stops
+   the gate too.
+
 2a. **(plan only) Open questions, one round.** Before writing the plan,
    collect the open questions: the planner's "Open questions" when it ran,
    else your own; do not start the planner here. Keep only decisions the
@@ -225,6 +241,10 @@ cannot collide).
    `<after>/<limit>`, recommended No); a Yes runs step 2 again with
    `--over-wip`, and a No, a skipped question or a dismissed one ends the
    gate with nothing written. Nothing is written before the new answer.
+
+   On both gates, compare `marked` as you compare `wip.over`: when the
+   re-run's `marked` is not empty (a file was marked again since step 2),
+   stop the gate and write nothing.
 
 5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").

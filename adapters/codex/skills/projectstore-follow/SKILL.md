@@ -32,7 +32,7 @@ You are bringing stories in line with their pull requests through the core's `fo
 
    Exit 3: the project is not bound; tell the person to run `$projectstore-bind <vault-path>` and stop. Exit 2: a flag is wrong; say which and stop.
 
-2. **Relay it.** List `result.items` (each `story` and its `line`), then `result.findings` and `result.notes` by `code` and `message`, then the epics in `result.epics.epics` (each `line`) and `result.epics.notes`.
+2. **Relay it.** List `result.items` (each `story` and its `line`), then `result.findings` and `result.notes` by `code` and `message` (a `verb-mark` note names a story a verb wrote and no review has read; it is changed all the same), then the epics in `result.epics.epics` (each `line`) and `result.epics.notes`.
    - A `gh-unavailable` finding: `gh` is missing or logged out. Say so and stop; ask nothing.
    - No item and no epic with `to: done`: say that nothing would change and stop.
 

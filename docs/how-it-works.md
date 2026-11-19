@@ -370,6 +370,19 @@ epic's `initiative:` and an Initiative row that links to the file, and
 it asks at a terminal, writes through the same read-again writer `move` uses,
 and refreshes the derived views, as `move` does. They have no MCP tool.
 
+`create initiative|epic|story` writes a new one outside a session
+(`scripts/item-verbs.mjs`): the file `draft.mjs` renders for the agent
+command of the same kind, with the fields its options name, through
+`createFileExclusive`, so an existing file is never replaced. A story's row
+goes into its epic's Stories table through the same add as `epic-row --add`,
+and the derived views are refreshed. Anyone may run it, an agent too, so the
+file carries `written_by_verb: "create <instant>"` beside `review_status:
+pending`. The story gates print the marked files (`marked`: the story, its
+epic and the epic's initiative on a plan) and the story command reviews each
+first; `/projectstore:review` then runs `reviewed <path> --write`, the one
+writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
+`follow` names a marked story it closes. Neither verb has an MCP tool.
+
 ## The epic ↔ code mapping
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature

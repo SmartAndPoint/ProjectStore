@@ -225,6 +225,12 @@ npx projectstore epic PS-CORE --initiative faster-onboarding --write
 npx projectstore initiative faster-onboarding accepted --reason "groups the onboarding epics" --write
 ```
 
+`create` writes a new initiative, epic or story from the same template the agent command uses, with no agent session. Bare, it prints the plan; `--write` asks at a terminal. A story also gets its row in the epic's Stories table, and the board is rebuilt. What it writes is marked not reviewed (`written_by_verb`) until `/projectstore:review` reads it, and a story's plan gate runs that review first. `reviewed` clears the mark, and doctor lists every open one as `verb-mark`:
+
+```
+npx projectstore create story PS-CORE "Faster login" --write
+```
+
 `npx projectstore dashboard` opens a page over the vault in your browser. On it you can also move stories between the backlog and ToDo, and send those moves as one pull request. It has its own section below, [The dashboard](#the-dashboard).
 
 `projectstore-claude`, `projectstore-codex` and `projectstore-opencode` are release artifacts: per-harness packages that carry the core, pinned at the same version and bundled, with the harness fixed. Nobody needs to type their names. Setup fetches the Codex one, which carries the Codex plugin; the Claude Code one is published at the core's version too; the opencode one publishes after its plugin root is rendered. The other `projectstore-*` names are reserved placeholders pointing back here. One source package, one version, N tarballs. How a release builds and publishes them, and how to run a checkout's own build: [`packaging/README.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/packaging/README.md).

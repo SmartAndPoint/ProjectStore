@@ -270,6 +270,11 @@ each key activates.
   (`scripts/initiative-verbs.mjs`). They find the header rows by the registry's
   `fields` (`priority`, `owner`, `initiative`, any bundled language) and add
   an epic's Initiative row with the bound language's first form.
+- `create` (`scripts/item-verbs.mjs`) renders through `renderDraft` in
+  `scripts/draft.mjs`, so a new kind's template reaches the verb and the agent
+  command alike. The mark's key and the one predicate every reader asks,
+  `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
+  the key, and only its `reviewed` removes it.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

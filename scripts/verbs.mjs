@@ -572,6 +572,44 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // A new initiative, epic or story, outside an agent session (the create
+  // spec, contracts 1 to 5): bare, the plan; --write writes it, asking at a
+  // terminal, and marks it not reviewed until a review clears the mark.
+  Object.freeze({
+    verb: "create",
+    summary: "Create an initiative, an epic or a story, marked not reviewed.",
+    usage: Object.freeze(["initiative <title>", "epic <EPIC-ID> <title>", "story <EPIC-ID> <title>"]),
+    module: "./item-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("priority", "<p>", "the priority, p and digits, such as p1"),
+      opt("owner", "<name>", "an initiative's owner, as a name"),
+      opt("initiative", "<id>", "the initiative an epic belongs to"),
+      opt("assignee", "<name>", "a story's assignee, as a name"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // A review read a file a verb wrote: its mark is cleared (the create spec,
+  // contract 6). Bare, the plan; --write clears it, asking at a terminal.
+  Object.freeze({
+    verb: "reviewed",
+    summary: "Clear the not-reviewed mark of a file a review has read.",
+    usage: Object.freeze(["<path>"]),
+    module: "./item-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [opt("write", false, "clear it (asks at a terminal; without one, --write is the confirmation)"), JSON_OPT],
+  }),
   // A story's status that follows its pull request (the follow spec,
   // contract 1): bare, the plan; --write applies it, asking at a terminal.
   Object.freeze({
@@ -826,6 +864,13 @@ const EXAMPLES = {
     '{cmd} initiative faster-onboarding --owner "First Last" --priority p1 --write',
   ],
   epic: ["{cmd} epic PS-CORE --initiative faster-onboarding --write", '{cmd} epic PS-CORE --initiative "" --write'],
+  create: [
+    '{cmd} create story PS-CORE "Faster login"  # the plan; nothing is written',
+    '{cmd} create story PS-CORE "Faster login" --priority p1 --assignee "First Last" --write',
+    '{cmd} create epic PS-AUTH "Sign-in" --initiative faster-onboarding --write',
+    '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
+  ],
+  reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
   follow: [
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
@@ -894,8 +939,10 @@ const PURPOSE = "project memory for coding agents, in markdown";
 // it: here, how mcp is told its project.
 const NOTES = {
   initiative:
-    "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use the agent command of the same name.",
-  epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use the agent command of the same name.",
+    "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use create initiative.",
+  epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use create epic.",
+  create:
+    "What it writes is marked not reviewed (written_by_verb) until a review clears the mark; the story gates run the critic on a marked file. A file that exists is never overwritten.",
   dashboard:
     "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. A story moved on the page is committed in the page's own clone of the vault, and reaches the vault only when a pull request you send from the page is merged.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",

@@ -50,8 +50,8 @@
 // Timestamps are written UNCONDITIONALLY of lifecycle_gates: the gates key
 // controls checks and prompts, never the data that other predicates need.
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readConfig,
@@ -62,6 +62,10 @@ import {
   today,
   commandForm,
   listOf,
+  lifecycleGatesOn,
+  loadLayout,
+  folderByKind,
+  vaultLocation,
 } from "./lib.mjs";
 import {
   setFm,
@@ -77,6 +81,83 @@ import {
 } from "./status-log.mjs";
 import { wipOnStart } from "./next.mjs";
 import { flowAt, flowPeople } from "./flow-policy.mjs";
+import { isMarked } from "./verb-mark.mjs";
+import { initiativeIndex, referenceOf, resolveInitiative } from "./initiative.mjs";
+
+// ─── The not-reviewed mark (the create spec, contract 8) ──────────────
+
+// A path with symbolic links resolved: its nearest existing ancestor's real
+// path, then the rest as written.
+function realOf(p) {
+  let base = resolve(p);
+  const rest = [];
+  for (;;) {
+    try {
+      return join(realpathSync(base), ...rest.reverse());
+    } catch {
+      const up = dirname(base);
+      if (up === base) return resolve(p);
+      rest.push(basename(base));
+      base = up;
+    }
+  }
+}
+
+const fmOf = (abs) => {
+  try {
+    return parseFrontmatter(readFileSync(abs, "utf8")).data;
+  } catch {
+    return null;
+  }
+};
+
+// The files a gate reviews before it goes on: on a plan the story, its epic
+// and the epic's initiative that hold the mark, on a close the story alone,
+// as paths relative to the vault copy the story lives in; [] when the vault's
+// gates are off. `outside` is true when the story is not inside the bound
+// vault's folder, links resolved in both. Reads, writes nothing.
+export function markedFor(abs, mode, cfg) {
+  const real = realOf(cfg.vault_path || "");
+  const outside = !cfg.vault_path || !realOf(abs).startsWith(real + sep);
+  if (!cfg.vault_path || !lifecycleGatesOn(readVaultConfig(cfg.vault_path))) return { marked: [], outside };
+  const loc = vaultLocation(abs, cfg.vault_path);
+  const root = loc ? loc.root : resolve(cfg.vault_path);
+  const rel = (p) => relative(root, p).split(sep).join("/");
+  const marked = [];
+  if (isMarked(fmOf(abs))) marked.push(rel(abs));
+  if (mode !== "plan") return { marked, outside };
+  // The epic: the nearest epic.md above the story.
+  let dir = dirname(abs);
+  let epic = null;
+  while (dir.startsWith(root) && dir !== root) {
+    if (existsSync(join(dir, "epic.md"))) {
+      epic = join(dir, "epic.md");
+      break;
+    }
+    dir = dirname(dir);
+  }
+  const epicFm = epic ? fmOf(epic) : null;
+  if (epic && isMarked(epicFm)) marked.push(rel(epic));
+  // The initiative the epic names, by the initiative spec's one id rule.
+  let folder = null;
+  try {
+    folder = folderByKind(loadLayout(cfg.layout || "engineering"), "initiative");
+  } catch {}
+  if (epicFm && folder) {
+    const items = [];
+    try {
+      for (const n of readdirSync(join(root, folder.path)).filter(
+        (x) => x.endsWith(".md") && x.toLowerCase() !== "readme.md",
+      )) {
+        const f = fmOf(join(root, folder.path, n));
+        if (f) items.push({ rel: `${folder.path}/${n}`, fm: f });
+      }
+    } catch {}
+    const hit = resolveInitiative(initiativeIndex(items), referenceOf(epicFm.initiative));
+    if (hit && isMarked(hit.fm)) marked.push(hit.rel);
+  }
+  return { marked, outside };
+}
 
 function die(msg) {
   process.stderr.write(`projectstore/story-section: ${msg}\n`);
@@ -349,6 +430,7 @@ function gate() {
     }
     check = { baseline: resolve(checkPath), match: a === b, drift };
   }
+  const mark = markedFor(abs, mode, cfg);
 
   process.stdout.write(
     JSON.stringify(
@@ -358,6 +440,8 @@ function gate() {
         changed: text !== original,
         check,
         ...(mode === "plan" ? { wip } : {}),
+        marked: mark.marked,
+        outside: mark.outside,
         notes,
         content: text,
       },
