@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readFlowStories } from "../scripts/flow-stories.mjs";
+import { readFlowStories, readFlowEpics } from "../scripts/flow-stories.mjs";
 import { findStories } from "../scripts/kanban.mjs";
 
 const put = (root, rel, status = "planned") => {
@@ -115,4 +115,48 @@ test("one epic's stories: `only` reads that epic folder alone, all three shapes,
   const b = readFlowStories(vault, "epics", { only: "PS-B", read });
   assert.deepEqual([b.stories, b.unread], [[], 1]);
   assert.deepEqual(readFlowStories(vault, "epics", { only: "PS-NONE" }), { stories: [], unread: 0 });
+});
+
+// ─── Flow counts, contract 9: the epics ────────────────────────────────
+
+const putEpic = (root, epic, status = "in-progress") => put(root, `epics/${epic}/epic.md`, status);
+
+// [flow-counts#9]
+test("epics: a one-story epic under epics/_templates/ and a folder with stories and no epic.md are not epics; the folder's stories still count (edge)", () => {
+  const vault = mkdtempSync(join(tmpdir(), "ps-flow-epics-"));
+  putEpic(vault, "PS-A");
+  put(vault, "epics/PS-A/stories/story-a.md");
+  putEpic(vault, "_templates");
+  put(vault, "epics/_templates/stories/story-t.md");
+  put(vault, "epics/PS-N/stories/story-n.md");
+  putEpic(vault, ".hidden");
+  writeFileSync(join(vault, "epics", "README.md"), "# Epics\n");
+  const { epics, unread } = readFlowEpics(vault, "epics");
+  assert.equal(unread, 0);
+  assert.deepEqual(
+    epics.map((e) => [e.epic, e.rel, e.fm.status]),
+    [["PS-A", "epics/PS-A/epic.md", "in-progress"]],
+  );
+  assert.deepEqual(
+    readFlowStories(vault, "epics").stories.map((s) => s.slug),
+    ["story-a", "story-n"],
+  );
+});
+
+// [flow-counts#9]
+test("epics: an epic.md that cannot be read leaves the others as before and unread 1; no epics folder is no epic, and the reader does not throw (failure)", () => {
+  const vault = mkdtempSync(join(tmpdir(), "ps-flow-epics-"));
+  putEpic(vault, "PS-A");
+  putEpic(vault, "PS-B");
+  const read = (p) => {
+    if (p.includes("PS-B")) throw new Error("EACCES");
+    return "---\nstatus: active\n---\n";
+  };
+  const r = readFlowEpics(vault, "epics", { read });
+  assert.deepEqual(
+    r.epics.map((e) => e.epic),
+    ["PS-A"],
+  );
+  assert.equal(r.unread, 1);
+  assert.deepEqual(readFlowEpics(join(vault, "nowhere"), "epics"), { epics: [], unread: 0 });
 });

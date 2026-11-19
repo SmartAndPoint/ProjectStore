@@ -688,6 +688,9 @@ const EVERY = {
   window_weeks: 2,
   capacity_weeks: [1, 2],
   people: { [ME]: { time: "full" }, "Nobody Here": { wip: 2 }, "Gone Person": { left: "2026-11-01" } },
+  // The groom spec, contract 6: no stamp, and two active epics, PS-Y with one story.
+  grooming_days: 7,
+  active_epics_max: 1,
 };
 const everyStories = () => ({
   "PS-X/story-old": planned("story-old", { created: "2026-08-01" }),
@@ -707,6 +710,7 @@ const everyStories = () => ({
   ...many(3, (i) => [`PS-X/story-n${i}`, planned(`story-n${i}`, { created: "2026-10-27" })]),
   "PS-X/story-c0": done("story-c0", { created: "2026-08-01" }),
   "PS-X/story-du": done("story-du", { closedAt: null, updated: "2026-10-29" }),
+  "PS-Y/story-y": planned("story-y", { epic: "PS-Y" }),
 });
 const everyRun = (flow, opts) => flowRun(flowVault({ vaultCfg: P(flow), stories: everyStories() }), opts);
 // One fixture under two policies, so only the policy differs.
@@ -731,6 +735,9 @@ test("the every-check fixture triggers each check that can fire together", () =>
     "todo-over-capacity",
     "flow-person-unknown",
     "assignee-left",
+    "grooming-due",
+    "epic-single-story",
+    "active-epics-over-cap",
   ])
     assert.ok(ids(found).includes(c), `${c} in ${ids(found)}`);
 });
@@ -777,6 +784,46 @@ test("policy gate: a person marked left among a policy that triggers every check
   assert.deepEqual(rest(less), rest(all));
 });
 
+// [flow-findings#6]
+test("policy gate: a policy that triggers every check, and flow.active_epics_max removed, then flow.grooming_days removed instead: the epic findings, then grooming-due, are gone, and nothing else (edge)", () => {
+  const [all, noCap] = twoPolicies(EVERY, without(EVERY, ["active_epics_max"]));
+  const epicIds = ["epic-single-story", "active-epics-over-cap"];
+  for (const c of epicIds) one(all, c);
+  for (const c of epicIds) none(noCap, c);
+  const rest = (fs, gone) => fs.filter((x) => !gone.includes(x.check));
+  assert.deepEqual(rest(noCap, epicIds), rest(all, epicIds));
+  assert.equal(one(all, "epic-single-story").file, "epics/PS-Y/epic.md");
+  assert.match(
+    one(all, "active-epics-over-cap").message,
+    /^2 epics are active, 1 more than the cap of 1 \(flow\.active_epics_max\): PS-X, PS-Y\./,
+  );
+  const [again, noGroom] = twoPolicies(EVERY, without(EVERY, ["grooming_days"]));
+  one(again, "grooming-due");
+  none(noGroom, "grooming-due");
+  assert.deepEqual(rest(noGroom, ["grooming-due"]), rest(again, ["grooming-due"]));
+});
+
+// [flow-findings#6]
+test("policy gate: only flow.active_epics_max set reads the epics, and an epic.md that cannot be read is counted in flow-stories-unread (failure)", () => {
+  const fx = flowVault({ vaultCfg: P({ active_epics_max: 5 }), stories: everyStories() });
+  const found = flowOnly(
+    checkFlow({
+      cfg: fx.cfg,
+      layout: loadLayout(fx.cfg.layout),
+      vaultCfg: P({ active_epics_max: 5 }),
+      proj: fx.proj,
+      now: NOW,
+      commits: commitsSeam(),
+      read: (p) => {
+        if (p.endsWith(join("PS-Y", "epic.md"))) throw new Error("EACCES");
+        return readFileSync(p, "utf8");
+      },
+    }),
+  );
+  assert.match(one(found, "flow-stories-unread").message, /^1 story or epic file or folder could not be read/);
+  none(found, "epic-single-story");
+});
+
 // ─── Contract 7: an unset or invalid policy ────────────────────────────
 
 // [flow-findings#7]
@@ -792,6 +839,14 @@ test("unset policy: no flow block gives one flow-policy-unset naming the configu
     );
     assert.equal(seam.calls.length, 0);
   }
+});
+
+// [flow-findings#7]
+test("unset policy: a flow block holding only flow.groomed_at gives one flow-policy-unset and no other flow finding (edge)", () => {
+  const fx = flowVault({ vaultCfg: P({ groomed_at: "2026-11-01T00:00:00.000Z" }), stories: everyStories() });
+  const seam = commitsSeam();
+  assert.deepEqual(ids(flowRun(fx, { commits: seam })), ["flow-policy-unset"]);
+  assert.equal(seam.calls.length, 0);
 });
 
 // [flow-findings#7]
@@ -1195,6 +1250,8 @@ const KEY_CHECKS = [
   [["capacity_weeks"], ["todo-over-capacity"]],
   [["people"], ["wip-over-limit", "flow-person-unknown", "assignee-left"]],
   [["people", "Gone Person", "left"], ["assignee-left"]],
+  [["grooming_days"], ["grooming-due"]],
+  [["active_epics_max"], ["epic-single-story", "active-epics-over-cap"]],
 ];
 const idSet = (fs) => [...new Set(ids(fs))].sort();
 

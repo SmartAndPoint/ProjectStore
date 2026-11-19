@@ -510,8 +510,9 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
-  // The one change of status no gate makes, planned ↔ todo (SPEC-001
-  // contract 7, as amended 2026-11-10: the ready step). --reason is required;
+  // The one change of status no gate makes for a named story, planned ↔
+  // todo (SPEC-001 contract 7, as amended 2026-11-10: the ready step; groom
+  // also makes todo → planned, as amended 2026-11-15). --reason is required;
   // the handler says so, as agents and codemap check their own.
   Object.freeze({
     verb: "move",
@@ -568,6 +569,29 @@ export const VERBS = Object.freeze([
     mcp: Object.freeze([]),
     options: [
       opt("initiative", "<id>", 'the initiative id (required); "" clears it'),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // A story's or an epic's place among its siblings (the rank spec, contracts
+  // 3 to 8): bare, the plan; --write writes only the `rank:` lines, asking at a
+  // terminal. No date moves and no derived view is refreshed.
+  Object.freeze({
+    verb: "rank",
+    summary: "Order an open story in its epic, or an epic in its initiative.",
+    usage: Object.freeze(["story <EPIC-ID>/<story-id>", "epic <EPIC-ID>"]),
+    module: "./rank-verb.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("before", "<sibling>", "put it right before this sibling, named as the item is"),
+      opt("after", "<sibling>", "put it right after this sibling, named as the item is"),
+      opt("first", false, "put it first in its group"),
+      opt("last", false, "put it last in its group"),
       opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
       JSON_OPT,
     ],
@@ -650,6 +674,25 @@ export const VERBS = Object.freeze([
       opt("reason", "<text>", "why the work changes hands, one line (required): it goes into each story's Status log"),
       opt("story", "<EPIC>/<id>", "only this story, resolved as move resolves a story"),
       opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // The weekly grooming pass (the groom spec, contract 1): bare, the plan;
+  // --write moves the stale ToDo stories back to the backlog and stamps
+  // flow.groomed_at, asking once at a terminal. No argument.
+  Object.freeze({
+    verb: "groom",
+    summary: "Send stale ToDo back to the backlog and list one-story epics.",
+    usage: NO_FORMS,
+    module: "./groom.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("write", false, "write it and stamp the pass (asks at a terminal; without one, --write is the confirmation)"),
       JSON_OPT,
     ],
   }),
@@ -871,6 +914,11 @@ const EXAMPLES = {
     '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
   ],
   reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
+  rank: [
+    "{cmd} rank story PS-CORE/story-x --before PS-CORE/story-y  # the plan; nothing is written",
+    "{cmd} rank story PS-CORE/story-x --first --write",
+    "{cmd} rank epic PS-CORE --after PS-AUTH --write",
+  ],
   follow: [
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
@@ -881,6 +929,7 @@ const EXAMPLES = {
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team" --write',
     '{cmd} handover --from "First Last" --to "Other Person" --reason "on leave" --story PS-CORE/story-x --write',
   ],
+  groom: ["{cmd} groom  # the plan; nothing is written", "{cmd} groom --write", "{cmd} groom --json"],
   dashboard: ["{cmd} dashboard", "{cmd} dashboard --port 4810 --no-open"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
@@ -941,6 +990,7 @@ const NOTES = {
   initiative:
     "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use create initiative.",
   epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use create epic.",
+  rank: "It orders the open stories of one epic, or the epics of one initiative, apart from priority. It writes only a rank: line in each file whose value changes, and moves no date.",
   create:
     "What it writes is marked not reviewed (written_by_verb) until a review clears the mark; the story gates run the critic on a marked file. A file that exists is never overwritten.",
   dashboard:

@@ -19,6 +19,7 @@ import {
   windowCounts,
   weekStart,
   openStoriesOf,
+  epicCounts,
   DAY_MS,
 } from "../scripts/flow-counts.mjs";
 import { stampMs, statusStamp, isAwaitingClose, AWAITING_REASON } from "../scripts/status-log.mjs";
@@ -313,4 +314,63 @@ test("source guard: flow-counts.mjs reads no clock, no file and no process", () 
     ["the clock", /Date\.now|new Date\(\s*\)|performance\.now/],
   ])
     assert.doesNotMatch(code, re, `flow-counts.mjs reads ${what}`);
+});
+
+// ─── Contract 9: epics, active and one-story ───────────────────────────
+
+const epicFact = (epic, status = "in-progress") => ({
+  rel: `epics/${epic}/epic.md`,
+  epic,
+  text: "",
+  fm: { type: "epic", status },
+});
+const storyIn = (epic, id, status) =>
+  storyFacts({
+    rel: `epics/${epic}/stories/${id}.md`,
+    epic,
+    slug: id,
+    text: storyText({ id, epic, status }),
+    fm: parseFrontmatter(storyText({ id, epic, status })).data,
+  });
+const counted = (epics, fs) => {
+  const c = epicCounts(epics, fs);
+  return { active: c.active.map((e) => e.epic), single: c.singleStory.map((e) => [e.epic, e.story.slug]) };
+};
+
+// [flow-counts#9]
+test("epic counts: an epic with status active and one planned story is active and a one-story epic", () => {
+  assert.deepEqual(counted([epicFact("PS-A", "active")], [storyIn("PS-A", "story-a", "planned")]), {
+    active: ["PS-A"],
+    single: [["PS-A", "story-a"]],
+  });
+});
+
+// [flow-counts#9]
+test("epic counts: one done and one todo story is active and not one-story; one todo and one parked is active and one-story (edge)", () => {
+  const fs = [
+    storyIn("PS-A", "story-d", "done"),
+    storyIn("PS-A", "story-t", "todo"),
+    storyIn("PS-B", "story-t", "todo"),
+    storyIn("PS-B", "story-p", "parked"),
+  ];
+  assert.deepEqual(counted([epicFact("PS-A"), epicFact("PS-B")], fs), {
+    active: ["PS-A", "PS-B"],
+    single: [["PS-B", "story-t"]],
+  });
+});
+
+// [flow-counts#9]
+test("epic counts: a deferred and a done epic with one open story each, an epic of done stories and an epic with no story are neither active nor one-story (edge)", () => {
+  const epics = [epicFact("PS-F", "deferred"), epicFact("PS-D", "done"), epicFact("PS-E"), epicFact("PS-N")];
+  const fs = [
+    storyIn("PS-F", "story-f", "planned"),
+    storyIn("PS-D", "story-d", "todo"),
+    storyIn("PS-E", "story-e1", "done"),
+    storyIn("PS-E", "story-e2", "closed"),
+  ];
+  assert.deepEqual(counted(epics, fs), { active: [], single: [] });
+  // A story under an epic named constructor counts like any other.
+  assert.deepEqual(counted([epicFact("constructor")], [storyIn("constructor", "story-c", "planned")]).single, [
+    ["constructor", "story-c"],
+  ]);
 });

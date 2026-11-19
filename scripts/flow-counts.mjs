@@ -10,7 +10,10 @@
 // counts for the same instant (a source guard in tests/flow-counts.test.mjs).
 //
 // Spec: "Flow counts: whole days, week windows, age in status, awaiting
-// close, WIP and capacity" (alias `flow-counts`), contracts 1 to 8.
+// close, WIP and capacity" (alias `flow-counts`), contracts 1 to 8, and
+// contract 9 (epicCounts), added 2026-11-15 by PS-FLOW/story-a-weekly-
+// grooming-pass-sends-stale-todo-stories-back-to-the-backlog-and-the-
+// librarian-proposes-epic-merges.
 
 import { stampMs, statusStamp, isAwaitingClose, parseStatusLog } from "./status-log.mjs";
 import { statusToColumn, NOT_ACTIONABLE, storyState } from "./stages.mjs";
@@ -135,6 +138,36 @@ export function wipByPerson(facts) {
 // Oldest first. Doctor's `assignee-left` and the handover verb read it.
 export function openStoriesOf(facts, name) {
   return oldestFirst(facts.filter((f) => f.assignee && f.assignee === name && storyState(f.fm?.status) === "open"));
+}
+
+// ─── Contract 9: epics, active and one-story ───────────────────────────
+
+// The active epics and the one-story epics, by folder name, from the epics
+// (flow-stories.mjs readFlowEpics) and the stories' facts. An epic is active
+// when its own status is open by storyState and it holds at least one open
+// story (contract 8's reading): an epic of planned stories counts, a parked
+// or a done-only one does not. A one-story epic is an active epic with
+// exactly one story that is not in NOT_ACTIONABLE, done ones included, so
+// that story is its open one. Returns {active, singleStory}: epics, each
+// one-story epic with its `story` (a fact). Doctor's epic findings and the
+// groom verb read it.
+export function epicCounts(epics, facts) {
+  const byEpic = new Map();
+  for (const f of facts) {
+    if (!byEpic.has(f.epic)) byEpic.set(f.epic, []);
+    byEpic.get(f.epic).push(f);
+  }
+  const active = [];
+  const singleStory = [];
+  for (const e of epics) {
+    if (storyState(e.fm?.status) !== "open") continue;
+    const stories = byEpic.get(e.epic) || [];
+    if (!stories.some((f) => storyState(f.fm?.status) === "open")) continue;
+    active.push(e);
+    const counted = stories.filter((f) => !NOT_ACTIONABLE.has(f.status));
+    if (counted.length === 1) singleStory.push({ ...e, story: counted[0] });
+  }
+  return { active, singleStory };
 }
 
 // ─── Contract 6: week windows, intake and closes ───────────────────────

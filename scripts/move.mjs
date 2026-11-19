@@ -1,7 +1,8 @@
 // projectstore — move.mjs: the `move` verb, a story between the backlog and ToDo.
 //
-// `planned` ↔ `todo` is the one change of status no gate makes (the plan gate
-// starts work, the close gate finishes it). `move <story> <status> --reason
+// `planned` ↔ `todo` is the one change of status no gate makes for a named
+// story (the plan gate starts work, the close gate finishes it; `groom
+// --write` also makes `todo → planned`, for the stale ToDo stories). `move <story> <status> --reason
 // "<why>"` makes it, for `todo` and `planned` only: bare, it prints the plan
 // and writes nothing; with --write (a terminal is asked first; without one,
 // --write is the confirmation) it writes the story through the shared status

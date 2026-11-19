@@ -112,7 +112,7 @@ by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
 hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
 `NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
 `tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
-to it too (`move`, `handover`, the epic row, `configure`'s vault settings, `guide eject`),
+to it too (`move`, `handover`, `groom`, the epic row, `configure`'s vault settings, `guide eject`),
 and the story close brackets the clerk's copy, which no hook sees, with
 `session snapshot <story> --for <scratch>` before the spawn and
 `session record <story> --from <scratch>` after it. Derived views are not
@@ -279,6 +279,21 @@ resistance. v0.13 makes that safe instead of forbidden:
   `gh`, and it has no MCP tool. Doctor's `assignee-left` lists the open work
   of each person `flow.people[<name>].left` marks as left, and it and
   `assignee-idle` end with the `handover` command to run.
+- **`groom`** is the weekly grooming pass. Every ToDo story whose age in
+  status meets `flow.age_days.todo` goes back to `planned`, with one Status
+  log line, `status: todo → planned — groomed: in ToDo for <n> days (groom)`,
+  marked `(age read from updated)` or `(age read from created)` when its
+  stamp is not trusted. It lists the one-story epics and the active epics
+  against `flow.active_epics_max`, and stamps the pass in `flow.groomed_at`,
+  also when nothing moved. Bare, it prints the plan; with `--write` it asks
+  once at a terminal, writes each story through the read-again writer `move`
+  uses, the stamp through the vault-config writer, and refreshes the views
+  once. It runs no git and no `gh`, and it has no MCP tool.
+  `/projectstore:groom` shows the plan, asks once, runs the write and then
+  hands the one-story epics to the librarian, under an `Epic list:` prompt,
+  for a merge proposal per epic. Doctor's `grooming-due` says when the next
+  pass is due, and `epic-single-story` and `active-epics-over-cap` read
+  `flow.active_epics_max`.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.
@@ -389,6 +404,22 @@ epic and the epic's initiative on a plan) and the story command reviews each
 first; `/projectstore:review` then runs `reviewed <path> --write`, the one
 writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
 `follow` names a marked story it closes. Neither verb has an MCP tool.
+
+An optional `rank` key orders the open work by hand, apart from priority: the
+open stories of one epic, the epics of one initiative, and the epics of no
+initiative. One comparator, `siblingOrder` in `scripts/rank.mjs`, sorts a
+group: ranked members first by value, then a story's column (Review, In
+Progress, ToDo, Backlog), priority and title, then the id. With no `rank` in
+the vault that is the backlog tree's old order. The `rank` verb
+(`scripts/rank-verb.mjs`) moves an item `--before` or `--after` a sibling, or
+`--first` or `--last`, and writes only the `rank:` line of each file whose
+value changes, with steps of 1048576 so a move rarely writes more than one
+file. It moves no `updated` date, footer or Status log, sets no review mark,
+and refreshes no derived view: kanban, the graph, the code map and `next` do
+not read `rank`. Each file is judged again on its bytes at the time of the
+write, and a failed write puts back the files already written. Doctor's
+`rank-tie` (info) names members of one group that share a value. The verb has
+no MCP tool.
 
 ## The epic ↔ code mapping
 
