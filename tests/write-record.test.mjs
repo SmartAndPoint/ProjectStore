@@ -495,23 +495,24 @@ test("node writers: configure --set flow.window_weeks=4 leaves one event for .pr
   const groomed = await cli(proj, ["groom", "--write", "--json"], { ...process.env, [SID_ENV]: "s1" });
   assert.equal(groomed.code, 0, groomed.err);
   const all = events(proj, "s1");
-  assert.deepEqual(all[0], ev[0], "configure's event first");
-  const g = all.slice(1);
-  // The story's and its epic's events can share a timestamp, so their order is not pinned.
   assert.deepEqual(
-    g
-      .slice(0, 2)
-      .map((e) => [e.rel, e.tool])
-      .sort(),
-    [
-      ["epics/PS-X/epic.md", "groom"],
-      ["epics/PS-X/stories/story-a.md", "groom"],
-    ],
+    all.filter((e) => e.tool === "configure"),
+    [ev[0]],
+    "configure's event is still there, once",
   );
-  assert.deepEqual([g.length, g[2].rel, g[2].tool], [3, ".projectstore.json", "groom"]);
-  assert.equal(g.find((e) => e.rel.endsWith("story-a.md")).before, sha(story));
-  assert.equal(g[2].before, sha(configured));
-  assert.equal(g[2].after, sha(readFileSync(join(vault, ".projectstore.json"), "utf8")));
+  // Events are named by the millisecond, then a random tail, so groom's three
+  // writes inside one millisecond come back in any order: find each by path.
+  const g = all.filter((e) => e.tool === "groom");
+  assert.deepEqual(g.map((e) => e.rel).sort(), [
+    ".projectstore.json",
+    "epics/PS-X/epic.md",
+    "epics/PS-X/stories/story-a.md",
+  ]);
+  const byRel = (rel) => g.find((e) => e.rel === rel);
+  assert.equal(byRel("epics/PS-X/stories/story-a.md").before, sha(story));
+  const stamp = byRel(".projectstore.json");
+  assert.equal(stamp.before, sha(configured));
+  assert.equal(stamp.after, sha(readFileSync(join(vault, ".projectstore.json"), "utf8")));
 });
 
 // [writerecord#5]
