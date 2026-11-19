@@ -92,6 +92,7 @@
   "scripts/flow-counts.mjs",
   "scripts/flow-policy.mjs",
   "scripts/flow-stories.mjs",
+  "scripts/flow-view.mjs",
   "scripts/follow-gh.mjs",
   "scripts/follow-plan.mjs",
   "scripts/follow.mjs",

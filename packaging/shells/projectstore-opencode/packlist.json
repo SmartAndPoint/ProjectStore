@@ -94,6 +94,7 @@
   "node_modules/projectstore/scripts/flow-counts.mjs",
   "node_modules/projectstore/scripts/flow-policy.mjs",
   "node_modules/projectstore/scripts/flow-stories.mjs",
+  "node_modules/projectstore/scripts/flow-view.mjs",
   "node_modules/projectstore/scripts/follow-gh.mjs",
   "node_modules/projectstore/scripts/follow-plan.mjs",
   "node_modules/projectstore/scripts/follow.mjs",

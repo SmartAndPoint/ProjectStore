@@ -94,6 +94,8 @@ export async function makeWorld({
   ignoredVault = false,
   // <vault>/.projectstore.json, when a case needs the vault's settings (its flow policy).
   vaultSettings = null,
+  // A flow.md at the vault root, so a verb's refresh rewrites it.
+  flowPage = false,
   // More files of the vault, { "<vault-relative path>": "<text>" }, put before the seed commit.
   files = {},
 } = {}) {
@@ -130,6 +132,7 @@ export async function makeWorld({
   put("kanban.md", "stub board\n");
   put("graph.md", "stub graph\n");
   put("code-map.md", "stub code map\n");
+  if (flowPage) put("flow.md", "stub flow\n");
   if (vaultSettings) put(".projectstore.json", `${JSON.stringify(vaultSettings, null, 2)}\n`);
   for (const [rel, text] of Object.entries(files)) put(rel, text);
   for (const f of ["adr", "specs", "epics"]) put(`${f}/README.md`, `# ${f}\n`);

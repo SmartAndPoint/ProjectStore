@@ -1360,7 +1360,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
         return ran;
       }
       const views = lib.derivedViewPaths(ctx.layout);
-      const derived = new Set([views.board, views.codeMap, views.graph, ...views.indexes.map((x) => x.path)].filter(Boolean));
+      const derived = new Set([...Object.values(views).filter((v) => typeof v === "string"), ...views.indexes.map((x) => x.path)]);
       const inVault = (p) => (known.prefix ? p.startsWith(`${known.prefix}/`) : true);
       const rel = (p) => (known.prefix ? p.slice(known.prefix.length + 1) : p);
       const changed = await changedPaths(via);

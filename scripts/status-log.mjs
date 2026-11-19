@@ -267,6 +267,18 @@ export function parseStatusLog(text) {
   return out;
 }
 
+// The lines of the Status log that start with `- `, in file order, whether
+// they read in the grammar or not; null when there is no section. A path is
+// exact only when parseStatusLog reads every one (Flow counts, contract 10).
+export function logBullets(text) {
+  const span = logSpan(text);
+  if (!span) return null;
+  return text
+    .slice(span.headingEnd, span.end)
+    .split("\n")
+    .filter((l) => l.startsWith("- "));
+}
+
 // The text with `line` appended to the Status log: after its last `- ` line,
 // or, with no section, in a new section after Final Summary and before
 // Technical Notes (contract 2). An existing line is never touched.
