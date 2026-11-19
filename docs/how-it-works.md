@@ -218,11 +218,16 @@ resistance. v0.13 makes that safe instead of forbidden:
   boxes, dead and ambiguous wiki/relative links — resolved by the same shared
   resolver the link graph uses, so the two can never disagree about a body
   link — `code_refs`,
-  code-map and graph staleness). A cheap
+  code-map, graph and flow page staleness). A cheap
   subset runs at session start and prints one line only when something is wrong.
 - **`reconcile`** rebuilds every generated view (kanban, folder indexes,
-  code-map, the link graph) from the vault — the repair partner. Idempotent: a clean vault
-  yields zero changes. Since v0.19 reconcile applies the write itself
+  code-map, the link graph, the flow page) from the vault — the repair partner. Idempotent: a clean vault
+  yields zero changes. The flow page, `flow.md`, shows WIP per person, the
+  date each open story entered its status, the weekly throughput and the
+  cumulative flow. It is dated by the newest date a story carries, never by
+  the clock, so a run on a later day writes the same bytes. Like `graph.md`,
+  it is made only on request, with `--only flow`; after that, every
+  reconcile keeps it fresh. Since v0.19 reconcile applies the write itself
   (`--write`): each approved target is recomputed from the vault state at
   write time and replaced atomically, so a stale preview is never what lands;
   `--write` is also a sanctioned headless entry point (cron/CI repair job).

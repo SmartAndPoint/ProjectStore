@@ -283,7 +283,8 @@ cannot collide).
      continue) with: the scratch path, the target path, the exact re-check
      invocation (`story-section.mjs close "<story-path>" --check
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
-     folder>` when status changed), and the doctor pre-state line. On a clean
+     folder>` when status changed, plus `flow` when flow.md exists at the
+     vault root), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
      pre-state) skip steps 6-6b and run step 6c, then step 6d, then step 6e — the clerk's report is the write evidence. After
      any report with `written: true`, clean or stopped, first record the copy,
@@ -300,13 +301,17 @@ cannot collide).
    - No clerk available → perform steps 6-6c yourself, then 6d, then 6e. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
-6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
-   suggesting `/projectstore:kanban` (the status changed), after step 6d —
-   6a/6b below are the close's ceremony, not the plan's.
+6. **On Yes** (undelegated path): Write the full file. On a `plan`, after
+   step 6d, when flow.md exists at the vault root, refresh the flow page:
+   `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only flow`
+   — never when it does not exist, since `--only flow` creates it. Then finish
+   by suggesting `/projectstore:kanban` (the status changed) — 6a/6b below
+   are the close's ceremony, not the plan's.
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
    `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
-   `indexes=<epic folder>` when the status changed).
+   `indexes=<epic folder>` when the status changed, and `flow` when flow.md exists,
+   never otherwise: `--only flow` creates the page).
 
 6b. **(close only) Verify**: `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
    — a close is not done while doctor got worse. Then suggest the reviewer's

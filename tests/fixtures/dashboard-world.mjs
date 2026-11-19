@@ -94,6 +94,8 @@ export async function makeWorld({
   ignoredVault = false,
   // <vault>/.projectstore.json, when a case needs the vault's settings (its flow policy).
   vaultSettings = null,
+  // A flow.md at the vault root, so a verb's refresh rewrites it.
+  flowPage = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "ps-dash-world-")));
   // A stub gh first on PATH, so no call reaches the person's own gh.
@@ -128,6 +130,7 @@ export async function makeWorld({
   put("kanban.md", "stub board\n");
   put("graph.md", "stub graph\n");
   put("code-map.md", "stub code map\n");
+  if (flowPage) put("flow.md", "stub flow\n");
   if (vaultSettings) put(".projectstore.json", `${JSON.stringify(vaultSettings, null, 2)}\n`);
   for (const f of ["adr", "specs", "epics"]) put(`${f}/README.md`, `# ${f}\n`);
   if (ignoredVault) {

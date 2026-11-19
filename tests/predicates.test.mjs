@@ -188,6 +188,24 @@ test("resolveSelection: bare selects all; selectors compose; unknown and layout-
   assert.match(resolveSelection(epicless, "codemap").error, /no epic folder/);
 });
 
+// [flow-view#9]
+test("resolveSelection: flow is in a bare run and a selector of its own on a layout with the flow view block; one without it refuses --only flow and names the valid selectors", () => {
+  const layout = loadLayout("engineering");
+  assert.deepEqual(layout.flow, { file: "flow.md" });
+  assert.equal(resolveSelection(layout, null).flow, true);
+  const one = resolveSelection(layout, "flow");
+  assert.ok(one.explicit && one.flow && !one.kanban && !one.graph);
+  assert.equal(resolveSelection(layout, "kanban").flow, false);
+  assert.ok(resolveSelection(layout, "kanbn").error.includes("graph, flow, indexes"));
+
+  const flowless = { ...layout };
+  delete flowless.flow;
+  const refused = resolveSelection(flowless, "kanban,flow");
+  assert.match(refused.error, /^layout declares no flow view block — valid: /);
+  assert.ok(!/\bflow\b/.test(refused.error.split("valid: ")[1]), "flow is not offered as valid");
+  assert.equal(resolveSelection(flowless, null).flow, true, "a bare run asks; reconcile reports the layout has none");
+});
+
 test("writeIndexWithRetry: drift during rebuild — recomputed from fresh bytes, never written stale", () => {
   const dir = mkdtempSync(join(tmpdir(), "ps-retry-"));
   const p = join(dir, "README.md");

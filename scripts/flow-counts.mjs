@@ -13,9 +13,12 @@
 // close, WIP and capacity" (alias `flow-counts`), contracts 1 to 8, and
 // contract 9 (epicCounts), added 2026-11-15 by PS-FLOW/story-a-weekly-
 // grooming-pass-sends-stale-todo-stories-back-to-the-backlog-and-the-
-// librarian-proposes-epic-merges.
+// librarian-proposes-epic-merges. Contract 6 (weeklyCounts) and contract 10
+// (columnPath, cumulativeFlow), amended and added 2026-11-19 by PS-FLOW/story-
+// a-derived-flowmd-beside-the-kanban-shows-wip-age-in-status-throughput-and-
+// the-cumulative-flow, for flow.md (scripts/flow-view.mjs).
 
-import { stampMs, statusStamp, isAwaitingClose, parseStatusLog } from "./status-log.mjs";
+import { stampMs, statusStamp, isAwaitingClose, parseStatusLog, logBullets, sameStatus } from "./status-log.mjs";
 import { statusToColumn, NOT_ACTIONABLE, storyState } from "./stages.mjs";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -198,6 +201,18 @@ export function windowCounts(facts, win) {
   };
 }
 
+// The window, one ISO week at a time, oldest first: each week [from, to)
+// counted as windowCounts counts the window, so the weeks' created and closed
+// sum to the window's. `closedUnstamped` stays the window's: no week holds it.
+export function weeklyCounts(facts, win) {
+  const out = [];
+  for (let from = win.from; from < win.to; from += WEEK_MS) {
+    const c = windowCounts(facts, { from, to: from + WEEK_MS });
+    out.push({ from, to: from + WEEK_MS, created: c.created, closed: c.closed });
+  }
+  return out;
+}
+
 // Younger than the window: no counted story was created on or before the day
 // of `from`, so there are not W weeks to measure.
 export function isYoung(facts, win) {
@@ -219,4 +234,90 @@ export function capacityVerdict({ todo, closed, weeks, bounds }) {
   if (lhs > closed * hi) return { verdict: "over", ...out };
   if (lhs < closed * lo) return { verdict: "under", ...out };
   return { verdict: "within", ...out };
+}
+
+// ─── Contract 10: the cumulative flow ──────────────────────────────────
+
+const INEXACT_WHY = new Set(["no-log", "unparsed", "differs"]);
+
+// One story's path: the steps by which it entered a column, {at, column},
+// in time order (a set-aside status is a step into no column, null), and
+// whether the path is exact. Exact when the Status log has a `status:` line,
+// the stamp's reason is not no-log, unparsed or differs, every `- ` line of
+// the section reads, and each line's `from` is the previous line's `to`; it
+// then starts at the earlier of `created` and the first line, in that line's
+// `from` (the writers' `none` reads as Backlog). Otherwise approximate:
+// `created` into Backlog, `started_at` into In Progress, `closed_at` into
+// Done, and, when that does not end in the column now, a last step into it at
+// the later of the age's date and the step before.
+export function columnPath(fact) {
+  const text = String(fact.text ?? "");
+  const entries = parseStatusLog(text) || [];
+  const lines = entries
+    .map((e, i) => ({ ...e, ms: stampMs(e.at), i }))
+    .filter((e) => e.field === "status")
+    .sort((a, b) => (a.ms ?? 0) - (b.ms ?? 0) || a.i - b.i);
+  let exact =
+    lines.length > 0 &&
+    !INEXACT_WHY.has(statusStamp(text).why) &&
+    (logBullets(text) || []).length === entries.length &&
+    lines.every((l) => l.ms !== null);
+  for (let k = 1; exact && k < lines.length; k++) if (!sameStatus(lines[k].from, lines[k - 1].to)) exact = false;
+  if (exact) {
+    const first = lines[0];
+    const start = fact.created === null ? first.ms : Math.min(fact.created, first.ms);
+    return {
+      exact: true,
+      steps: [{ at: start, column: columnOf(first.from) }, ...lines.map((l) => ({ at: l.ms, column: columnOf(l.to) }))],
+    };
+  }
+  const steps = [
+    { at: fact.created, column: "Backlog" },
+    { at: fact.startedAt, column: "In Progress" },
+    { at: fact.closedAt, column: "Done" },
+  ]
+    .filter((s) => s.at !== null && s.at !== undefined)
+    .sort((a, b) => a.at - b.at); // stable: steps at one instant keep this order
+  const last = steps.length ? steps[steps.length - 1] : null;
+  if ((last ? last.column : null) !== fact.column) {
+    const at = later(fact.age?.at ?? null, last ? last.at : null);
+    if (at !== null) steps.push({ at, column: fact.column });
+  }
+  return { exact: false, steps };
+}
+
+// A path's column at an instant: its last step strictly before it, none
+// before its first step.
+function columnAt(steps, ms) {
+  let column = null;
+  for (const s of steps) if (s.at < ms) column = s.column;
+  return column;
+}
+
+// Each counted story's column at each week's end (the next Monday 00:00Z),
+// one row per week of `win`, then a last row with each counted story's
+// column now; `columns` are the board's, in its order. `approximate`: the
+// counted stories whose path is approximate or empty. Returns {rows:
+// [{from, to, at, counts}], approximate}; the last row has from and to null
+// and `at` the as-of instant.
+export function cumulativeFlow(facts, win, asOfMs, columns) {
+  const counted = facts.filter((f) => f.column !== null);
+  const paths = counted.map((f) => ({ f, path: columnPath(f) }));
+  const zero = () => new Map(columns.map((c) => [c, 0]));
+  const bump = (counts, c) => {
+    if (c !== null && counts.has(c)) counts.set(c, counts.get(c) + 1);
+  };
+  const rows = [];
+  for (let from = win.from; from < win.to; from += WEEK_MS) {
+    const counts = zero();
+    for (const { path } of paths) bump(counts, columnAt(path.steps, from + WEEK_MS));
+    rows.push({ from, to: from + WEEK_MS, at: from + WEEK_MS, counts });
+  }
+  const now = zero();
+  for (const f of counted) bump(now, f.column);
+  rows.push({ from: null, to: null, at: asOfMs, counts: now });
+  return {
+    rows,
+    approximate: paths.filter(({ path }) => !path.exact || path.steps.length === 0).map(({ f }) => f),
+  };
 }

@@ -1745,14 +1745,16 @@ export function folderByKind(layout, kind) {
 
 // The derived views a layout's reconcile writes, vault-relative: the board
 // (the layout's kanban file, when it declares one), the code map, the graph,
-// and each layout folder's README.md, which is a view where it holds a managed
-// index table. One list, read by reconcile and by the pre-commit check (the
-// check spec, contract 5), so the two cannot name different views.
+// the flow page (its view block's file, else null), and each layout folder's
+// README.md, which is a view where it holds a managed index table. One list,
+// read by reconcile and by the pre-commit check (the check spec, contract 5),
+// so the two cannot name different views.
 export function derivedViewPaths(layout) {
   return {
     board: layout.kanban ? layout.kanban.file || "kanban.md" : null,
     codeMap: "code-map.md",
     graph: "graph.md",
+    flow: layout.flow ? layout.flow.file || "flow.md" : null,
     indexes: layout.folders.map((f) => ({ folder: f, path: `${f.path}/README.md` })),
   };
 }
