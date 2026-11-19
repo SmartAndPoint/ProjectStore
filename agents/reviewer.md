@@ -198,11 +198,20 @@ say so plainly.
    (story-scoped range; the script filters lockfiles/generated). When the
    result looks implausible (`fallback: true`, empty, or obviously
    over/under-attributed — shared branch, direct-to-main), say so and ask for
-   an explicit `--range` instead of guessing. State whether the parent epic's
-   footprint needs widening — the write happens in the approval-gated
-   `/projectstore:codemap set`, never here.
+   an explicit `--range` instead of guessing. The close writes them, behind
+   the person's approval, and widens the epic's footprint; you never write
+   them.
 5. **Open Questions** — low-confidence findings, surfaced not blocking.
 6. **Good** — genuine strengths, one line each. Skip if none.
+
+The story-conformance report's last line (not the spec-drift report's) is
+the proposed refs in one fixed form, files only, each path relative to the
+project root, as one JSON list:
+
+    code_refs: ["scripts/a.mjs", "README.md"]
+
+(`code_refs: []` when the story changed no file.) The close copies that line
+verbatim and reads it when the pull request's files cannot be used.
 
 No sycophancy, no rubber-stamping, no severity inflation. Read-only: report as
 text; never edit vault files, never stage or commit.

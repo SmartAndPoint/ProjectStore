@@ -2,8 +2,10 @@
 // projectstore — diff-refs.mjs (PS-SPEC story-009)
 // Computes the files a story touched, for the reviewer's proposed code_refs.
 // Our own extension: neither Backlog.md nor projectstore derived code mapping
-// from git before this. Pure compute — the write path stays
-// /projectstore:codemap set, approval-gated.
+// from git before this. Pure compute: it writes nothing. Refs are written by
+// /projectstore:codemap set and by a story's close, each behind its approval
+// (the close-refs ADR, decisions 1 and 8); the close's last source is
+// committedFilesSince below, through the close-refs verb.
 //
 //   node diff-refs.mjs --since <iso-timestamp> [--range <git-range>]
 //
@@ -313,6 +315,34 @@ export function trunkHistory(cwd, since, { timeout = 10000, env = process.env } 
 // --since="2026-09-08 00:00" returned the day's commit).
 export function sinceWindow(since) {
   return /^\d{4}-\d{2}-\d{2}$/.test(since) ? `${since} 00:00:00` : since;
+}
+
+// The files of the commits on HEAD since `since` (the close-refs spec,
+// contract 5): the window `--since` uses (sinceWindow), relative to the
+// repository's root (no --relative: the close-refs normaliser strips the
+// project's prefix once), read with -z so no path comes back quoted, sorted
+// by path and unfiltered. `git` is a runner of gitRun's shape, (cwd, args) →
+// {kind, status, stdout, stderr}. Returns {status: "ok", files} or
+// {status: "unknown", reason}, the reason git's own first line.
+export function committedFilesSince(cwd, since, { git = (c, a) => gitRun(c, a) } = {}) {
+  const r = git(cwd, ["log", "HEAD", `--since=${sinceWindow(since)}`, "--name-only", "--format=", "-z", "--"]);
+  if (r.kind === "no-git") return { status: "unknown", reason: "not a git repository" };
+  if (r.kind !== "answer") return { status: "unknown", reason: r.reason || "git log failed" };
+  if (r.status !== 0) {
+    const why = String(r.stderr || "")
+      .trim()
+      .split("\n")[0];
+    return { status: "unknown", reason: why || `git log exited ${r.status}` };
+  }
+  const files = [
+    ...new Set(
+      String(r.stdout)
+        .split("\0")
+        .map((p) => p.replace(/^\n+/, ""))
+        .filter(Boolean),
+    ),
+  ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { status: "ok", files };
 }
 
 function filterFiles(list) {

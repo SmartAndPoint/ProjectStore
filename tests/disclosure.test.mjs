@@ -177,7 +177,9 @@ const ROWS = {
         .map((c) => [`\`${c.argv.join(" ")}\``, JSON.stringify(c.argv), JSON.stringify(c)]),
     ],
   },
-  // The follow spec, contract 10: gh, started only by follow, through its adapter.
+  // The follow spec, contract 10: gh, started only by follow, through its
+  // adapter; and by close-refs through the same adapter (the close-refs ADR,
+  // decision 10).
   gh: {
     sub: RUNS,
     lead: "gh",
@@ -188,9 +190,12 @@ const ROWS = {
       ["`gh repo view`", '["repo", "view"', code("scripts/follow-gh.mjs")],
       ["over the network with your own `gh` login", "env, encoding", code("scripts/follow-gh.mjs")],
       ["ProjectStore reads no token", "{ cwd, env, timeout }", code("scripts/follow-gh.mjs")],
+      ["by `close-refs`", 'from "./follow-gh.mjs"', code("scripts/close-refs.mjs")],
+      ["a bare `gh repo view --json url`", '["repo", "view", "--json", "url"]', code("scripts/follow-gh.mjs")],
+      ["`gh api …/pulls/<n>/files`", '["api", path, "--paginate"', code("scripts/follow-gh.mjs")],
       // The page beside follow, and its exception to "nothing is written to the
       // code host" (the dashboard-writes spec's acceptance; the processes ADR, decision 3).
-      ["started only by `follow` and by the dashboard's page", '"pr", "create"', code(WRITE_MODULE)],
+      ["by `close-refs` and by the dashboard's page", '"pr", "create"', code(WRITE_MODULE)],
       [
         "nothing is written to the code host except by the page: the branch and the pull request you send from it",
         '"pr", "close"',
@@ -542,6 +547,7 @@ test("disclosure: each row's strings are in its module or the manifest data it r
     "scripts/worktree.mjs",
     "scripts/precommit.mjs",
     "scripts/follow.mjs",
+    "scripts/close-refs.mjs",
   ]);
   const GIT_CALL = /(?:spawn(?:Sync)?\(\s*"git",\s*|gitIn\([^,]+,\s*|\bgit\((?:[a-zA-Z]+,\s*)?)\[\s*"([a-z-]+)"/g;
   const subcommandsOf = (src) => [...src.matchAll(GIT_CALL)].map((m) => m[1]);
@@ -555,6 +561,10 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // follow's branch check is read too, so the row must name merge-base (the follow spec, contract 10).
   for (const s of ["worktree", "merge-base", "cat-file"])
     assert.ok(subcommandsOf(code("scripts/follow.mjs")).includes(s), `follow.mjs's git ${s} is read`);
+  // close-refs' prefix and merge checks, and its commits read in diff-refs (the close-refs spec, contract 1).
+  for (const s of ["rev-parse", "merge-base"])
+    assert.ok(subcommandsOf(code("scripts/close-refs.mjs")).includes(s), `close-refs.mjs's git ${s} is read`);
+  assert.ok(subcommandsOf(code("scripts/diff-refs.mjs")).includes("log"), "diff-refs.mjs's git log is read");
   const planted = code("scripts/precommit.mjs") + '\nconst x = git(root, ["commit", "-qm", "planted"]);\n';
   assert.ok(subcommandsOf(planted).includes("commit"), "a commit planted in precommit.mjs is read, and fails below");
   for (const s of subcommands) assert.ok(gitRow.includes(`\`git ${s}`), `the git row names git ${s}`);

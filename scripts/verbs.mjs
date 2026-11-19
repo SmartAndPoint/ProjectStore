@@ -654,6 +654,30 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // Where a closing story's code_refs come from (the close-refs spec,
+  // contract 1): the pull request's files, the reviewer's line, the commits
+  // since the story started. It writes nothing; it reads the network, so it
+  // has no MCP tool, and its handler is cli.mjs's.
+  Object.freeze({
+    verb: "close-refs",
+    summary: "The code_refs a close would add, and where they come from.",
+    usage: Object.freeze(["<story>"]),
+    module: "./close-refs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt(
+        "reviewer-refs-file",
+        "<path>",
+        "a file holding the reviewer's last code_refs: line, read when the pull request gives no files",
+      ),
+      JSON_OPT,
+    ],
+  }),
   // One person's open stories to another, with a logged reason (the handover
   // spec, contract 1): bare, the plan; --write applies it, asking once at a
   // terminal. --from, --to and --reason are required; the handler says so.
@@ -927,6 +951,10 @@ const EXAMPLES = {
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
     "{cmd} follow --story PS-CORE/story-x --write",
+  ],
+  "close-refs": [
+    "{cmd} close-refs PS-CORE/story-x  # nothing is written",
+    "{cmd} close-refs PS-CORE/story-x --reviewer-refs-file /tmp/reviewer-refs.txt --json",
   ],
   handover: [
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team"  # the plan; nothing is written',

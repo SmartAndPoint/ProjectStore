@@ -1610,7 +1610,7 @@ test("commands/follow.md and its generated copies call the bin's follow with dec
 // ─── Reach ─────────────────────────────────────────────────────────────
 
 // Source guard (no contract token: doctor would count it as coverage).
-test("source guard: no hook and no MCP module reaches follow.mjs, follow-gh.mjs or follow-plan.mjs, and only follow.mjs imports follow-gh.mjs", async () => {
+test("source guard: no hook and no MCP module reaches follow.mjs, follow-gh.mjs, follow-plan.mjs or close-refs.mjs, and only follow.mjs and close-refs.mjs import follow-gh.mjs", async () => {
   const { VERBS } = await import("../scripts/cli.mjs");
   const { READ_HANDLERS } = await import("../scripts/read-verbs.mjs");
   const rows = (list) => list.map((v) => v.module).filter(Boolean);
@@ -1626,7 +1626,12 @@ test("source guard: no hook and no MCP module reaches follow.mjs, follow-gh.mjs 
   assert.ok(entries.includes("hooks/session-start.mjs") && entries.includes("scripts/mcp-server.mjs"));
   for (const entry of entries) {
     const files = closure(entry, { root: REPO, dispatch });
-    for (const m of ["scripts/follow.mjs", "scripts/follow-gh.mjs", "scripts/follow-plan.mjs"])
+    for (const m of [
+      "scripts/follow.mjs",
+      "scripts/follow-gh.mjs",
+      "scripts/follow-plan.mjs",
+      "scripts/close-refs.mjs",
+    ])
       assert.ok(!files.includes(m), `${entry} reaches ${m}`);
   }
   // Not vacuous: the bin's table reaches follow.mjs, which reaches the adapter.
@@ -1634,5 +1639,6 @@ test("source guard: no hook and no MCP module reaches follow.mjs, follow-gh.mjs 
   const importers = readdirSync(join(REPO, "scripts")).filter(
     (f) => f.endsWith(".mjs") && /from "\.\/follow-gh\.mjs"/.test(read(join(REPO, "scripts", f))),
   );
-  assert.deepEqual(importers, ["follow.mjs"]);
+  // The two verbs that read the network through gh (the close-refs ADR, decision 10).
+  assert.deepEqual(importers, ["close-refs.mjs", "follow.mjs"]);
 });

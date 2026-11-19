@@ -815,6 +815,19 @@ async function runNextVerb(ctx) {
   return r.code;
 }
 
+// close-refs (the close-refs spec, contract 1): its own module, loaded on
+// first use. It writes nothing and asks nothing; it reads the network through
+// gh, so no MCP or hook closure reaches it.
+async function runCloseRefsVerb(ctx) {
+  const { runCloseRefs } = await import("./close-refs.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runCloseRefs(ctx);
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
 // dashboard (the dashboard spec, contracts 3–8 and 14–17): its own module,
 // loaded on first use. The project is the path the line names, else the core's
 // own resolution; the binding is checked here, after the path is known, with
@@ -1032,6 +1045,7 @@ export const HANDLERS = Object.freeze({
   reviewed: itemVerb("reviewed"),
   rank: runRankVerb,
   follow: runFollowVerb,
+  "close-refs": runCloseRefsVerb,
   handover: runHandoverVerb,
   groom: runGroomVerb,
   next: runNextVerb,

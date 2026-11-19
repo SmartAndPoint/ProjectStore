@@ -14,7 +14,15 @@
 //     auth: true,                     // every call exits 4 (logged out)
 //     full: true,                     // a list returns exactly its --limit
 //     fail: { view: {<url>: <exit>}, list: <exit>|"hang", repo: <exit>|"hang",
-//             create: <exit>|"hang", close: <exit>|"hang" },
+//             create: <exit>|"hang", close: <exit>|"hang",
+//             api: <exit>|"hang",       // the paginated files list
+//             ownRepo: <exit>|"hang" }, // the bare `repo view --json url`
+//     ownRepo: "https://github.com/<owner>/<repo>",  // default OWN_REPO, acme/app
+//     // A pull request's files (the close-refs spec, "Testing"): `prs[].files`
+//     // [{path, changeType}] (changeType DELETED, ADDED, MODIFIED or none) and
+//     // `prs[].changedFiles` (default: the files' count). `pr view` gives the
+//     // first 100; `api …/pulls/<n>/files?per_page=<k> --paginate` gives up
+//     // to 3,000 as {filename, status}, one array per page, back to back.
 //     // The dashboard's delivery: the pull requests of batch branches.
 //     pulls: [{number, state, headRefName, headRefOid, url, baseRefName, title, body}],
 //     repo: "https://github.com/<owner>/<repo>",   // pr create's URLs; default acme/vault
@@ -40,6 +48,9 @@ import { join, delimiter } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SELF = pathToFileURL(fileURLToPath(import.meta.url)).href;
+// The project's own repository a bare `repo view` names: the repository of
+// the follow tests' pull requests, so none of them reads as files-foreign.
+export const OWN_REPO = "https://github.com/acme/app";
 const norm = (u) =>
   String(u ?? "")
     .trim()
@@ -84,7 +95,13 @@ export function ghAnswer(argv, table = {}) {
     if (how !== undefined) return failed(how, `GraphQL: Could not resolve to a PullRequest (${url})`);
     const pr = prs.find((p) => norm(p.url) === norm(url));
     if (!pr) return { status: 1, stdout: "", stderr: `GraphQL: Could not resolve to a PullRequest (${url})\n` };
-    return { status: 0, stdout: JSON.stringify(pick(pr, fields)) + "\n", stderr: "" };
+    // The view gives at most 100 files, and changedFiles counts them all.
+    const shown = {
+      ...pr,
+      ...(Array.isArray(pr.files) ? { files: pr.files.slice(0, 100) } : {}),
+      changedFiles: pr.changedFiles ?? (Array.isArray(pr.files) ? pr.files.length : null),
+    };
+    return { status: 0, stdout: JSON.stringify(pick(shown, fields)) + "\n", stderr: "" };
   }
   const pulls = table.pulls || [];
   if (argv[0] === "pr" && argv[1] === "list" && after(argv, "--head") !== null) {
@@ -150,6 +167,31 @@ export function ghAnswer(argv, table = {}) {
     });
     return { status: 0, stdout: JSON.stringify(list.slice(0, limit).map((p) => pick(p, fields))) + "\n", stderr: "" };
   }
+  // The paginated files list: `api repos/<o>/<r>/pulls/<n>/files?per_page=<k>
+  // --paginate --hostname <host>`, from the pull request's `files`, at most
+  // 3,000, one JSON array per page printed back to back.
+  if (argv[0] === "api") {
+    if (fail.api !== undefined) return failed(fail.api, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
+    const m = String(argv[1] || "").match(/^repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/files\?per_page=(\d+)$/);
+    const host = after(argv, "--hostname") || "github.com";
+    const pr = m && prs.find((p) => norm(p.url) === norm(`https://${host}/${m[1]}/${m[2]}/pull/${m[3]}`));
+    if (!pr) return { status: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)\n" };
+    const list = (pr.files || []).slice(0, 3000).map((f) => ({
+      filename: f.path,
+      status: f.changeType === "DELETED" ? "removed" : f.changeType === "ADDED" ? "added" : "modified",
+    }));
+    const size = Number(m[4]);
+    const pages = [];
+    for (let i = 0; i < list.length; i += size) pages.push(JSON.stringify(list.slice(i, i + size)));
+    if (!argv.includes("--paginate")) pages.splice(1);
+    return { status: 0, stdout: (pages.length ? pages : ["[]"]).join(""), stderr: "" };
+  }
+  // A bare `repo view --json url`: the project's own repository.
+  if (argv[0] === "repo" && argv[1] === "view" && String(argv[2] ?? "").startsWith("-")) {
+    if (fail.ownRepo !== undefined)
+      return failed(fail.ownRepo, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
+    return { status: 0, stdout: JSON.stringify({ url: table.ownRepo ?? OWN_REPO }) + "\n", stderr: "" };
+  }
   if (argv[0] === "repo" && argv[1] === "view") {
     if (fail.repo !== undefined) return failed(fail.repo, "HTTP 502: Bad Gateway (https://api.github.com/graphql)");
     const repo = norm(argv[2]);
@@ -198,7 +240,7 @@ import(${JSON.stringify(SELF)}).then(({ ghAnswer }) => {
         return [];
       }
     },
-    // The calls of one subcommand: "pr view", "pr list", "repo view".
+    // The calls of one subcommand: "pr view", "pr list", "repo view", "api …".
     calls(sub) {
       return stub
         .log()

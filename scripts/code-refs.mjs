@@ -6,7 +6,8 @@
 // path touches a story's refs. Kept in a leaf of its own, importing nothing,
 // so the two cannot drift and the flow modules never load spec-drift's
 // file walk. Spec: "Doctor's flow findings…" (alias `flow-findings`),
-// contract 2.
+// contract 2. A third rule, doctor's story ⊆ epic prefix (prefixCovers,
+// below), lives here too, for doctor and the close's epic widening.
 //
 // A leading `./` is dropped. A ref with no glob character covers the path
 // equal to it and every path under it as a folder; one that ends in `/`
@@ -70,4 +71,16 @@ export function refCovers(ref, path) {
   if (!bare) return false;
   if (p.startsWith(`${bare}/`)) return true;
   return !r.endsWith("/") && p === bare;
+}
+
+// Doctor's story ⊆ epic rule, a plain string prefix: `ref` is inside
+// `epicRef` when, trailing slashes dropped from both, it starts with it. It
+// is not refCovers: no glob is read and no folder boundary is asked for.
+// Doctor's code_refs check and the close's widening of an epic
+// (status-change.mjs epic-refs) read the same rule, so a widened epic never
+// leaves the warning it was widened for. Spec: the ADR "A story's close
+// writes its code_refs on every path…", decision 6.
+const bareRef = (r) => String(r).replace(/\/+$/, "");
+export function prefixCovers(epicRef, ref) {
+  return bareRef(ref).startsWith(bareRef(epicRef));
 }

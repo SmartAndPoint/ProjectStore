@@ -569,6 +569,27 @@ test("node writers: epic-row --add records the epic it links the story into, as 
   assert.equal(ev[0].after, sha(readFileSync(epic, "utf8")));
 });
 
+// [writerecord#5] [SPEC-001#7]
+test("node writers: epic-refs --write records the epic whose code_refs it widens, as epic-refs", () => {
+  const { proj, vault, path } = moveFixture();
+  const epic = join(vault, "epics", "PS-X", "epic.md");
+  const before = "---\ntype: epic\nupdated: 2026-01-01\ncode_refs: []\n---\n\n# PS-X\n";
+  writeFileSync(epic, before);
+  const file = join(proj, "refs.json");
+  writeFileSync(file, JSON.stringify(["src/a.mjs"]));
+  const r = spawnSync(
+    process.execPath,
+    [join(REPO, "scripts", "status-change.mjs"), "epic-refs", path, "--code-refs-file", file, "--write"],
+    { encoding: "utf8", env: sessionEnv(proj, "s1"), cwd: tmpdir(), timeout: 20000 },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).add, ["src/a.mjs"]);
+  const ev = events(proj, "s1");
+  assert.equal(ev.length, 1);
+  assert.deepEqual([ev[0].rel, ev[0].tool, ev[0].before], ["epics/PS-X/epic.md", "epic-refs", sha(before)]);
+  assert.equal(ev[0].after, sha(readFileSync(epic, "utf8")));
+});
+
 // [writerecord#5] [epic-rule#4]
 test("node writers: epic-rule --write, which takes no --project, records the epic it moves under the project its shell resolves", () => {
   const { proj, vault, path } = moveFixture();

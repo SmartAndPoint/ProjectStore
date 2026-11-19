@@ -133,6 +133,50 @@ cannot collide).
    not a reason. A story that will touch three or more source files needs a
    spec: the reviewer flags an opt-out like that at close.
 
+1b. **(close only) The code_refs this close adds.** A close writes the
+   files the story changed into its `code_refs`, and widens its epic's, behind
+   the one Yes of step 4. Ask the core where those files come from. First,
+   when this session's latest reviewer report on this story has a line that
+   starts with `code_refs:`, copy the last such line verbatim into a scratch
+   file, the **reviewer file** (`<scratchpad>/reviewer-refs.txt`). Then run,
+   with `--reviewer-refs-file` only when you wrote that file:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" close-refs <EPIC-ID>/<story-id> --reviewer-refs-file "<reviewer-file>" --json --project "$PWD"
+   ```
+
+   It writes nothing, and it runs before the person's Yes; it may start the
+   GitHub CLI (`gh`) to read the files of the story's pull request. Its
+   `result` is `{ source, verified, refs, dropped, notes }`: `source` is `pr`
+   (the files of the pull request in `external_refs.pr`), `reviewer` (the
+   reviewer file's line), `commits` (the files of every commit since
+   `started_at`, `verified: false`) or `none`; `dropped` lists each path left
+   out, as `{ path, why }`. Exit 1 names no story: stop the gate and say so.
+
+   Write the **refs file** (`<scratchpad>/code-refs.json`), a JSON list:
+   `refs` for `pr` and `reviewer`; `[]` for `commits` and `none`. A
+   `commits` result whose `refs` is `[]` is treated as `none`: nothing is
+   offered. A `commits` list is written only when the person picks "write
+   them" in step 4. Then act on each of its `notes` by its `code`:
+   - `checkout-behind`: stop the gate before the preview and write nothing.
+     Show the note's message and ask the person to pull, then run the close
+     again.
+   - `unverified`: the refs file stays `[]`; step 4 offers the list when it
+     is not empty.
+   - `gh-unavailable`, `repo-unknown`, `prefix-unknown`, `files-foreign`,
+     `files-unknown`, `files-truncated`, `pr-closed`, `reviewer-refs-none`,
+     `commits-unknown`: show the message verbatim in step 4's preview; the
+     close goes on with what the verb gave (it already asked the next
+     source).
+
+   Every `story-section.mjs close` run of this close passes
+   `--code-refs-file "<refs-file>"`: step 2, the re-run in step 5, and the
+   clerk's `--check` of step 5a; a change of the refs file (an Edit of the
+   list, or "write them") repeats step 2 with it. An exit 1 whose stderr
+   names `code-refs-unreadable` stops the gate: the story's or its
+   epic's `code_refs` is not a one-line JSON list; say which, and write
+   nothing.
+
 2. **Run the compute script** (pure — writes nothing):
 
    ```bash
@@ -141,7 +185,10 @@ cannot collide).
 
    On a plan with a reason from step 1a, add `--no-spec '<reason>'` to that
    command. It writes `no_spec` into the returned frontmatter, and it refuses
-   a story that already lists specs.
+   a story that already lists specs. On a close, add
+   `--code-refs-file "<refs-file>"` from step 1b: the returned content holds
+   the story's `code_refs` with each ref of the file it did not hold appended,
+   and with `[]` the line is left as it is.
 
    It returns `{ path, changed, notes, content }`: section inserted when
    absent, status transition, lifecycle timestamps (`started_at` /
@@ -252,6 +299,45 @@ cannot collide).
    snapshot. A non-zero exit is shown in the preview with its `error` and
    does not hold the close. The plan gate does not run the rule.
 
+   On a `close`, the preview also shows the code_refs from step 1b. Plan the
+   epic's widening (it writes nothing):
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/status-change.mjs" epic-refs "<story-path>" --code-refs-file "<refs-file>"
+   ```
+
+   With an empty list (`none`, a `commits` result with no refs, or an empty
+   refs file before "write them"), say only "No code_refs are added: no
+   source gave files for this story." and skip the sentences below but the
+   commits offer. Otherwise show the refs counted by directory
+   (`scripts/ 3, tests/ 2, README.md 1`), then these sentences, filled in:
+   - always: "code_refs list the files this story changed; projectstore uses
+     them in code-map.md and in doctor's checks to show which code each story
+     and epic owns."
+   - `pr`: "These come from the files of <url>, read through the GitHub CLI
+     (gh)."
+   - `reviewer`: "These come from the reviewer's last code_refs line", then
+     the reason only when there is one: ", because the story names no pull
+     request." when the story has none, or ", because the pull request's files
+     could not be used." when a note of step 1b says so.
+   - `commits`: "These are the files of every commit since <started_at>,
+     other stories' included, not checked against this story." Ask "write
+     them" or "leave them out" (recommended: leave them out) before the
+     Yes / Edit / No question. Only "write them" puts the list in the refs
+     file, repeats step 2 and runs the epic plan above again.
+   - the epic: "A Yes also adds to the epic's code_refs: <add>." with the
+     `add` list of the run above, or "The epic's code_refs already cover
+     them." when it is empty. A non-zero exit (an epic with no epic.md, or a
+     `code_refs` line it cannot read) is shown with its `error`, and the
+     close stops there; the way out is to Edit the list to `[]` and run the
+     close again, or to fix the epic and run the close again.
+
+   Then the dropped paths, one per line as `<path> (<why>)`, and for
+   `absent` say "not in this checkout" (an open pull request's new files land
+   here). Then each note's message from step 1b, verbatim. An Edit
+   of the list rewrites the refs file and repeats step 2; a Yes covers the
+   refs and the epic's additions.
+
 5. **Immediately before writing**, re-run the script and verify its `content`
    (before your section edits) still matches what you previewed against — a
    human may have edited the file in Obsidian meanwhile. On divergence:
@@ -272,6 +358,19 @@ cannot collide).
    On both gates, compare `marked` as you compare `wip.over`: when the
    re-run's `marked` is not empty (a file was marked again since step 2),
    stop the gate and write nothing.
+
+   On a `close`, re-run it with the same `--code-refs-file`. When the
+   re-check holds, widen the epic right away, on both paths, before 5a's
+   doctor snapshot and before anything else is written:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/status-change.mjs" epic-refs "<story-path>" --code-refs-file "<refs-file>" --write
+   ```
+
+   It appends to the epic's `code_refs` each ref that no epic ref covers, as
+   it is, and moves `updated` only when it adds one; a second run adds
+   nothing. A non-zero exit stops the close: report its `error` and write
+   nothing else.
 
 5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
@@ -300,10 +399,11 @@ cannot collide).
 
    - Spawn `$projectstore-clerk` **as a foreground task** (you need its report to
      continue) with: the scratch path, the target path, the exact re-check
-     invocation (`story-section.mjs close "<story-path>" --check
-     <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
-     folder>` when status changed, plus `flow` when flow.md exists at the
-     vault root), and the doctor pre-state line. On a clean
+     invocation (`story-section.mjs close "<story-path>" --code-refs-file
+     "<refs-file>" --check <baseline-path>`), the derived targets (`kanban`,
+     plus `indexes=<epic folder>` when status changed, plus `codemap` when the
+     refs file is not `[]`, plus `flow` when flow.md exists at the vault root),
+     and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
      pre-state) skip steps 6-6b and run step 6c, then step 6d, then step 6e — the clerk's report is the write evidence. After
      any report with `written: true`, clean or stopped, first record the copy,
@@ -329,13 +429,14 @@ cannot collide).
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
    `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
-   `indexes=<epic folder>` when the status changed, and `flow` when flow.md exists,
-   never otherwise: `--only flow` creates the page).
+   `indexes=<epic folder>` when the status changed, `codemap` when the refs
+   file is not `[]`, and `flow` when flow.md exists, never otherwise:
+   `--only flow` creates the page).
 
 6b. **(close only) Verify**: `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
-   — a close is not done while doctor got worse. Then suggest the reviewer's
-   proposed `code_refs` via `$projectstore-codemap set` (the reviewer computes it
-   from `scripts/diff-refs.mjs --since <started_at>`).
+   — a close is not done while doctor got worse. The refs were written by the
+   close itself (step 1b); `$projectstore-codemap set` stays the way to change
+   or remove them later.
 
 6c. **(close only, both paths) Refresh this session's story**, here in the
    main thread, after the clerk's clean report or after 6b:
