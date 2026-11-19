@@ -223,7 +223,8 @@ resistance. v0.13 makes that safe instead of forbidden:
 - **`reconcile`** rebuilds every generated view (kanban, folder indexes,
   code-map, the link graph, the flow page) from the vault — the repair partner. Idempotent: a clean vault
   yields zero changes. The flow page, `flow.md`, shows WIP per person, the
-  date each open story entered its status, the weekly throughput and the
+  date each open story entered its status, the epics in progress where no
+  story has moved for a while, the weekly throughput, the cycle time and the
   cumulative flow. It is dated by the newest date a story carries, never by
   the clock, so a run on a later day writes the same bytes. Like `graph.md`,
   it is made only on request, with `--only flow`; after that, every
@@ -298,7 +299,10 @@ resistance. v0.13 makes that safe instead of forbidden:
   hands the one-story epics to the librarian, under an `Epic list:` prompt,
   for a merge proposal per epic. Doctor's `grooming-due` says when the next
   pass is due, and `epic-single-story` and `active-epics-over-cap` read
-  `flow.active_epics_max`.
+  `flow.active_epics_max`. `epic-idle` reads `flow.age_days.epic_idle`: it
+  names an epic in progress where no story has changed status for that many
+  days, counted to today. The page counts to its own date, so on a quiet
+  vault only doctor sees an epic go quiet.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.

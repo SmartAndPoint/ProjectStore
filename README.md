@@ -223,7 +223,7 @@ npx projectstore groom --write
 
 In a Claude Code session, `/projectstore:groom` does the same and then hands the one-story epics to the librarian agent. It suggests which epic each one could join and changes nothing.
 
-To see the flow on one page in Obsidian, create `flow.md` once. It shows each person's WIP against their limit, the date each open story entered its status, the stories closed each week and the cumulative flow. The page is dated by the newest date a story carries, not by the clock, and every later reconcile, `move` or `groom` keeps it fresh. Its weekly tables need the window of weeks set (`flow.window_weeks`). Create it with:
+To see the flow on one page in Obsidian, create `flow.md` once. It shows each person's WIP against their limit, the date each open story entered its status, the stories closed each week, the cycle time (the median days from a story's start to its close) and the cumulative flow. It also lists the epics in progress where no story has changed status for a set number of days. The page is dated by the newest date a story carries, not by the clock, and every later reconcile, `move` or `groom` keeps it fresh. Its weekly tables and the cycle time need the window of weeks set (`flow.window_weeks`). The epics list needs its own number of days (`flow.age_days.epic_idle`). Create the page with:
 
 ```
 npx projectstore reconcile --write --only flow

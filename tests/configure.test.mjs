@@ -1101,6 +1101,55 @@ test("configure flow: --set flow.wip.full=3 keeps the rest of flow and every oth
   assert.equal(read(join(p.proj, ".projectstore", "projectstore.json")), bindingBefore, "the binding is untouched");
 });
 
+// [cycle-time#5]
+test("configure flow: --set flow.age_days.epic_idle=14 writes the key beside age_days.review and keeps window_weeks and every other key", async () => {
+  const cfg = { spec_policy: "optional", flow: { window_weeks: 4, age_days: { review: 3 } } };
+  const p = project({ vaultCfg: JSON.stringify(cfg) });
+  const { r } = await configure(p, { set: ["flow.age_days.epic_idle=14"] });
+  assert.equal(r.code, 0, r.message || r.usage);
+  assert.deepEqual(json(join(p.vault, ".projectstore.json")), {
+    spec_policy: "optional",
+    flow: { window_weeks: 4, age_days: { review: 3, epic_idle: 14 } },
+  });
+});
+
+// [cycle-time#5]
+test("configure flow: flow.age_days.epic_idle of 2.5, 0, 007 and x each exit 2 saying it takes a whole number of days, 1 or more, and nothing is written (failure)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { window_weeks: 4 } }) });
+  const before = tree(p.proj, p.vault);
+  for (const v of ["2.5", "0", "007", "x"]) {
+    const { r } = await configure(p, { set: [`flow.age_days.epic_idle=${v}`] });
+    assert.equal(r.code, 2, v);
+    assert.match(r.usage, /flow\.age_days\.epic_idle takes a whole number of days, 1 or more/, v);
+  }
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
+// [cycle-time#5]
+test("configure flow: clearing flow.age_days.epic_idle when it is the only age_days key removes the key and the emptied age_days (edge)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ keep: 1, flow: { window_weeks: 4, age_days: { epic_idle: 14 } } }) });
+  const { r } = await configure(p, { set: ["flow.age_days.epic_idle=-"] });
+  assert.equal(r.code, 0, r.message || r.usage);
+  assert.deepEqual(json(join(p.vault, ".projectstore.json")), { keep: 1, flow: { window_weeks: 4 } });
+});
+
+// [cycle-time#5]
+test("configure flow: --set flow.age_days.epic_idl=14 exits 2 as an unknown setting that names flow.age_days.epic_idle (failure)", async () => {
+  const p = project({ vaultCfg: JSON.stringify({ flow: { window_weeks: 4 } }) });
+  const before = tree(p.proj, p.vault);
+  const err = sink();
+  const code = await run(["configure", "--set", "flow.age_days.epic_idl=14", "--project", p.proj], {
+    env: {},
+    cwd: p.proj,
+    stdin: null,
+    stdout: sink(),
+    stderr: err,
+  });
+  assert.equal(code, 2);
+  assert.match(err.text(), /unknown setting flow\.age_days\.epic_idl — did you mean flow\.age_days\.epic_idle\?/);
+  assert.deepEqual(tree(p.proj, p.vault), before);
+});
+
 // [configure#2]
 test("configure flow: a person with a space or a dot, lists as arrays, and clearing a person's last key removes the person (edge)", async () => {
   const p = project({ vaultCfg: JSON.stringify({ keep: 1 }) });

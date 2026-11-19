@@ -242,7 +242,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   `todo-capacity-unknown`, `flow-activity-unknown`, `flow-person-unknown`,
   `flow-stories-unread`), `grooming-due` (the last grooming pass is older
   than `flow.grooming_days`, or none is stamped) and `epic-single-story` (an
-  active epic with one story, under `flow.active_epics_max`). A `flow` block
+  active epic with one story, under `flow.active_epics_max`),
+  `flow-cycle-time` (an info: the median days from a story's start to its
+  close over the stories closed in the window, under `flow.window_weeks`) and
+  `epic-idle` (a warn: an epic in progress where no story has changed status
+  for `flow.age_days.epic_idle` days or more). A `flow` block
   that holds only the stamp `flow.groomed_at` is no policy. `flow-policy-unset` says the vault has no flow
   policy, and `flow-policy-invalid` names a key whose value the checks
   ignore, never the value. The idle checks read the project's local commits,

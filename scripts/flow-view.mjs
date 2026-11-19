@@ -13,7 +13,10 @@
 //
 // Spec: "The flow page: dated by the vault, with WIP, the date in status,
 // weekly throughput and the cumulative flow" (alias `flow-view`), contracts
-// 1 to 8 (the page) and 10 (doctor's `flow-view` finding). Reconcile spawns
+// 1 to 8 (the page) and 10 (doctor's `flow-view` finding), and "Cycle time
+// and epics without movement…" (alias `cycle-time`), contracts 6 and 7: the
+// cycle-time line and `## Epics without movement`, counted by flow-counts.mjs
+// alone (its contract 10). Reconcile spawns
 // main() like the other generators (contract 9); doctor.mjs imports
 // checkFlowView and runs it in its vault group only, never at session start
 // (ADR-005 decision 4). Imports nothing of doctor.mjs, which imports this
@@ -34,7 +37,7 @@ import {
 } from "./lib.mjs";
 import { packageCommand } from "./harness.mjs";
 import { flowValue, flowDeclared, wipLimitOf, isEmailAddress } from "./flow-policy.mjs";
-import { readFlowStories } from "./flow-stories.mjs";
+import { readFlowStories, readFlowEpics } from "./flow-stories.mjs";
 import {
   WEEK_MS,
   storyFacts,
@@ -47,6 +50,8 @@ import {
   columnPath,
   cumulativeFlow,
   weekStart,
+  cycleTime,
+  idleEpics,
 } from "./flow-counts.mjs";
 import { stampMs } from "./status-log.mjs";
 
@@ -58,6 +63,7 @@ const EMAIL_SHAPED = "an email-shaped name";
 // The rebuild command, the core's form with no harness in it: a pure value.
 const REBUILD = packageCommand([], "reconcile", { args: "--write --only flow" });
 const SET_WINDOW = "npx projectstore configure --set flow.window_weeks=<weeks>";
+const SET_EPIC_IDLE = "npx projectstore configure --set flow.age_days.epic_idle=<days>";
 
 function die(msg) {
   process.stderr.write(`projectstore/flow-view: ${msg}\n`);
@@ -118,20 +124,30 @@ export function asOfOf(facts) {
 
 // ─── The model: the numbers the page prints ────────────────────────────
 
-// The page's numbers from the stories' facts, the vault config and the
-// board's columns. Pure: no clock, no file.
-export function flowModel(facts, vaultCfg, { columns = BOARD, unread = 0 } = {}) {
+// The page's numbers from the stories' facts, the vault config, the board's
+// columns and the epics (readFlowEpics, read only with a valid
+// flow.age_days.epic_idle). Pure: no clock, no file. An epic never moves the
+// as-of instant.
+export function flowModel(facts, vaultCfg, { columns = BOARD, unread = 0, epics = [], unreadEpics = 0 } = {}) {
   const asOf = asOfOf(facts);
   const flow = vaultCfg && typeof vaultCfg.flow === "object" ? vaultCfg.flow : null;
+  const ages = flow && typeof flow.age_days === "object" ? flow.age_days : null;
   const model = {
     asOf,
     unread,
+    unreadEpics,
     columns,
     weeks: flowValue(vaultCfg, "window_weeks"),
     // A window_weeks that is there but not a whole number of weeks above 0.
     weeksInvalid: Boolean(flow && Object.hasOwn(flow, "window_weeks")) && flowValue(vaultCfg, "window_weeks") === null,
+    epicIdle: flowValue(vaultCfg, "age_days.epic_idle"),
+    epicIdleInvalid:
+      Boolean(ages && Object.hasOwn(ages, "epic_idle")) && flowValue(vaultCfg, "age_days.epic_idle") === null,
   };
   if (asOf === null) return model;
+  // The cycle-time spec, contract 7: the epics without movement at the
+  // page's own instant.
+  if (model.epicIdle !== null) model.idle = idleEpics(epics, facts, model.epicIdle, asOf);
 
   model.wip = [...wipByPerson(facts)]
     .map(([name, w]) => ({ name, held: w.held.length, awaiting: w.awaiting.length, limit: wipLimitOf(vaultCfg, name) }))
@@ -170,6 +186,8 @@ export function flowModel(facts, vaultCfg, { columns = BOARD, unread = 0 } = {})
     from: win.from,
     hidden,
   };
+  // The cycle-time spec, contract 6: over the closes the totals row counts.
+  model.window.cycle = model.window.young ? null : cycleTime(total.closed);
   const cf = cumulativeFlow(facts, shown, asOf, columns);
   model.cumulative = {
     rows: cf.rows,
@@ -198,18 +216,18 @@ export function renderFlowView(m, { generatedAt = null } = {}) {
       "No story in this vault carries a date yet, so there is nothing to show. No one edits this page by hand, since this command rebuilds it:",
       ...block(REBUILD),
     );
-    if (m.unread > 0) out.push("", unreadLine(m.unread));
+    if (m.unread > 0) out.push("", unreadLine(m.unread, m.unreadEpics));
     return `${out.join("\n")}\n`;
   }
   out.push(
     `This page shows the flow of the vault's stories as of ${asOf}, the newest date a story carries. Do not edit it by hand. To rebuild it, run:`,
     ...block(REBUILD),
   );
-  if (m.unread > 0) out.push("", unreadLine(m.unread));
+  if (m.unread > 0) out.push("", unreadLine(m.unread, m.unreadEpics));
   if (m.weeks === null)
     out.push(
       "",
-      `The weekly throughput and the cumulative flow are not shown, because the window of weeks they count over (\`flow.window_weeks\`) ${m.weeksInvalid ? "is not a whole number of weeks above 0" : "is not set"}; set it with:`,
+      `The weekly throughput, the cycle time and the cumulative flow are not shown, because the window of weeks they count over (\`flow.window_weeks\`) ${m.weeksInvalid ? "is not a whole number of weeks above 0" : "is not set"}; set it with:`,
       ...block(SET_WINDOW),
     );
 
@@ -245,6 +263,7 @@ export function renderFlowView(m, { generatedAt = null } = {}) {
     );
   out.push("", `The Backlog holds ${plural(m.backlog, "story", "stories")}, not listed here.`);
 
+  renderEpics(out, m);
   if (m.window) renderWindow(out, m);
   return `${out.join("\n")}\n`;
 }
@@ -252,8 +271,68 @@ export function renderFlowView(m, { generatedAt = null } = {}) {
 // A command alone in its own block, after a blank line.
 const block = (cmd) => ["", "```", cmd, "```"];
 
-const unreadLine = (n) =>
-  `${plural(n, "story file", "story files")} could not be read and ${n === 1 ? "is" : "are"} left out, so the counts can be low.`;
+const unreadLine = (n, epics = 0) =>
+  `${epics > 0 ? plural(n, "story or epic file", "story or epic files") : plural(n, "story file", "story files")} could not be read and ${n === 1 ? "is" : "are"} left out, so the counts can be low.`;
+
+// An epic linked as a story is: its epic.md path without .md, and its folder
+// name, then its title when it has one.
+function epicLink(e) {
+  const title = e.fm?.title ? String(e.fm.title) : "";
+  return `[[${e.rel.replace(/\.md$/, "")}\\|${alias(title ? `${e.epic}: ${title}` : e.epic)}]]`;
+}
+
+// The cycle-time spec, contract 7: the epics in progress whose stories have
+// not changed status for flow.age_days.epic_idle days, at this page's date.
+function renderEpics(out, m) {
+  out.push("", "## Epics without movement", "");
+  if (m.epicIdle === null) {
+    out.push(
+      `No epic is checked for a stall, because the number of days an epic in progress may go without a story changing status (\`flow.age_days.epic_idle\`) ${m.epicIdleInvalid ? "is not a whole number of days above 0" : "is not set"}. Set it with:`,
+      ...block(SET_EPIC_IDLE),
+    );
+    return;
+  }
+  const n = m.idle.watched;
+  const key = `${plural(m.epicIdle, "day")} or more (\`flow.age_days.epic_idle\`)`;
+  if (!m.idle.epics.length)
+    out.push(
+      `${plural(n, "epic in progress is", "epics in progress are")} watched by this check, and none of them has gone ${key} without a story changing status.`,
+    );
+  else
+    out.push(
+      `The epics in progress where no story has changed status for ${key}, oldest first, with the date of the last change. A date marked (from closed_at), (from started_at) or (from created) is read from that field, because none of the epic's stories has a status line. ${plural(n, "epic in progress is", "epics in progress are")} watched by this check.`,
+      "",
+      table(
+        ["Epic", "Last status change"],
+        m.idle.epics.map((e) => [epicLink(e), changeCell(e.age)]),
+      ),
+    );
+  out.push(
+    "",
+    `The days are counted to this page's date, ${day(m.asOf)}, the newest date a story carries, not to today. So on a vault where nothing has changed since, no epic goes quiet on this page; doctor's \`epic-idle\` finding, which counts to today, lists it.`,
+  );
+}
+
+// An epic's last change, marked with its field when not a status line.
+function changeCell(age) {
+  const d = day(age.at);
+  if (age.source === "dates") return `${d} (from ${age.field})`;
+  return age.source === "created" ? `${d} (from created)` : d;
+}
+
+// The cycle-time spec, contract 6: one line under the Throughput table.
+function cycleLine(c) {
+  if (c === null) return "No cycle time is given while the vault is younger than the window.";
+  if (c.closed === 0) return "No story was closed in the window, so there is no cycle time to give.";
+  if (c.median === null)
+    return "Every story closed in the window is left out of the cycle time, since none has a start: no Status log among them has an in-progress or review line, and none has a `started_at`. So no cycle time is given.";
+  const median = c.median === 0 ? "under 1 day" : plural(c.median, "day");
+  const out = c.unplaced.length;
+  const left = out
+    ? `${plural(out, "closed story is", "closed stories are")} left out, since ${out === 1 ? "it has no start: its Status log has no in-progress or review line, and it has no `started_at`" : "they have no start: their Status logs have no in-progress or review line, and they have no `started_at`"}`
+    : "none is left out";
+  return `Cycle time: the median (the middle value) of the days from a story's start to its close is ${median}, over ${plural(c.days.length, "story", "stories")} closed in the window; ${left}.`;
+}
 
 function sinceCell(f) {
   if (f.age.at === null) return "no date";
@@ -286,6 +365,8 @@ function renderWindow(out, m) {
       ["Week of", "Created", "Closed"],
       [...w.weeks.map((r) => [day(r.from), r.created, r.closed]), ["Total", w.created, w.closed]],
     ),
+    "",
+    cycleLine(w.cycle),
   );
   if (w.closedUnstamped > 0)
     out.push(
@@ -342,6 +423,7 @@ export function buildFlowView(
   const epicsPath = folderByKind(layout, "epic")?.path ?? "epics";
   const got = readFlowStories(cfg.vault_path, epicsPath, read ? { read } : {});
   let unread = got.unread;
+  let unreadEpics = 0;
   const facts = [];
   for (const s of got.stories) {
     try {
@@ -354,7 +436,17 @@ export function buildFlowView(
   let m;
   let content;
   try {
-    m = model(facts, readVaultConfig(cfg.vault_path), { columns, unread });
+    const vaultCfg = readVaultConfig(cfg.vault_path);
+    // The epics are read only with a valid flow.age_days.epic_idle (the
+    // cycle-time spec, contract 7); one that cannot be read is counted.
+    let epics = [];
+    if (flowValue(vaultCfg, "age_days.epic_idle") !== null) {
+      const er = readFlowEpics(cfg.vault_path, epicsPath, read ? { read } : {});
+      epics = er.epics;
+      unreadEpics = er.unread;
+      unread += er.unread;
+    }
+    m = model(facts, vaultCfg, { columns, unread, epics, unreadEpics });
     content = render(m, { generatedAt });
   } catch (e) {
     const error = String(e?.message || e).replace(/\s*[\r\n]+\s*/g, " ");
@@ -419,7 +511,7 @@ export function checkFlowView(cfg, layout, proj) {
     return [
       finding(
         "info",
-        `No ${file} yet. It shows WIP per person, the date each open story entered its status, the weekly throughput and the cumulative flow. Create it ${fromTerminalIn(proj)}:\n${cmd}`,
+        `No ${file} yet. It shows WIP per person, the date each open story entered its status, the epics without movement, the weekly throughput, the cycle time and the cumulative flow. Create it ${fromTerminalIn(proj)}:\n${cmd}`,
       ),
     ];
   }

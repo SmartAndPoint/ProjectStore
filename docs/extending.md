@@ -241,8 +241,9 @@ each key activates.
   report, without writing anything.
 - `flow` holds the team's flow policy: `wip.full` and `wip.part`, a
   `people` map from each assignee's name to `time` (`full` or `part`), an
-  optional own `wip`, `git_names` and `left`, ages in days under `age_days`,
-  and `idle_days`, `window_weeks`, `capacity_weeks` (`[low, high]`),
+  optional own `wip`, `git_names` and `left`, ages in days under `age_days`
+  (`review`, `in_progress_idle`, `todo`, and `epic_idle`, the days an epic in
+  progress may go without a story changing status), and `idle_days`, `window_weeks`, `capacity_weeks` (`[low, high]`),
   `active_epics_max` and `grooming_days`. `groomed_at` is a stamp. No key has
   a default in code, and a value of the wrong type counts as absent. A
   person's WIP limit is their own `wip`, else `wip.<time>`, else none
@@ -309,7 +310,10 @@ each key activates.
   "flow.md"}`). It is dated by the newest stamp a story carries and passes
   that instant to every count, so it reads no clock; `weeklyCounts` and
   `cumulativeFlow` in `scripts/flow-counts.mjs` give its throughput and its
-  cumulative flow. Reconcile makes it only on request (`--only flow`) and
+  cumulative flow, `cycleTime` its cycle-time line and `idleEpics` its
+  epics without movement. Doctor's `flow-cycle-time` and `epic-idle` call the
+  same two functions, so the page and doctor agree at the page's date; a
+  source test keeps both callers from counting either themselves. Reconcile makes it only on request (`--only flow`) and
   keeps an existing one fresh; doctor's `flow-view` check, beside the graph's,
   calls it stale exactly when reconcile would rewrite it.
 - An epic becomes done by the epic rule (`applyEpicRule` in

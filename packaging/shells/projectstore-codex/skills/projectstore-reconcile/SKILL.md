@@ -39,8 +39,9 @@ You are reconciling the vault's derived views with their source of truth (frontm
    graph.md that does not exist yet reports `skipped` — bare reconcile never
    mints the file; first creation goes through `$projectstore-graph` (or
    `--only graph`). The same holds for flow.md, the flow page (WIP, the date
-   each open story entered its status, weekly throughput, cumulative flow): an
-   absent one reports `skipped`, and first creation is `--only flow`.
+   each open story entered its status, the epics without movement, weekly
+   throughput, the cycle time, cumulative flow): an absent one reports
+   `skipped`, and first creation is `--only flow`.
    `spec-tree.md`, the view of the spec trees, is created only by
    `--only spectree` too; once it exists, every reconcile keeps it fresh,
    whatever `--only` names.
