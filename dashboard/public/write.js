@@ -290,31 +290,31 @@ const writeUi = (() => {
   function listen() {
     if (listening) return;
     listening = true;
-  document.addEventListener("dragover", (e) => {
-    if (!treeDrag) return;
-    const tr = e.target instanceof Element ? e.target.closest("table.tree tr") : null;
-    const gap = gapAt(tr, e.clientY);
-    if (gap === null) {
-      treeDrag.foreign = Boolean(tr);
+    document.addEventListener("dragover", (e) => {
+      if (!treeDrag) return;
+      const tr = e.target instanceof Element ? e.target.closest("table.tree tr") : null;
+      const gap = gapAt(tr, e.clientY);
+      if (gap === null) {
+        treeDrag.foreign = Boolean(tr);
+        clearLine();
+        return; // no drop here: the row goes back
+      }
+      treeDrag.foreign = false;
+      treeDrag.gap = gap;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (placeOf(gap)) drawLine(gap);
+      else clearLine();
+    });
+    document.addEventListener("drop", (e) => {
+      if (!treeDrag || treeDrag.gap === null || treeDrag.foreign) return;
+      e.preventDefault();
+      const { item } = treeDrag;
+      const place = placeOf(treeDrag.gap);
+      treeDrag.dropped = true;
       clearLine();
-      return; // no drop here: the row goes back
-    }
-    treeDrag.foreign = false;
-    treeDrag.gap = gap;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    if (placeOf(gap)) drawLine(gap);
-    else clearLine();
-  });
-  document.addEventListener("drop", (e) => {
-    if (!treeDrag || treeDrag.gap === null || treeDrag.foreign) return;
-    e.preventDefault();
-    const { item } = treeDrag;
-    const place = placeOf(treeDrag.gap);
-    treeDrag.dropped = true;
-    clearLine();
-    if (place && !busy) openRank(item, place);
-  });
+      if (place && !busy) openRank(item, place);
+    });
   }
   // A tree row that may be reordered: draggable, with a grip.
   function dragTreeRow(tr, item) {

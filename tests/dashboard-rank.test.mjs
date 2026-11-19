@@ -310,47 +310,329 @@ test("dashboard rank: with search text, or a page that cannot write, no row gets
   assert.match(w, /if \(!drawn\) return false;/);
 });
 
-// ─── Contracts 6 to 8: the drop and the keys, held by write.js and keys.js ───
+// ─── Contracts 6 to 8: the page's own write.js in a vm ─────────────────
+
+// A tree row of the stand-in DOM: its data, a height of 10, and classes.
+class Row {
+  constructor(data, y) {
+    this.dataset = { ...data };
+    this.cls = new Set();
+    this.y = y;
+    this.listeners = {};
+    this.nodeType = 1;
+    this.classList = {
+      add: (...c) => c.forEach((x) => this.cls.add(x)),
+      remove: (...c) => c.forEach((x) => this.cls.delete(x)),
+      contains: (c) => this.cls.has(c),
+    };
+  }
+  getBoundingClientRect() {
+    return { top: this.y, bottom: this.y + 10 };
+  }
+  closest() {
+    return this;
+  }
+  querySelector() {
+    return { prepend() {} };
+  }
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+}
+// An element h() makes: its kids are kept, so a test reads the texts drawn.
+class Made {
+  constructor(tag, attrs, kids) {
+    this.tag = tag;
+    this.attrs = attrs || {};
+    this.kids = kids.flat(Infinity);
+    this.listeners = {};
+    this.removed = false;
+    this.nodeType = 1;
+  }
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
+  }
+  querySelector() {
+    return null;
+  }
+  querySelectorAll() {
+    return [];
+  }
+  focus() {}
+  remove() {
+    this.removed = true;
+  }
+  prepend() {}
+  replaceChildren() {}
+  contains() {
+    return true;
+  }
+  get text() {
+    return this.kids.map((k) => (typeof k === "string" ? k : k && k.text ? k.text : "")).join("");
+  }
+}
+const anything = () =>
+  new Proxy(function () {}, {
+    get: (_t, k) => (k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : anything()),
+    apply: () => anything(),
+    set: () => true,
+  });
+
+// The tree the tests drag in: initiative I with epics PS-A (unfolded: a done
+// story d, open a1 and a2, a set-aside z), PS-B and PS-C; initiative J with PS-E.
+function world({
+  preview = { ok: true, result: { changes: [{ path: "x.md", from: null, to: "1048576" }] } },
+  action = { ok: true, result: { written: ["x.md"] } },
+  slow = false,
+} = {}) {
+  const rows = [
+    new Row({ key: "e:PS-A", epic: "PS-A", group: "I" }, 0),
+    new Row({ key: "s:PS-A/d", epic: "PS-A", group: "I", story: "PS-A/d" }, 10),
+    new Row({ key: "s:PS-A/a1", epic: "PS-A", group: "I", story: "PS-A/a1" }, 20),
+    new Row({ key: "s:PS-A/a2", epic: "PS-A", group: "I", story: "PS-A/a2" }, 30),
+    new Row({ key: "s:PS-A/z", epic: "PS-A", group: "I", story: "PS-A/z" }, 40),
+    new Row({ key: "e:PS-B", epic: "PS-B", group: "I" }, 50),
+    new Row({ key: "e:PS-C", epic: "PS-C", group: "I" }, 60),
+    new Row({ key: "e:PS-E", epic: "PS-E", group: "J" }, 70),
+  ];
+  const S = {
+    project: { name: "p" },
+    write: {
+      can: true,
+      batch: null,
+      verbs: [
+        {
+          verb: "rank",
+          label: "Reorder",
+          fields: { story: {}, epic: {}, before: {}, after: {} },
+          subject: [
+            "rank {story} before {before}",
+            "rank {story} after {after}",
+            "rank {epic} before {before}",
+            "rank {epic} after {after}",
+          ],
+        },
+      ],
+    },
+    stories: [
+      { ref: "PS-A/d", epic: "PS-A", column: "Done", place: null, title: "D" },
+      { ref: "PS-A/a1", epic: "PS-A", column: "ToDo", place: 0, title: "A1" },
+      { ref: "PS-A/a2", epic: "PS-A", column: "ToDo", place: 1, title: "A2" },
+      { ref: "PS-A/z", epic: "PS-A", column: null, place: null, title: "Z" },
+    ],
+    epics: [
+      { id: "PS-A", title: "A", group: "I", place: 0 },
+      { id: "PS-B", title: "B", group: "I", place: 1 },
+      { id: "PS-C", title: "C", group: "I", place: 2 },
+      { id: "PS-E", title: "E", group: "J", place: 0 },
+    ],
+  };
+  const docListeners = {};
+  const posts = [];
+  const made = [];
+  const document = {
+    addEventListener: (type, fn) => (docListeners[type] ||= []).push(fn),
+    querySelectorAll: (sel) =>
+      sel === "table.tree tr[data-story]"
+        ? rows.filter((r) => r.dataset.story)
+        : sel === "table.tree tr[data-epic]"
+          ? rows.filter((r) => r.dataset.epic)
+          : sel === "table.tree tr.can-rank"
+            ? rows.filter((r) => r.cls.has("can-rank"))
+            : rows.filter((r) => r.cls.has("drop-line-before") || r.cls.has("drop-line-after")),
+    querySelector: () => null,
+    body: { classList: { add() {}, remove() {} } },
+    activeElement: null,
+  };
+  let release = null;
+  const ctx = {
+    document,
+    S,
+    ui: { filter: "" },
+    h: (tag, attrs, ...kids) => {
+      const el = new Made(tag, attrs, kids);
+      made.push(el);
+      return el;
+    },
+    $: () => anything(),
+    render() {},
+    fill() {},
+    kv: (...pairs) => new Made("div", null, pairs.filter(Boolean).flat()),
+    load: async () => {},
+    fetch: async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      posts.push({ url, ...body });
+      if (slow && url === "/api/preview") await new Promise((r) => (release = r));
+      const a = url === "/api/preview" ? preview : action;
+      return { status: a.ok ? 200 : 400, json: async () => ({ ...a, write: S.write }) };
+    },
+    setTimeout,
+    Promise,
+    Element: Row,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${src("write.js")}\nglobalThis.writeUi = writeUi;`, ctx, { filename: "write.js" });
+  const texts = () => made.map((m) => m.text).join("\n");
+  const rowOf = (key) => rows.find((r) => r.dataset.key === key);
+  const itemOf = (key) => {
+    const [k, ref] = [key[0], key.slice(2)];
+    if (k === "s") return { kind: "story", ref, title: ref, epic: ref.split("/")[0] };
+    return { kind: "epic", ref, title: ref, group: rowOf(key).dataset.group };
+  };
+  // Every member row gets its handle, as app.js asks.
+  for (const key of ["e:PS-A", "e:PS-B", "e:PS-C", "e:PS-E", "s:PS-A/a1", "s:PS-A/a2"]) {
+    const before = made.length;
+    ctx.writeUi.dragTreeRow(rowOf(key), itemOf(key));
+    rowOf(key).grip = made.slice(before).find((m) => m.attrs.class === "grip");
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  // Drag the row `from` over the row `over` at height `y`, drop, and end.
+  async function drag(from, over, y) {
+    for (const r of rows) (r.cls.delete("drop-line-before"), r.cls.delete("drop-line-after"));
+    const grip = rowOf(from).grip;
+    grip.listeners.dragstart[0]({ dataTransfer: { setData() {}, setDragImage() {} } });
+    let accepted = false;
+    docListeners.dragover[0]({
+      target: rowOf(over),
+      clientY: y,
+      preventDefault: () => (accepted = true),
+      dataTransfer: {},
+    });
+    const line = rows
+      .filter((r) => r.cls.has("drop-line-before") || r.cls.has("drop-line-after"))
+      .map((r) => `${[...r.cls].find((c) => c.startsWith("drop-line"))}:${r.dataset.key}`);
+    if (accepted) docListeners.drop[0]({ preventDefault() {} });
+    await settle();
+    grip.listeners.dragend[0]();
+    await settle();
+    return { accepted, line, previews: posts.filter((p) => p.url === "/api/preview").map((p) => p.fields) };
+  }
+  return { ctx, posts, made, texts, drag, settle, release: () => release && release() };
+}
 
 // [dashboard-rank#6]
-test("dashboard rank: a drop at the row's own place sends nothing; a drop or key while a step runs asks for nothing; a plan with no change opens no dialog", () => {
-  const w = src("write.js");
-  assert.match(w, /if \(gap === idx \|\| gap === idx \+ 1\) return null;/);
-  assert.match(w, /if \(place && !busy\) openRank\(item, place\);/);
-  assert.match(w, /if \(at === -1 \|\| !next \|\| busy\) return true;/);
-  assert.match(
-    w,
-    /if \(!changes\.length\) return say\("ok", `\$\{item\.title\} is already in that place: nothing to write\.`\);/,
-  );
-  assert.match(w, /if \(!a\.ok\) return say\("error", a\.error\);/);
+test("dashboard rank: an epic over the lower half of an unfolded epic's block asks for before the next epic; over its upper half, for before it", async () => {
+  const w = world();
+  const low = await w.drag("e:PS-C", "s:PS-A/z", 45);
+  assert.deepEqual(low.line, ["drop-line-before:e:PS-B"]);
+  assert.deepEqual(low.previews, [{ epic: "PS-C", before: "PS-B" }]);
+  const v = world();
+  const high = await v.drag("e:PS-C", "s:PS-A/a1", 22);
+  assert.deepEqual(high.previews, [{ epic: "PS-C", before: "PS-A" }]);
 });
 
 // [dashboard-rank#6]
-test("dashboard rank: the dialog counts the files, and a refused action keeps it open with no button that runs it again (failure)", () => {
-  const w = src("write.js");
-  assert.match(w, /`\$\{plural\(changes\.length, "file"\)\} to write\./);
-  assert.match(w, /primary\.remove\(\);/);
-  assert.match(w, /one commit of \$\{plural\(files, "file"\)\}/);
+test("dashboard rank: a story over a done row asks for before the first open story, over a set-aside row for after the last, and at its own place for nothing (edge)", async () => {
+  const w = world();
+  assert.deepEqual((await w.drag("s:PS-A/a2", "s:PS-A/d", 12)).previews, [{ story: "PS-A/a2", before: "PS-A/a1" }]);
+  const v = world();
+  assert.deepEqual((await v.drag("s:PS-A/a1", "s:PS-A/z", 42)).previews, [{ story: "PS-A/a1", after: "PS-A/a2" }]);
+  const u = world();
+  const own = await u.drag("s:PS-A/a1", "s:PS-A/d", 12);
+  assert.equal(own.accepted, true);
+  assert.deepEqual(own.previews, [], "the gap above its own row: no request");
+  const x = world();
+  assert.deepEqual((await x.drag("e:PS-A", "e:PS-A", 2)).previews, []);
+});
+
+// [dashboard-rank#6]
+test("dashboard rank: the dialog shows the plan's file count and its click runs the action with the same fields; a refused action leaves no button that runs it again (failure)", async () => {
+  const w = world({
+    preview: {
+      ok: true,
+      result: {
+        changes: [
+          { path: "a.md", from: null, to: "1048576" },
+          { path: "b.md", from: null, to: "2097152" },
+        ],
+      },
+    },
+    action: { ok: false, error: "rank: epics/PS-A/stories/a2.md: its rank is now 9, not none as the plan read it" },
+  });
+  await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  assert.match(w.texts(), /2 files to write\./);
+  const primary = w.made.find((m) => m.tag === "button" && m.text === "Reorder");
+  assert.ok(primary, "the dialog's button reads the entry's label");
+  primary.listeners.click[0]();
+  await w.settle();
+  const actions = w.posts.filter((p) => p.url === "/api/action");
+  assert.deepEqual(
+    actions.map((a) => a.fields),
+    [{ story: "PS-A/a2", before: "PS-A/a1" }],
+  );
+  assert.equal(primary.removed, true);
+  assert.match(w.texts(), /its rank is now 9/);
+});
+
+// [dashboard-rank#6]
+test("dashboard rank: a refused preview opens no dialog and shows its error; a plan with no change says the row is already in place (failure)", async () => {
+  const w = world({ preview: { ok: false, error: "rank: PS-A/a2 is not open" } });
+  await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  assert.doesNotMatch(w.texts(), /files? to write\./);
+  assert.match(w.texts(), /is not open/);
+  const v = world({ preview: { ok: true, result: { changes: [] } } });
+  await v.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  assert.doesNotMatch(v.texts(), /files? to write\./);
+  assert.match(v.texts(), /already in that place/);
 });
 
 // [dashboard-rank#7]
-test("dashboard rank: a drop outside the group draws no line, sends nothing and says why, naming the story's epic or epic --initiative", () => {
-  const w = src("write.js");
-  assert.match(w, /if \(gap === null\) \{\s*treeDrag\.foreign = Boolean\(tr\);\s*clearLine\(\);\s*return;/);
-  assert.match(w, /if \(d && !d\.dropped && d\.foreign\) say\("warn", elsewhere\(d\.item\)\);/);
-  assert.match(w, /A story moves only among the open stories of its own epic/);
-  assert.match(w, /`epic <EPIC-ID> --initiative <id>` changes its initiative/);
+test("dashboard rank: a story over another epic's row, or an epic over another initiative's, draws no line, sends nothing, and the note says why", async () => {
+  const w = world();
+  const s = await w.drag("s:PS-A/a2", "e:PS-B", 52);
+  assert.equal(s.accepted, false);
+  assert.deepEqual(s.line, []);
+  assert.equal(w.posts.length, 0);
+  assert.match(w.texts(), /moves only among the open stories of its own epic, PS-A/);
+  const v = world();
+  const e = await v.drag("e:PS-C", "e:PS-E", 72);
+  assert.equal(e.accepted, false);
+  assert.equal(v.posts.length, 0);
+  assert.match(v.texts(), /epic <EPIC-ID> --initiative <id>/);
 });
 
 // [dashboard-rank#8]
-test("dashboard rank: Alt+ArrowUp and Alt+ArrowDown, Alt alone, outside fields, dialogs and the palette, only in the backlog view, take the key from the browser", () => {
+test("dashboard rank: Alt+Up on the second open story asks for before the first; on the first it asks nothing; a second key while the plan is asked sends nothing", async () => {
+  const w = world({ slow: true });
+  assert.equal(
+    w.ctx.writeUi.rankKey("s:PS-A/a1", -1),
+    true,
+    "the first member: the key is the row's, and nothing is asked",
+  );
+  assert.equal(w.posts.length, 0);
+  w.ctx.writeUi.rankKey("s:PS-A/a2", -1);
+  w.ctx.writeUi.rankKey("s:PS-A/a2", -1);
+  await w.settle();
+  assert.deepEqual(
+    w.posts.map((p) => p.fields),
+    [{ story: "PS-A/a2", before: "PS-A/a1" }],
+  );
+  w.release();
+  await w.settle();
+  assert.equal(w.ctx.writeUi.rankKey("e:PS-B", 1), true);
+  await w.settle();
+  assert.deepEqual(w.posts.at(-1).fields, { epic: "PS-B", after: "PS-C" });
+});
+
+// [dashboard-rank#8]
+test("dashboard rank: keys.js routes Alt+ArrowUp and Alt+ArrowDown, Alt alone, outside fields, dialogs and the palette, only in the backlog view", () => {
   const k = src("keys.js");
   assert.match(
     k,
-    /if \(e\.altKey && !mod && !e\.shiftKey && \(e\.key === "ArrowUp" \|\| e\.key === "ArrowDown"\) && !typing && !pal && \$\("#modal"\)\.hidden && S && ui\.view === "backlog"\) \{\s*if \(writeUi\.rankKey\(ui\.sel, e\.key === "ArrowUp" \? -1 : 1\)\) e\.preventDefault\(\);/,
+    /e\.altKey && !mod && !e\.shiftKey && \(e\.key === "ArrowUp" \|\| e\.key === "ArrowDown"\) && !typing && !pal && \$\("#modal"\)\.hidden && S && ui\.view === "backlog"/,
   );
+  assert.match(k, /if \(writeUi\.rankKey\(ui\.sel, e\.key === "ArrowUp" \? -1 : 1\)\) e\.preventDefault\(\);/);
   assert.match(k, /move the selected epic or open story above or below its neighbour/);
-  assert.match(src("write.js"), /openRank\(item, dir < 0 \? \{ before: next \} : \{ after: next \}\);/);
+});
+
+// [dashboard-rank#10]
+test("dashboard rank: the page and the server check an id by the same two shapes", async () => {
+  const w = src("write.js");
+  const { EPIC_REF } = await import("../dashboard/lib/write.mjs");
+  const server = readFileSync(join(REPO, "dashboard", "lib", "write.mjs"), "utf8");
+  const storyServer = server.match(/const STORY_REF = (\/.*\/u);/)[1];
+  assert.ok(w.includes(`const STORY_REF = ${storyServer};`), "STORY_REF");
+  assert.ok(w.includes(`const EPIC_REF = /${EPIC_REF.source}/u;`), "EPIC_REF");
 });
 
 // [dashboard-rank#9]
