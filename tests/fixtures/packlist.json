@@ -129,6 +129,7 @@
   "scripts/scaffold.mjs",
   "scripts/setup.mjs",
   "scripts/skeleton.mjs",
+  "scripts/spec-code.mjs",
   "scripts/spec-drift.mjs",
   "scripts/spec-tree.mjs",
   "scripts/stages.mjs",
