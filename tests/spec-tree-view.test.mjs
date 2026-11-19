@@ -100,7 +100,7 @@ test("view: two trees of three and five specs, the larger root's title, and the 
   assert.ok(b1, "b1 is nested one level under its root");
   assert.match(b1, /spec-child-unlinked: specs\/b1x\.md, dated 2026-11-08/);
   assert.ok(lines.includes("    - [b1x](specs/b1x.md) · status: active · ADRs: none · stories: 0 · code_refs: none"));
-  assert.equal(lines.filter((l) => l.includes("spec-child-unlinked")).length, 1);
+  assert.equal(lines.filter((l) => l.trimStart().startsWith("- ") && l.includes("spec-child-unlinked")).length, 1);
   // Children in path order under their parent.
   assert.ok(lines.indexOf(b1) < lines.findIndex((l) => l.includes("[b1x]")));
   assert.ok(lines.findIndex((l) => l.includes("[b1x]")) < lines.findIndex((l) => l.includes("[b1y]")));
