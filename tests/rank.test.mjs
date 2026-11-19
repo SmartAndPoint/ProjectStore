@@ -23,7 +23,7 @@ import {
 } from "../scripts/rank.mjs";
 import { runRank, planValues, setRank, unparsable } from "../scripts/rank-verb.mjs";
 import { runVaultChecks, runStartupChecks } from "../scripts/doctor.mjs";
-import { parseFrontmatter } from "../scripts/lib.mjs";
+import { parseFrontmatter, stateDir } from "../scripts/lib.mjs";
 import { packageCommand, sourceHarness } from "../scripts/harness.mjs";
 import { makeVaultProject } from "./fixtures/vault.mjs";
 import { hookEnv } from "./fixtures/hooks.mjs";
@@ -182,6 +182,21 @@ test("a folder named _drafts with an epic.md is no epic: the verb names no epic 
   assert.match(r.err, /"_drafts" names no epic/);
   const r2 = await cli(f.proj, ["rank", "epic", "PS-A", "--after", "_drafts"]);
   assert.equal(r2.code, 1);
+});
+
+// [rank#1]
+test("an epic whose initiative value is the id of two files is in No initiative (edge)", () => {
+  const g = epicGroups(
+    [{ id: "PS-A", rel: "epics/PS-A/epic.md", fm: { initiative: "twice" } }],
+    [
+      { rel: "initiatives/a.md", fm: { id: "twice" } },
+      { rel: "initiatives/b.md", fm: { id: "twice" } },
+    ],
+  );
+  assert.deepEqual(
+    g.get(NO_INITIATIVE).map((x) => x.id),
+    ["PS-A"],
+  );
 });
 
 // [rank#1]
@@ -768,6 +783,16 @@ test("a done item, a set-aside sibling, another epic's story and the item as its
 });
 
 // [rank#7]
+test("every check on the item runs before any on the sibling: a done item with a sibling that names nothing says the item is not open (edge)", async () => {
+  const f = mixed();
+  const r = await cli(f.proj, ["rank", "story", "PS-A/fin", "--before", "PS-A/nothing-here"]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /PS-A\/fin is not open/);
+  const e = await cli(f.proj, ["rank", "epic", "PS-Z", "--before", "PS-Y"]);
+  assert.match(e.err, /"PS-Z" names no epic/);
+});
+
+// [rank#7]
 test("an epic's sibling in another initiative, or in none, is refused with the epic --initiative hint (edge)", async () => {
   const f = mixed();
   for (const sib of ["PS-C", "PS-D"]) {
@@ -975,6 +1000,9 @@ test("a restore after a failed write is a second event for that file, ending at 
   const ev = readEvents(f.proj, sid).filter((e) => e.rel === "epics/PS-X/stories/a.md");
   assert.equal(ev.length, 2);
   assert.ok(ev.every((e) => e.tool === "rank"));
+  // The restore starts where the write ended and ends where it began.
+  assert.equal(ev[1].before, ev[0].after);
+  assert.equal(ev[1].after, ev[0].before);
   assert.equal(read(f.paths["PS-X/a"]), before);
 });
 
@@ -989,7 +1017,12 @@ test("with no session id nothing is recorded, and the output is the same (edge)"
   assert.equal(a.code, b.code);
   assert.equal(a.out, b.out);
   assert.equal(readEvents(g.proj, "sess-rank-2").length, 1);
-  assert.deepEqual(readEvents(f.proj, "sess-rank-2"), []);
+  // The run with no session id left no record at all.
+  let kept = [];
+  try {
+    kept = readdirSync(stateDir(f.proj)).filter((n) => n.endsWith(".writes"));
+  } catch {}
+  assert.deepEqual(kept, []);
 });
 
 // ─── Contract 10: doctor's rank-tie ────────────────────────────────────

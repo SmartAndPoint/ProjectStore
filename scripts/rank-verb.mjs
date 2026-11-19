@@ -414,6 +414,10 @@ export async function runRank(ctx) {
       };
       break;
     }
+    // Not reachable while the plan holds only changed values (the judgement
+    // compares the old one): a file left as it was is still not a move done.
+    failure = { c, message: `${c.path}: not written` };
+    break;
   }
 
   if (failure) {
