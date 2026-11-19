@@ -201,6 +201,230 @@ const writeUi = (() => {
     return el;
   }
 
+  // ── reordering the backlog tree (the spec dashboard-rank) ──
+  // `rank` is offered by a drop and by keys, never by a button: a drop or a key
+  // asks the core for the plan at once, and the dialog opens with that plan as
+  // its preview. A row moves only inside its group: an epic's open stories, or
+  // the epics of one initiative (or of none).
+  const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+  const EPIC_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+  let treeDrag = null; // { item, members, idx, gap, foreign, dropped } while a tree row is dragged
+  function canRank() {
+    const f = entryOf("rank")?.fields;
+    return Boolean(f && f.story && f.epic && f.before && f.after);
+  }
+  const placed = (x) => x.place !== null && x.place !== undefined;
+  const byPlace = (a, b) => a.place - b.place;
+  // The members of an item's group, in their order: [{ ref, title }].
+  function membersOf(item) {
+    if (item.kind === "story") return S.stories.filter((s) => s.epic === item.epic && placed(s)).sort(byPlace).map((s) => ({ ref: s.ref, title: s.title }));
+    return S.epics.filter((e) => (e.group ?? "") === item.group && placed(e)).sort(byPlace).map((e) => ({ ref: e.id, title: e.title }));
+  }
+  const itemOf = (key) => {
+    if (typeof key !== "string") return null;
+    if (key.startsWith("s:")) {
+      const s = S.stories.find((x) => x.ref === key.slice(2));
+      return s && placed(s) ? { kind: "story", ref: s.ref, title: s.title, epic: s.epic } : null;
+    }
+    if (key.startsWith("e:")) {
+      const e = S.epics.find((x) => x.id === key.slice(2));
+      return e && placed(e) ? { kind: "epic", ref: e.id, title: e.title, group: e.group ?? "" } : null;
+    }
+    return null;
+  };
+  const formOk = (item) => (item.kind === "story" ? STORY_REF : EPIC_REF).test(item.ref);
+  // Why a row cannot go to another group (contract 7).
+  const elsewhere = (item) =>
+    item.kind === "story"
+      ? `A story moves only among the open stories of its own epic, ${item.epic}.`
+      : "An epic moves only among the epics of its initiative; `epic <EPIC-ID> --initiative <id>` changes its initiative.";
+  const clearLine = () => {
+    for (const el of document.querySelectorAll(".drop-line-before, .drop-line-after")) el.classList.remove("drop-line-before", "drop-line-after");
+  };
+  // The rows of a member's block: its row and the rows drawn under it.
+  const blockRows = (item, ref) =>
+    [...document.querySelectorAll(item.kind === "story" ? "table.tree tr[data-story]" : "table.tree tr[data-epic]")].filter((r) =>
+      item.kind === "story" ? r.dataset.story === ref : r.dataset.epic === ref,
+    );
+  // The gap a pointer over `tr` at `y` names in the dragged item's group, or
+  // null when the row is another group's (contract 6).
+  function gapAt(tr, y) {
+    const { item, members } = treeDrag;
+    if (!tr) return null;
+    if (item.kind === "story") {
+      if (tr.dataset.epic !== item.epic) return null;
+      const ref = tr.dataset.story;
+      if (!ref) return 0; // the epic's own row: before its first open story
+      const at = members.findIndex((m) => m.ref === ref);
+      if (at === -1) {
+        const s = S.stories.find((x) => x.ref === ref);
+        return s && s.column === "Done" ? 0 : members.length; // done stories stand above, set-aside ones below
+      }
+      const rows = blockRows(item, ref);
+      const top = rows[0].getBoundingClientRect().top;
+      const bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
+      return y < (top + bottom) / 2 ? at : at + 1;
+    }
+    if (!tr.dataset.epic || (tr.dataset.group ?? "") !== item.group) return null;
+    const at = members.findIndex((m) => m.ref === tr.dataset.epic);
+    if (at === -1) return null;
+    const rows = blockRows(item, tr.dataset.epic);
+    const top = rows[0].getBoundingClientRect().top;
+    const bottom = rows[rows.length - 1].getBoundingClientRect().bottom;
+    return y < (top + bottom) / 2 ? at : at + 1;
+  }
+  // The place a gap asks for: { before } or { after }, or null for the item's own place.
+  function placeOf(gap) {
+    const { members, idx } = treeDrag;
+    if (gap === idx || gap === idx + 1) return null;
+    return gap < members.length ? { before: members[gap] } : { after: members[members.length - 1] };
+  }
+  function drawLine(gap) {
+    clearLine();
+    const { item, members } = treeDrag;
+    if (gap < members.length) blockRows(item, members[gap].ref)[0]?.classList.add("drop-line-before");
+    else blockRows(item, members[members.length - 1].ref).at(-1)?.classList.add("drop-line-after");
+  }
+  // The document's two drag listeners, installed with the first draggable row.
+  let listening = false;
+  function listen() {
+    if (listening) return;
+    listening = true;
+  document.addEventListener("dragover", (e) => {
+    if (!treeDrag) return;
+    const tr = e.target instanceof Element ? e.target.closest("table.tree tr") : null;
+    const gap = gapAt(tr, e.clientY);
+    if (gap === null) {
+      treeDrag.foreign = Boolean(tr);
+      clearLine();
+      return; // no drop here: the row goes back
+    }
+    treeDrag.foreign = false;
+    treeDrag.gap = gap;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (placeOf(gap)) drawLine(gap);
+    else clearLine();
+  });
+  document.addEventListener("drop", (e) => {
+    if (!treeDrag || treeDrag.gap === null || treeDrag.foreign) return;
+    e.preventDefault();
+    const { item } = treeDrag;
+    const place = placeOf(treeDrag.gap);
+    treeDrag.dropped = true;
+    clearLine();
+    if (place && !busy) openRank(item, place);
+  });
+  }
+  // A tree row that may be reordered: draggable, with a grip.
+  function dragTreeRow(tr, item) {
+    if (!canRank() || !formOk(item)) return tr;
+    listen();
+    tr.classList.add("can-rank");
+    // The grip is the handle: the row's text stays selectable, and its buttons stay buttons.
+    const grip = h("span", { class: "grip", draggable: "true", title: `Drag to reorder ${item.kind === "story" ? "among the open stories of its epic" : "among the epics of its initiative"}` }, "⠿");
+    tr.querySelector(".t")?.prepend(grip);
+    grip.addEventListener("dragstart", (e) => {
+      const members = membersOf(item);
+      treeDrag = { item, members, idx: members.findIndex((m) => m.ref === item.ref), gap: null, foreign: false, dropped: false };
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", item.ref);
+      if (typeof e.dataTransfer.setDragImage === "function") e.dataTransfer.setDragImage(tr, 12, 12);
+      document.body.classList.add("dragging-row");
+    });
+    grip.addEventListener("dragend", () => {
+      const d = treeDrag;
+      treeDrag = null;
+      clearLine();
+      document.body.classList.remove("dragging-row");
+      if (d && !d.dropped && d.foreign) say("warn", elsewhere(d.item));
+    });
+    return tr;
+  }
+  // Alt+ArrowUp (-1) or Alt+ArrowDown (+1) on the selected row (contract 8):
+  // true when the key is this row's (the page takes it), whether or not a
+  // neighbour is there to pass.
+  function rankKey(key, dir) {
+    if (!canRank() || (typeof ui.filter === "string" && ui.filter.trim())) return false;
+    const item = itemOf(key);
+    if (!item || !formOk(item)) return false;
+    // Only a row the tree draws with its handle moves by a key.
+    const drawn = [...document.querySelectorAll("table.tree tr.can-rank")].some((r) => r.dataset && r.dataset.key === key);
+    if (!drawn) return false;
+    const members = membersOf(item);
+    const at = members.findIndex((m) => m.ref === item.ref);
+    const next = members[at + dir];
+    // A step that runs, a plan asked and not yet answered included, takes no key.
+    if (at === -1 || !next || busy) return true;
+    openRank(item, dir < 0 ? { before: next } : { after: next });
+    return true;
+  }
+  // The plan for a reorder, then its dialog (contract 6; the write-path spec's contract 10).
+  async function openRank(item, place) {
+    const entry = entryOf("rank");
+    if (!entry) return say("error", "The page cannot reorder now.");
+    const side = place.before ? "before" : "after";
+    const sib = place.before || place.after;
+    const fields = { [item.kind]: item.ref, [side]: sib.ref };
+    const a = await running("preview", () => post("/api/preview", { verb: "rank", fields }));
+    render();
+    if (!a.ok) return say("error", a.error);
+    const changes = Array.isArray(a.result?.changes) ? a.result.changes : [];
+    if (!changes.length) return say("ok", `${item.title} is already in that place: nothing to write.`);
+    const label = entry.label || "Reorder";
+    const subjects = [entry.subject].flat().filter((s) => typeof s === "string");
+    const template = subjects.find((s) => [...s.matchAll(/\{([a-z_]+)\}/g)].every((m) => Object.hasOwn(fields, m[1]))) || "rank {story}";
+    const err = h("div", { class: "write-err", role: "alert" });
+    const primary = h("button", { class: "btn primary", type: "button" }, label);
+    const cancel = h("button", { class: "btn", type: "button" }, "Cancel");
+    const plan = h(
+      "div",
+      { class: "plan-box" },
+      h("div", { class: "plan-h" }, "What the core will change"),
+      h(
+        "div",
+        { class: "plan" },
+        kv(...changes.map((c) => ["File", h("span", null, h("span", { class: "mono path" }, c.path), ` rank ${c.from ?? "none"} → ${c.to}`)])),
+      ),
+      h("div", { class: "faint rank-count" }, `${plural(changes.length, "file")} to write. Only each file's rank: line changes; no date moves.`),
+      h("div", { class: "faint" }, landing()),
+    );
+    let inFlight = false;
+    primary.addEventListener("click", async () => {
+      if (inFlight) return;
+      inFlight = true;
+      primary.disabled = true;
+      primary.textContent = "Reordering…";
+      fill(err, null);
+      const before = w()?.batch?.commits || 0;
+      const r = await running("action", () => post("/api/action", { verb: "rank", fields }));
+      inFlight = false;
+      if (r.ok) {
+        dlg.close();
+        const b = w()?.batch;
+        const wrote = (b?.commits || 0) > before;
+        const files = Array.isArray(r.result?.written) ? r.result.written.length : changes.length;
+        say("ok", wrote ? `${item.title} now stands ${side} ${sib.title}: one commit of ${plural(files, "file")}.${b ? ` The batch ${b.branch} holds ${plural(b.commits, "commit")}.` : ""}` : `Nothing was written: ${item.title} is already in that place.`);
+        await after();
+      } else {
+        // The plan on screen is no longer the one a click would run: no button runs it again.
+        primary.remove();
+        cancel.textContent = "Close";
+        fill(err, h("div", { class: "msg" }, r.error));
+        render();
+      }
+    });
+    cancel.addEventListener("click", () => dlg.close());
+    const dlg = modal(label, [
+      h("div", { class: "move-what" }, h("b", null, item.title), h("div", { class: "faint" }, h("span", { class: "mono" }, item.ref), ` · ${side} ${sib.title}`)),
+      h("div", { class: "faint subject mono" }, `Commit: ${fillSubject(template, fields)}`),
+      plan,
+      err,
+      h("div", { class: "btns" }, cancel, primary),
+    ], { first: primary });
+    return dlg;
+  }
+
   // ── a dialog that keeps the focus, and closes on Escape ──
   function modal(title, kids, { onClose, first } = {}) {
     const m = $("#modal");
@@ -693,5 +917,5 @@ const writeUi = (() => {
     refresh();
   }
 
-  return { post, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();

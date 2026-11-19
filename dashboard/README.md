@@ -11,8 +11,9 @@ npx projectstore dashboard
 
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
-palette. It can also move a story between the backlog and ToDo, and hand a story someone holds to
-another person. The core's own `move` and `handover` run in
+palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
+another person, and reorder the backlog tree by a drag or Alt+↑ and Alt+↓. The core's own `move`,
+`handover` and `rank` run in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
 branch. **Send** pushes that branch and opens one pull request for it (with no `gh` to ask, it
 pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to
@@ -70,8 +71,10 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   the refresh itself, inside a 10-second budget.
 - A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
   `move`, with `story`, `to` as `todo` or `planned`, and `reason`; `handover`, with `story`, `from`
-  as the story's assignee, `to` and `reason`) and gives every field of it as a value. Each entry
-  also carries the labels and the commit subject the page draws its dialog from.
+  as the story's assignee, `to` and `reason`; `rank`, with one of `story` and `epic` and one of
+  `before` and `after`, offered by a drop or a key, never a button) and gives every required field
+  of it as a value. Each entry also carries the labels and the commit subject (or a list of
+  subjects, one for each set of fields) the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400).
 - One path rule for every route that takes a path (`readableRel` in `lib/state.mjs`): not empty,
   not absolute, no `\`, no NUL, no `.`, `..` or hidden segment, and after every link is followed
@@ -104,7 +107,7 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
 - It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
   `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
-  points the core's `move` and `handover` at the vault inside the clone, and the lock file
+  points the core's `move`, `handover` and `rank` at the vault inside the clone, and the lock file
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.
@@ -227,8 +230,11 @@ What the page reads that the core has no reader for yet:
 - **Agents**: a person of the flow policy, or an assignee, whose name starts with `agent:`.
 - **People with no policy**: every assignee the policy does not list joins the people, with no
   WIP limit (the page adds them from `assignees`).
-- **Order**: a priority outside `p0`–`p3` reads as `p2`; a `rank` field, when a story has one,
-  orders stories of one priority.
+- **Order**: a priority outside `p0`–`p3` reads as `p2`. The board, the list and My work order by
+  priority, then title. The backlog tree draws each group (an epic's open stories, an
+  initiative's epics, the epics of no initiative) in the core's `siblingOrder` (`scripts/rank.mjs`):
+  `/api/state` gives each story and epic its `place` and `ranked`, and each epic its `group`. In an
+  epic, done stories stand first and set-aside ones last.
 - **The list of documents** (`/api/artifacts`): the `*.md` of each layout folder and of
   `initiatives/`, but `README.md`; the kind from the frontmatter's `type`, else the folder's.
 - **Related**: which edges of the graph count for an item (an epic's and an initiative's stories

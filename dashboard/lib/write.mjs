@@ -142,26 +142,59 @@ export const WRITE_VERBS = freezeDeep([
       reason: { kind: "line", max: 200, label: "Why, in one line" },
     },
   },
+  // A reorder of the backlog tree (the spec dashboard-rank, contract 10): the
+  // page offers it by a drop or a key, never by a button, and it takes no
+  // reason. Exactly one of story and epic, and one of before and after.
+  {
+    verb: "rank",
+    label: "Reorder",
+    subject: ["rank {story} before {before}", "rank {story} after {after}", "rank {epic} before {before}", "rank {epic} after {after}"],
+    fields: {
+      story: { kind: "story", form: "<EPIC>/<id>", label: "Story", optional: true },
+      epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic", optional: true },
+      before: { kind: "sibling", label: "Before", optional: true },
+      after: { kind: "sibling", label: "After", optional: true },
+    },
+    one_of: [
+      ["story", "epic"],
+      ["before", "after"],
+    ],
+  },
 ]);
 // How each verb's fields reach the core's CLI: positionals after `--`, options
-// as `--name=value`. The table-vs-core test holds these against the core's
-// own verb table.
+// as `--name=value`. `word` names fields of which the one a request gives
+// reaches the CLI as that literal word of the verb's form, then its value,
+// before the positionals (`rank story <EPIC>/<id>`). The table-vs-core test
+// holds these against the core's own verb table.
 export const VERB_ARGV = freezeDeep({
   move: { positionals: ["story", "to"], options: ["reason"] },
   handover: { positionals: [], options: ["story", "from", "to", "reason"] },
+  rank: { word: ["story", "epic"], positionals: [], options: ["before", "after"] },
 });
+// The positionals a checked request gives the CLI: the literal word and its
+// value first, when the verb has one, then the positionals in order.
+export function positionalsOf(req, argv = VERB_ARGV) {
+  const call = argv[req.verb];
+  const word = (call.word || []).find((k) => Object.hasOwn(req.fields, k));
+  return [...(word ? [word, req.fields[word]] : []), ...call.positionals.map((k) => req.fields[k])];
+}
 // The commit's subject for a checked request (contract 7): the entry's
 // template with each `{name}` replaced once by that field's value, so a value
 // that holds `{to}` stays as typed.
 export function subjectOf(req, verbs = WRITE_VERBS) {
   const entry = verbs.find((v) => v && v.verb === req.verb);
-  const template = entry && typeof entry.subject === "string" ? entry.subject : `${req.verb} {story}`;
+  // A list of templates: the first whose every {name} is a field the request gives.
+  const given = (s) => [...s.matchAll(/\{([a-z_]+)\}/g)].every((m) => Object.hasOwn(req.fields, m[1]));
+  const list = entry && Array.isArray(entry.subject) ? entry.subject.filter((s) => typeof s === "string") : [];
+  const template = entry && typeof entry.subject === "string" ? entry.subject : list.find(given) || `${req.verb} {story}`;
   return template.replace(/\{([a-z_]+)\}/g, (m, name) => (Object.hasOwn(req.fields, name) ? String(req.fields[name]) : m));
 }
 // One line: the class the core's `--reason` refuses (status-log.mjs oneLine).
 const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
 // `<EPIC>/<id>`: the shape only; the core resolves the story.
 const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+// `<EPIC-ID>`: an epic folder's name, the shape only.
+export const EPIC_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
 
 // A preview's or an action's request, checked against `verbs` before any
 // process starts (contract 6): { ok, verb, fields } with each value as the
@@ -179,12 +212,23 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
   if (!given || typeof given !== "object" || Array.isArray(given)) return no(`${entry.verb} takes its fields as an object: ${Object.keys(entry.fields).join(", ")}`);
   const outside = Object.keys(given).filter((k) => !Object.hasOwn(entry.fields, k));
   if (outside.length) return no(`${outside.map((k) => JSON.stringify(k)).join(", ")} is not a field of ${entry.verb} (its fields: ${Object.keys(entry.fields).join(", ")})`);
+  // Of each one_of group, a request gives exactly one field.
+  for (const group of entry.one_of || []) {
+    const there = group.filter((k) => given[k] !== undefined);
+    if (there.length !== 1) return no(`${entry.verb} takes exactly one of ${group.join(", ")}; the request gives ${there.length ? there.join(" and ") : "none"}`);
+  }
+  // A sibling is named in the form of the item the request gives.
+  const itemKind = given.story !== undefined ? entry.fields.story : given.epic !== undefined ? entry.fields.epic : null;
   const fields = {};
   for (const [name, kind] of Object.entries(entry.fields)) {
     const v = given[name];
+    if (v === undefined && kind.optional) continue;
     if (typeof v !== "string") return no(`${entry.verb} needs ${name} as text`);
-    if (kind.kind === "story") {
-      if (!STORY_REF.test(v)) return no(`${name} names a story as ${kind.form}, such as PS-CORE/story-x; ${JSON.stringify(v)} is not that`);
+    if (kind.kind === "epic" || (kind.kind === "sibling" && itemKind?.kind === "epic")) {
+      if (!EPIC_REF.test(v)) return no(`${name} names an epic as <EPIC-ID>, such as PS-CORE; ${JSON.stringify(v)} is not that`);
+      fields[name] = v;
+    } else if (kind.kind === "story" || kind.kind === "sibling") {
+      if (!STORY_REF.test(v)) return no(`${name} names a story as ${kind.form || itemKind?.form || "<EPIC>/<id>"}, such as PS-CORE/story-x; ${JSON.stringify(v)} is not that`);
       fields[name] = v;
     } else if (kind.kind === "choice") {
       const values = kind.values.map((x) => (x && typeof x === "object" ? x.value : x));
@@ -1214,7 +1258,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     const call = VERB_ARGV[req.verb];
     const options = { project: paths.binding, json: true, write: write || null };
     for (const k of call.options) options[k] = req.fields[k];
-    const r = await proc.cli(req.verb, { options, positionals: call.positionals.map((k) => req.fields[k]), cwd: paths.binding }, { need: true, via });
+    const r = await proc.cli(req.verb, { options, positionals: positionalsOf(req), cwd: paths.binding }, { need: true, via });
     const env = r.envelope;
     if (!env || typeof env !== "object" || !("result" in env)) {
       const said = String(r.stderr || "").trim().split("\n")[0] || `it exited ${r.status} with no answer`;

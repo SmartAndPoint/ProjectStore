@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const OWN_PACKAGE = new URL("../package.json", import.meta.url);
-const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs"];
+const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs"];
 
 function versionAt(file) {
   try {
@@ -56,7 +56,7 @@ export async function openCore({ core, project } = {}) {
     throw new Error(`version mismatch: the core at ${root} is ${theirs}, the dashboard is ${mine ?? "unknown"}. The two ship together; run the dashboard of that core.`);
 
   const load = (name) => import(pathToFileURL(join(root, "scripts", name)).href);
-  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding] = await Promise.all(CORE_MODULES.map(load));
+  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank] = await Promise.all(CORE_MODULES.map(load));
 
   const bound = lib.readConfigAt(dir);
   if (!bound || typeof bound !== "object") throw new Error(`${dir} is not bound to a vault: it has no readable .projectstore/projectstore.json. Bind it first (projectstore bind <vault>).`);
@@ -79,5 +79,6 @@ export async function openCore({ core, project } = {}) {
     flowCounts,
     flowPolicy,
     graph,
+    rank,
   };
 }

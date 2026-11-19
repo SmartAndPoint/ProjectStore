@@ -208,6 +208,7 @@ const KEYS = [
   ["H  L", "Board: the column to the left or right. Backlog: fold or unfold"],
   ["↵  or  O", "Open the selected item"],
   ["Esc", "Close the item, or drop the selection"],
+  [`${MAC ? "⌥" : "Alt+"}↑  ${MAC ? "⌥" : "Alt+"}↓`, "Backlog: move the selected epic or open story above or below its neighbour (a commit, after a dialog)"],
   ["R", "Read the vault again"],
   ["?", "This list"],
 ];
@@ -223,6 +224,13 @@ document.addEventListener("keydown", (e) => {
   if (mod && e.key.toLowerCase() === "k") {
     e.preventDefault();
     return pal ? closePalette() : openPalette();
+  }
+  // Alt+ArrowUp and Alt+ArrowDown reorder the selected row of the backlog tree
+  // (the spec dashboard-rank, contract 8): Alt alone, never in a field, a
+  // dialog or the palette. The page takes the key, so it does not scroll.
+  if (e.altKey && !mod && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && !typing && !pal && $("#modal").hidden && S && ui.view === "backlog") {
+    if (writeUi.rankKey(ui.sel, e.key === "ArrowUp" ? -1 : 1)) e.preventDefault();
+    return;
   }
   if (typing || mod || e.altKey || pal || !$("#modal").hidden || !S) return;
   const k = e.key;
