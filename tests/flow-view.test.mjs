@@ -24,7 +24,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { flowVault, storyText, doctorRun, byCheck, ADDRESS, NOW, NOW_MS, DAY } from "./fixtures/flow.mjs";
+import { flowVault, storyText, closedStory, doctorRun, byCheck, ADDRESS, NOW, NOW_MS, DAY } from "./fixtures/flow.mjs";
 import { buildFlowView, flowModel, renderFlowView, asOfOf, checkFlowView } from "../scripts/flow-view.mjs";
 import { runReconcile } from "../scripts/reconcile.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
@@ -206,7 +206,7 @@ const oneInEach = () => ({
 });
 
 // [flow-view#2]
-test("shape: --only flow writes flow.md with projectstore: derived, generated_at and as_of, the four sections in order, and no harness command form", () => {
+test("shape: --only flow writes flow.md with projectstore: derived, generated_at and as_of, the five sections in order, and no harness command form", () => {
   const fx = vault({ vaultCfg: { flow: { window_weeks: 2 } }, stories: oneInEach() });
   const r = reconcile(fx);
   assert.equal(r.flow.written, true);
@@ -216,7 +216,14 @@ test("shape: --only flow writes flow.md with projectstore: derived, generated_at
   assert.match(String(fm.generated_at), /^\d{4}-\d\d-\d\dT/);
   assert.equal(String(fm.as_of), "2026-11-11");
   const heads = content.split("\n").filter((l) => /^#{1,2} /.test(l));
-  assert.deepEqual(heads, ["# Flow", "## WIP", "## In status since", "## Throughput", "## Cumulative flow"]);
+  assert.deepEqual(heads, [
+    "# Flow",
+    "## WIP",
+    "## In status since",
+    "## Epics without movement",
+    "## Throughput",
+    "## Cumulative flow",
+  ]);
   assert.doesNotMatch(content, /\/projectstore:|\$projectstore-/);
   assert.ok(content.endsWith("\n") && !content.endsWith("\n\n"), "one trailing newline");
   assert.ok(!content.includes("\r"));
@@ -1074,6 +1081,314 @@ test("story command: step 6 holds the plan clause, steps 5a and 6a name flow whe
   }
 });
 
+// ─── The cycle-time spec (alias `cycle-time`), contracts 6, 7 and 10 ───
+
+// The page is dated 2026-11-11T12:00Z by its anchor story (PS-Z), so a
+// window of 2 weeks is 2026-10-26 to 2026-11-09.
+const AS_OF = at("2026-11-11", "12:00:00.000Z");
+const ctClose = (id, start, close) => closedStory({ id, start: start === null ? null : at(start), close: at(close) });
+const threeCloses = () => ({
+  "PS-X/story-c2": ctClose("story-c2", "2026-10-27", "2026-10-29"),
+  "PS-X/story-c5": ctClose("story-c5", "2026-10-26", "2026-10-31"),
+  "PS-X/story-c9": ctClose("story-c9", "2026-10-20", "2026-10-29"),
+});
+const cycleLineOf = (content) => {
+  const lines = (section(content, "Throughput") || "").split("\n");
+  return lines.find((l) => /cycle time/i.test(l)) || null;
+};
+const atAsOf = (fx) => ({ now: new Date(asOfOf(factsOf(fx))).toISOString() });
+// A story of `epic` moved to in-progress `n` whole days before AS_OF.
+const quietFor = (epic, n) => ({
+  [`${epic}/story-${epic.toLowerCase()}`]: moved(`story-${epic.toLowerCase()}`, {
+    epic,
+    moves: [["in-progress", new Date(Date.parse(AS_OF) - n * DAY).toISOString()]],
+  }),
+});
+
+// [cycle-time#6]
+test("cycle-time line: W of 2 and closes 2, 5 and 9 days after their start give 5 days over 3 stories, none left out, and doctor's flow-cycle-time at the as-of instant gives the same", () => {
+  const fx = vault({ vaultCfg: { flow: { window_weeks: 2 } }, stories: { ...threeCloses(), ...anchor(AS_OF) } });
+  assert.equal(
+    cycleLineOf(page(fx)),
+    "Cycle time: the median (the middle value) of the days from a story's start to its close is 5 days, over 3 stories closed in the window; none is left out.",
+  );
+  const f = byCheck(doctorRun(fx, atAsOf(fx)), "flow-cycle-time");
+  assert.equal(f.length, 1);
+  assert.match(f[0].message, /has a median \(the middle value\) of 5 days, over 3 stories\. None is left out\.$/);
+});
+
+// [cycle-time#6]
+test("cycle-time line: W of 2 and no close says none closed in the window; two closed the day they started give under 1 day over 2 stories (edge)", () => {
+  const old = { "PS-X/story-old": moved("story-old", { created: "2026-09-01" }) };
+  const none = vault({ vaultCfg: { flow: { window_weeks: 2 } }, stories: { ...old, ...anchor(AS_OF) } });
+  assert.equal(cycleLineOf(page(none)), "No story was closed in the window, so there is no cycle time to give.");
+  const fx = vault({
+    vaultCfg: { flow: { window_weeks: 2 } },
+    stories: {
+      "PS-X/story-a": closedStory({ id: "story-a", start: at("2026-11-02"), close: at("2026-11-02", "16:00:00.000Z") }),
+      "PS-X/story-b": closedStory({ id: "story-b", start: at("2026-11-03"), close: at("2026-11-03", "18:00:00.000Z") }),
+      ...anchor(AS_OF),
+    },
+  });
+  assert.match(cycleLineOf(page(fx)), /is under 1 day, over 2 stories closed in the window; none is left out\.$/);
+});
+
+// [cycle-time#6]
+test("cycle-time line: W of 2 and one of three closes with no start gives the median of two and says 1 closed story is left out, and doctor says the same (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { window_weeks: 2 } },
+    stories: {
+      "PS-X/story-c2": ctClose("story-c2", "2026-10-27", "2026-10-29"),
+      "PS-X/story-c4": ctClose("story-c4", "2026-10-26", "2026-10-30"),
+      "PS-X/story-none": ctClose("story-none", null, "2026-11-02"),
+      ...anchor(AS_OF),
+    },
+  });
+  assert.equal(
+    cycleLineOf(page(fx)),
+    "Cycle time: the median (the middle value) of the days from a story's start to its close is 3 days, over 2 stories closed in the window; 1 closed story is left out, since it has no start: its Status log has no in-progress or review line, and it has no `started_at`.",
+  );
+  const f = byCheck(doctorRun(fx, atAsOf(fx)), "flow-cycle-time");
+  assert.match(f[0].message, /of 3 days, over 2 stories\. 1 closed story is left out, since it has no start: /);
+});
+
+// [cycle-time#6]
+test("cycle-time line: W of 2 and two closes with no start say every closed story is left out, and give no number (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { window_weeks: 2 } },
+    stories: {
+      "PS-X/story-a": ctClose("story-a", null, "2026-10-29"),
+      "PS-X/story-b": ctClose("story-b", null, "2026-11-02"),
+      ...anchor(AS_OF),
+    },
+  });
+  const line = cycleLineOf(page(fx));
+  assert.match(line, /^Every story closed in the window is left out of the cycle time, since none has a start/);
+  assert.doesNotMatch(line, /\d/);
+});
+
+// [cycle-time#6]
+test("cycle-time line: a vault younger than the window says no cycle time is given while the vault is younger than the window (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { window_weeks: 2 } },
+    stories: {
+      "PS-X/story-a": closedStory({
+        id: "story-a",
+        start: at("2026-11-02"),
+        close: at("2026-11-04"),
+        created: "2026-11-01",
+      }),
+      ...anchor(AS_OF),
+    },
+  });
+  assert.equal(cycleLineOf(page(fx)), "No cycle time is given while the vault is younger than the window.");
+});
+
+// [cycle-time#6]
+test("cycle-time line: with no flow.window_weeks there is no line, and the window-not-set sentence names the cycle time (edge)", () => {
+  const content = page(
+    vault({ vaultCfg: { flow: { people: { A: { wip: 2 } } } }, stories: { ...threeCloses(), ...anchor(AS_OF) } }),
+  );
+  assert.equal(section(content, "Throughput"), null);
+  assert.doesNotMatch(content, /^Cycle time:/m);
+  assert.match(content, /The weekly throughput, the cycle time and the cumulative flow are not shown, because/);
+});
+
+// [cycle-time#7]
+test("epics without movement: at N of 14 the page lists the epic 14 days quiet with that date and not the one at 13, and doctor at the as-of instant gives one epic-idle for the first", () => {
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    stories: { ...quietFor("PS-A", 14), ...quietFor("PS-B", 13), ...anchor(AS_OF) },
+  });
+  const body = section(page(fx), "Epics without movement");
+  assert.deepEqual(rows(body), [["[[epics/PS-A/epic\\|PS-A: PS-A]]", "2026-10-28"]]);
+  assert.match(body, /3 epics in progress are watched by this check\./);
+  const idle = byCheck(doctorRun(fx, atAsOf(fx)), "epic-idle");
+  assert.deepEqual(
+    idle.map((f) => f.file),
+    ["epics/PS-A/epic.md"],
+  );
+  assert.match(idle[0].message, /since 2026-10-28/);
+});
+
+// [cycle-time#7]
+test("epics without movement: no flow.age_days.epic_idle, then a value of 0, give no table, say not set, then not a whole number of days above 0, each with the configure form, and read no epic.md (edge)", () => {
+  for (const [flow, why] of [
+    [{ window_weeks: 2 }, /\(`flow\.age_days\.epic_idle`\) is not set\. Set it with:/],
+    [
+      { age_days: { epic_idle: 0 } },
+      /\(`flow\.age_days\.epic_idle`\) is not a whole number of days above 0\. Set it with:/,
+    ],
+  ]) {
+    const fx = vault({ vaultCfg: { flow }, stories: { ...quietFor("PS-A", 30), ...anchor(AS_OF) } });
+    const reads = [];
+    const content = page(fx, {
+      read: (p) => {
+        reads.push(p);
+        return readFileSync(p, "utf8");
+      },
+    });
+    const body = section(content, "Epics without movement");
+    assert.match(body, why);
+    assert.match(body, /\n```\nnpx projectstore configure --set flow\.age_days\.epic_idle=<days>\n```/);
+    assert.deepEqual(rows(body), []);
+    assert.ok(reads.length > 0);
+    assert.deepEqual(
+      reads.filter((p) => p.endsWith("epic.md")),
+      [],
+    );
+  }
+});
+
+// [cycle-time#7]
+test("epics without movement: N of 14, no flow.window_weeks and no epic 14 days quiet say how many are watched and that none has gone 14 days, with the quiet-vault sentence, and no Throughput (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    stories: { ...quietFor("PS-A", 5), ...anchor(AS_OF) },
+  });
+  const content = page(fx);
+  const body = section(content, "Epics without movement");
+  assert.match(
+    body,
+    /^\n2 epics in progress are watched by this check, and none of them has gone 14 days or more \(`flow\.age_days\.epic_idle`\) without a story changing status\./,
+  );
+  assert.match(
+    body,
+    /The days are counted to this page's date, 2026-11-11, the newest date a story carries, not to today\./,
+  );
+  assert.match(body, /doctor's `epic-idle` finding, which counts to today, lists it\./);
+  assert.equal(section(content, "Throughput"), null);
+});
+
+// [cycle-time#7]
+test("epics without movement: on a quiet vault neither page, built two days apart, lists the only epic and the two are equal; doctor gives epic-idle 14 days after the stamp and none at 13 (edge)", () => {
+  const stamp = "2026-11-01T09:00:00.000Z";
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    stories: { "PS-X/story-a": moved("story-a", { created: "2026-10-01", moves: [["in-progress", stamp]] }) },
+  });
+  const RealDate = globalThis.Date;
+  class NoClock extends RealDate {
+    constructor(...a) {
+      if (!a.length) throw new Error("the clock was read");
+      super(...a);
+    }
+    static now() {
+      throw new Error("the clock was read");
+    }
+  }
+  let first;
+  let second;
+  globalThis.Date = NoClock;
+  try {
+    first = page(fx, { generatedAt: "2026-11-01T10:00:00.000Z" });
+    second = page(fx, { generatedAt: "2026-11-03T10:00:00.000Z" });
+  } finally {
+    globalThis.Date = RealDate;
+  }
+  assert.equal(asOfLine(first), "as_of: 2026-11-01");
+  assert.equal(dropGenerated(first), dropGenerated(second));
+  assert.deepEqual(rows(section(first, "Epics without movement")), []);
+  const after = (n) =>
+    byCheck(doctorRun(fx, { now: new RealDate(Date.parse(stamp) + n * DAY).toISOString() }), "epic-idle");
+  assert.equal(after(14).length, 1);
+  assert.equal(after(13).length, 0);
+});
+
+// [cycle-time#7]
+test("epics without movement: a title A | B ]] C is escaped in the link, an epic.md's updated never moves as_of, and an epic with no title shows its folder name (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    epics: {
+      "PS-A": { title: JSON.stringify("A | B ]] C"), fm: { updated: "2027-01-01" } },
+      "PS-B": { title: null },
+    },
+    stories: { ...quietFor("PS-A", 30), ...quietFor("PS-B", 20), ...anchor(AS_OF) },
+  });
+  const content = page(fx);
+  assert.equal(asOfLine(content), "as_of: 2026-11-11");
+  assert.deepEqual(
+    rows(section(content, "Epics without movement")).map((r) => r[0]),
+    ["[[epics/PS-A/epic\\|PS-A: A \\| B )) C]]", "[[epics/PS-B/epic\\|PS-B]]"],
+  );
+});
+
+// [cycle-time#7]
+test("epics without movement: an epic.md whose read throws leaves the other epics judged as before, and a line says 1 story or epic file could not be read (failure)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    stories: { ...quietFor("PS-A", 30), ...quietFor("PS-B", 20), ...anchor(AS_OF) },
+  });
+  const built = buildFlowView(fx.cfg, LAYOUT, {
+    read: (p) => {
+      if (p.endsWith(join("PS-B", "epic.md"))) throw new Error("EACCES");
+      return readFileSync(p, "utf8");
+    },
+  });
+  assert.equal(built.error, undefined);
+  assert.match(built.content, /\n1 story or epic file could not be read and is left out, so the counts can be low\.\n/);
+  assert.deepEqual(
+    rows(section(built.content, "Epics without movement")).map((r) => r[1]),
+    ["2026-10-12"],
+  );
+  assert.equal(built.stats.unread, 1);
+});
+
+// [cycle-time#7]
+test("epics without movement: a last change read from closed_at, started_at or created is marked with its field in the date cell (edge)", () => {
+  const fx = vault({
+    vaultCfg: { flow: { age_days: { epic_idle: 14 } } },
+    stories: {
+      "PS-A/story-a": storyText({
+        id: "story-a",
+        epic: "PS-A",
+        status: "done",
+        fm: { closed_at: JSON.stringify(at("2026-10-01")) },
+      }),
+      "PS-B/story-b": storyText({
+        id: "story-b",
+        epic: "PS-B",
+        status: "in-progress",
+        fm: { started_at: JSON.stringify(at("2026-10-02")) },
+      }),
+      "PS-C/story-c": storyText({ id: "story-c", epic: "PS-C", created: "2026-10-03" }),
+      ...anchor(AS_OF),
+    },
+  });
+  assert.deepEqual(
+    rows(section(page(fx), "Epics without movement")).map((r) => r[1]),
+    ["2026-10-01 (from closed_at)", "2026-10-02 (from started_at)", "2026-10-03 (from created)"],
+  );
+});
+
+// [cycle-time#10]
+test("one count: on a vault with three closes and one epic past N, the page's cycle-time line and epics table give the numbers and the epic of flow-cycle-time and epic-idle at the as-of instant", () => {
+  const fx = vault({
+    vaultCfg: { flow: { window_weeks: 2, age_days: { epic_idle: 14 } } },
+    stories: { ...threeCloses(), ...quietFor("PS-A", 20), ...anchor(AS_OF) },
+  });
+  const content = page(fx);
+  const found = doctorRun(fx, atAsOf(fx));
+  const cycle = byCheck(found, "flow-cycle-time");
+  assert.equal(cycle.length, 1);
+  const pageNums = cycleLineOf(content)
+    .match(/is (\d+) days, over (\d+) stories/)
+    .slice(1);
+  const doctorNums = cycle[0].message.match(/of (\d+) days, over (\d+) stories/).slice(1);
+  assert.deepEqual(pageNums, ["5", "3"]);
+  assert.deepEqual(doctorNums, pageNums);
+  const listed = rows(section(content, "Epics without movement"));
+  const idle = byCheck(found, "epic-idle");
+  assert.deepEqual(
+    listed.map((r) => r[0].match(/^\[\[(.*)\\\|/)[1] + ".md"),
+    idle.map((f) => f.file),
+  );
+  assert.deepEqual(
+    listed.map((r) => r[1]),
+    idle.map((f) => f.message.match(/since (\d{4}-\d\d-\d\d)/)[1]),
+  );
+});
+
 // ─── Source guards ─────────────────────────────────────────────────────
 
 const code = (rel) =>
@@ -1100,7 +1415,16 @@ test("source guard: flow-view.mjs imports no doctor.mjs, child process or networ
   const src = code("scripts/flow-view.mjs");
   assert.doesNotMatch(src, /from "\.\/doctor\.mjs"|child_process|node:http|node:https|node:net|\bfetch\(/);
   assert.doesNotMatch(src, /writeFile|writeFileAtomic|appendFile|mkdirSync|renameSync|unlinkSync/);
-  for (const fn of ["wipByPerson", "weeklyCounts", "windowCounts", "cumulativeFlow", "oldestFirst", "isYoung"])
+  for (const fn of [
+    "wipByPerson",
+    "weeklyCounts",
+    "windowCounts",
+    "cumulativeFlow",
+    "oldestFirst",
+    "isYoung",
+    "cycleTime",
+    "idleEpics",
+  ])
     assert.match(src, new RegExp(`\\b${fn}\\(`), `${fn} is used, not re-implemented`);
   assert.doesNotMatch(src, /closedAt\s*>=|created\s*>=\s*win/, "no window test of its own");
 });

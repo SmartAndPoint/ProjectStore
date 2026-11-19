@@ -70,9 +70,36 @@ export function handOver(text, { to, at }) {
   return applyAssigneeChange(text, { to, at, reason: "handed over", actor: "handover" }).text;
 }
 
+// A story closed through the writers: an `in-progress` line at `start` and
+// a `done` line at `close`, with `started_at` and `closed_at` stamped to
+// them (the cycle-time spec). `start: null` gives a story moved `planned →
+// done` with no `started_at`.
+export function closedStory({ id, epic = "PS-X", start, close, created = "2026-09-01", fm = {} }) {
+  const log =
+    start === null
+      ? [{ to: "done", at: close }]
+      : [
+          { to: "in-progress", at: start },
+          { to: "done", at: close },
+        ];
+  const stamps = { closed_at: JSON.stringify(close) };
+  if (start !== null) stamps.started_at = JSON.stringify(start);
+  return storyText({ id, epic, created, updated: dayOf(close), log, fm: { ...stamps, ...fm } });
+}
+
+// An epic.md as the fixture writes it; `fm` sets further keys as written.
+export function epicText(epic, { status = "in-progress", title = JSON.stringify(epic), fm = {} } = {}) {
+  const head = [`type: epic`, `id: "${epic}"`];
+  if (title !== null) head.push(`title: ${title}`);
+  head.push(`status: ${status}`, `created: 2026-01-01`, ...Object.entries(fm).map(([k, v]) => `${k}: ${v}`));
+  return `---\n${head.join("\n")}\n---\n\n# ${epic}\n`;
+}
+
 // A bound project with a vault: `.projectstore.json` holds `vaultCfg`
 // (omitted when null), and `stories` maps `<EPIC>/<slug>` to its text.
-export function flowVault({ vaultCfg = null, stories = {} } = {}) {
+// `epics` maps an epic to its status, or to epicText's options, written
+// whether or not it holds a story; every other epic is `in-progress`.
+export function flowVault({ vaultCfg = null, stories = {}, epics: epicOpts = {} } = {}) {
   const { proj, vault } = makeVaultProject();
   if (vaultCfg !== null) writeFileSync(join(vault, ".projectstore.json"), JSON.stringify(vaultCfg));
   const epics = new Set();
@@ -83,12 +110,12 @@ export function flowVault({ vaultCfg = null, stories = {} } = {}) {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, text);
   }
+  for (const epic of Object.keys(epicOpts)) epics.add(epic);
   for (const epic of epics) {
     const p = join(vault, "epics", epic, "epic.md");
-    writeFileSync(
-      p,
-      `---\ntype: epic\nid: "${epic}"\ntitle: "${epic}"\nstatus: in-progress\ncreated: 2026-01-01\n---\n\n# ${epic}\n`,
-    );
+    const o = epicOpts[epic];
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, epicText(epic, typeof o === "string" ? { status: o } : o || {}));
   }
   const cfg = JSON.parse(readFileSync(join(proj, ".projectstore", "projectstore.json"), "utf8"));
   return { proj, vault, cfg };

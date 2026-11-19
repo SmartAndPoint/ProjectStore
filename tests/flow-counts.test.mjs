@@ -23,12 +23,15 @@ import {
   weeklyCounts,
   columnPath,
   cumulativeFlow,
+  cycleStart,
+  cycleTime,
+  idleEpics,
   DAY_MS,
   WEEK_MS,
 } from "../scripts/flow-counts.mjs";
 import { stampMs, statusStamp, isAwaitingClose, AWAITING_REASON, setFm } from "../scripts/status-log.mjs";
 import { parseFrontmatter } from "../scripts/lib.mjs";
-import { storyText, withLine, NOW_MS, daysAgo } from "./fixtures/flow.mjs";
+import { storyText, withLine, closedStory, NOW_MS, daysAgo } from "./fixtures/flow.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const fromText = (slug, text) =>
@@ -562,4 +565,396 @@ test("cumulative flow: a garbled line in the middle of a Status log makes the pa
   assert.equal(statusStamp(text).trusted, true, "the last line still reads and matches the stamp");
   assert.equal(columnPath(f).exact, false);
   assert.deepEqual(approx(f), ["story-g"]);
+});
+
+// ─── The cycle-time spec (alias `cycle-time`), contracts 1 to 4 and 10 ─
+
+// Day n after 2026-10-01T10:00Z, as an instant, and as epoch ms.
+const D0 = Date.UTC(2026, 9, 1, 10);
+const d = (n) => new Date(D0 + n * DAY_MS).toISOString();
+const dm = (n) => D0 + n * DAY_MS;
+// A story's facts under `epic`, moved through the writers; `moves` are [to,
+// day] pairs, `lines` hand-written Status log lines appended after them.
+function ctStory(id, { epic = "PS-X", moves = [], lines = [], fm = {}, created = "2026-09-01", status = null } = {}) {
+  let text = storyText({ id, epic, created, log: moves.map(([to, n]) => ({ to, at: d(n) })), fm, status });
+  for (const l of lines) text = withLine(text, { stamp: false, ...l });
+  return storyFacts({ rel: `epics/${epic}/stories/${id}.md`, epic, slug: id, text, fm: parseFrontmatter(text).data });
+}
+const closedFact = (id, startDay, closeDay, opts = {}) => {
+  const text = closedStory({
+    id,
+    epic: opts.epic || "PS-X",
+    start: startDay === null ? null : d(startDay),
+    close: d(closeDay),
+  });
+  const epic = opts.epic || "PS-X";
+  return storyFacts({ rel: `epics/${epic}/stories/${id}.md`, epic, slug: id, text, fm: parseFrontmatter(text).data });
+};
+const startOf = (f) => {
+  const s = cycleStart(f);
+  return s === null ? null : { at: new Date(s.at).toISOString(), source: s.source };
+};
+
+// [cycle-time#1]
+test("cycle start: moved to in-progress, back to planned and to in-progress again, and moved in-progress → active → in-progress, each start at the second in-progress line, from the log", () => {
+  const back = ctStory("story-a", {
+    moves: [
+      ["in-progress", 1],
+      ["planned", 3],
+      ["in-progress", 5],
+    ],
+    fm: { started_at: JSON.stringify(d(1)) },
+  });
+  const active = ctStory("story-b", {
+    moves: [
+      ["in-progress", 1],
+      ["active", 2],
+      ["in-progress", 4],
+    ],
+  });
+  assert.equal(columnOf("active"), "Backlog");
+  assert.deepEqual(startOf(back), { at: d(5), source: "log" });
+  assert.deepEqual(startOf(active), { at: d(4), source: "log" });
+});
+
+// [cycle-time#1]
+test("cycle start: started_at with no Status log, a log of in-progress → done alone, and a broken chain planned → todo then in-progress → review all start at started_at (edge)", () => {
+  const started = { started_at: JSON.stringify(d(2)) };
+  const noLog = ctStory("story-a", { status: "done", fm: started });
+  const onlyDone = ctStory("story-b", {
+    status: "done",
+    fm: started,
+    lines: [{ at: d(6), from: "in-progress", to: "done", reason: "closed" }],
+  });
+  const broken = ctStory("story-c", {
+    moves: [["todo", 1]],
+    fm: started,
+    lines: [{ at: d(3), from: "in-progress", to: "review", reason: "r" }],
+  });
+  for (const f of [noLog, onlyDone, broken]) assert.deepEqual(startOf(f), { at: d(2), source: "started_at" }, f.slug);
+});
+
+// [cycle-time#1]
+test("cycle start: in-progress → parked → in-progress and in-progress → todo → in-progress keep the first start (edge)", () => {
+  for (const mid of ["parked", "todo"]) {
+    const f = ctStory(`story-${mid}`, {
+      moves: [
+        ["in-progress", 1],
+        [mid, 2],
+        ["in-progress", 3],
+      ],
+    });
+    assert.deepEqual(startOf(f), { at: d(1), source: "log" }, mid);
+  }
+});
+
+// [cycle-time#1]
+test("cycle start: started, moved back to planned and closed from there, with started_at, starts at started_at (edge)", () => {
+  const f = ctStory("story-a", {
+    moves: [
+      ["in-progress", 1],
+      ["planned", 3],
+      ["done", 5],
+    ],
+    fm: { started_at: JSON.stringify(d(1)), closed_at: JSON.stringify(d(5)) },
+  });
+  assert.deepEqual(startOf(f), { at: d(1), source: "started_at" });
+});
+
+// [cycle-time#1]
+test("cycle start: lines read in time order, ties in log order: todo → in-progress at day 4 listed after in-progress → review at day 6 starts at day 4; a move back and a restart at one instant start there (edge)", () => {
+  const listed = ctStory("story-a", {
+    moves: [["todo", 1]],
+    lines: [
+      { at: d(6), from: "in-progress", to: "review", reason: "r" },
+      { at: d(4), from: "todo", to: "in-progress", reason: "r" },
+    ],
+  });
+  assert.deepEqual(startOf(listed), { at: d(4), source: "log" });
+  const tie = ctStory("story-b", {
+    moves: [["in-progress", 1]],
+    lines: [
+      { at: d(3), from: "in-progress", to: "planned", reason: "r" },
+      { at: d(3), from: "planned", to: "in-progress", reason: "r" },
+    ],
+  });
+  assert.deepEqual(startOf(tie), { at: d(3), source: "log" });
+});
+
+// [cycle-time#1]
+test("cycle start: planned → done with no started_at, and an in-progress line at 2026-02-30T10:00Z with no started_at, have no start (edge)", () => {
+  const straight = ctStory("story-a", { moves: [["done", 2]] });
+  const badTime = ctStory("story-b", {
+    lines: [{ at: "2026-02-30T10:00Z", from: "planned", to: "in-progress", reason: "r" }],
+  });
+  assert.equal(cycleStart(straight), null);
+  assert.equal(cycleStart(badTime), null);
+});
+
+// [cycle-time#2]
+test("cycle time: closes 2, 5 and 9 days after their start give 5 over 3; a fourth after 8 days gives 6 over 4", () => {
+  const three = [closedFact("story-a", 0, 2), closedFact("story-b", 1, 6), closedFact("story-c", 0, 9)];
+  const c = cycleTime(three);
+  assert.deepEqual([c.median, c.closed, c.days, c.unplaced], [5, 3, [2, 5, 9], []]);
+  const four = cycleTime([...three, closedFact("story-d", 2, 10)]);
+  assert.deepEqual([four.median, four.closed, four.days], [6, 4, [2, 5, 8, 9]]);
+});
+
+// [cycle-time#2]
+test("cycle time: 2 and 4 days and a close with no start give a median of 3 over 2, closed 3, the third unplaced (edge)", () => {
+  const c = cycleTime([closedFact("story-a", 0, 2), closedFact("story-b", 0, 4), closedFact("story-c", null, 5)]);
+  assert.equal(c.median, 3);
+  assert.equal(c.days.length, 2);
+  assert.equal(c.closed, 3);
+  assert.deepEqual(
+    c.unplaced.map((f) => f.slug),
+    ["story-c"],
+  );
+});
+
+// [cycle-time#2]
+test("cycle time: no close gives no median and closed 0; two closes with no start give no median, both unplaced oldest first (edge)", () => {
+  assert.deepEqual(cycleTime([]), { closed: 0, median: null, days: [], unplaced: [] });
+  const c = cycleTime([closedFact("story-b", null, 6), closedFact("story-a", null, 3)]);
+  assert.equal(c.median, null);
+  assert.equal(c.closed, 2);
+  assert.deepEqual(
+    c.unplaced.map((f) => f.slug),
+    ["story-a", "story-b"],
+  );
+});
+
+// [cycle-time#2]
+test("cycle time: a story given with no readable closed_at is counted in closed and left out of the median (edge)", () => {
+  const open = ctStory("story-open", { status: "done", fm: { started_at: JSON.stringify(d(1)) } });
+  const c = cycleTime([closedFact("story-a", 0, 4), open]);
+  assert.deepEqual([c.closed, c.median, c.days], [2, 4, [4]]);
+  assert.deepEqual(
+    c.unplaced.map((f) => f.slug),
+    ["story-open"],
+  );
+});
+
+// [cycle-time#2]
+test("cycle time: a started_at after the closed_at, with no log, is 0 days and in the median (edge)", () => {
+  const f = ctStory("story-a", {
+    status: "done",
+    fm: { started_at: JSON.stringify(d(4)), closed_at: JSON.stringify(d(3)) },
+  });
+  assert.deepEqual(cycleTime([f]), { closed: 1, median: 0, days: [0], unplaced: [] });
+});
+
+// [cycle-time#2]
+test("cycle time: closed on day 3, then reopened and closed again on day 8 with closed_at kept, counts 3: lines after closed_at are not read (edge)", () => {
+  const f = ctStory("story-a", {
+    moves: [
+      ["in-progress", 0],
+      ["done", 3],
+      ["planned", 5],
+      ["in-progress", 6],
+      ["done", 8],
+    ],
+    fm: { started_at: JSON.stringify(d(0)), closed_at: JSON.stringify(d(3)) },
+  });
+  assert.deepEqual(cycleTime([f]).days, [3]);
+});
+
+// [cycle-time#2]
+test("cycle time: a hand close 2 days after an awaiting line written 3 days after the start counts the wait, 5 days (edge)", () => {
+  let text = storyText({
+    id: "story-a",
+    log: [
+      { to: "in-progress", at: d(0) },
+      { to: "review", at: d(1) },
+    ],
+  });
+  text = withLine(text, { at: d(3), from: "review", to: "review", reason: AWAITING_REASON });
+  text = setFm(setFm(text, "status", "done"), "closed_at", JSON.stringify(d(5)));
+  const f = fromText("story-a", text);
+  assert.equal(cycleStart(f).at, dm(0));
+  assert.deepEqual(cycleTime([f]).days, [5]);
+});
+
+// The epics, read as readFlowEpics gives them; `title` set when given.
+const epicOf = (epic, status = "in-progress", title) => ({
+  rel: `epics/${epic}/epic.md`,
+  epic,
+  text: "",
+  fm: title === undefined ? { type: "epic", status } : { type: "epic", status, title },
+});
+const AS_OF = dm(60);
+const idleOf = (epics, fs, n = 14, asOf = AS_OF) => {
+  const r = idleEpics(epics, fs, n, asOf);
+  return {
+    watched: r.watched,
+    epics: r.epics.map((e) => [e.epic, new Date(e.age.at).toISOString(), e.age.source, e.days]),
+  };
+};
+
+// [cycle-time#3]
+test("watched epics: planned, done, parked and active epics with old stories, and an in-progress epic with no story, are none listed; active reads Backlog (edge)", () => {
+  const statuses = ["planned", "done", "parked", "active"];
+  const epics = [...statuses.map((s, i) => epicOf(`PS-${i}`, s)), epicOf("PS-EMPTY")];
+  const fs = statuses.map((_, i) => ctStory(`story-${i}`, { epic: `PS-${i}`, moves: [["in-progress", 1]] }));
+  assert.deepEqual(
+    idleOf(epics, fs),
+    { watched: 1, epics: [] },
+    "the in-progress epic with no story is watched, not listed",
+  );
+  assert.equal(columnOf("active"), "Backlog");
+});
+
+// [cycle-time#3]
+test("watched epics: an epic whose status reads In Progress and one that reads in_progress are both watched (edge)", () => {
+  const epics = [epicOf("PS-A", "In Progress"), epicOf("PS-B", "in_progress")];
+  const fs = [
+    ctStory("story-a", { epic: "PS-A", moves: [["in-progress", 1]] }),
+    ctStory("story-b", { epic: "PS-B", moves: [["in-progress", 1]] }),
+  ];
+  const r = idleOf(epics, fs);
+  assert.equal(r.watched, 2);
+  assert.deepEqual(
+    r.epics.map((e) => e[0]),
+    ["PS-A", "PS-B"],
+  );
+});
+
+// [cycle-time#3]
+test("last change: the newest status line of an in-progress epic is on a parked story, and it is that line's time, from the log (edge)", () => {
+  const fs = [
+    ctStory("story-a", { moves: [["in-progress", 1]] }),
+    ctStory("story-p", {
+      moves: [
+        ["in-progress", 2],
+        ["parked", 10],
+      ],
+    }),
+  ];
+  assert.deepEqual(idleOf([epicOf("PS-X")], fs).epics, [["PS-X", d(10), "log", 50]]);
+});
+
+// [cycle-time#3]
+test("last change: with no status line, the newest closed_at or started_at, from dates; with neither, the newest created, from created (edge)", () => {
+  const fs = [
+    ctStory("story-a", {
+      epic: "PS-A",
+      status: "done",
+      fm: { started_at: JSON.stringify(d(35)), closed_at: JSON.stringify(d(40)) },
+    }),
+    ctStory("story-b", { epic: "PS-B", status: "planned", created: "2026-11-14" }),
+    ctStory("story-c", { epic: "PS-B", status: "planned", created: "2026-10-02" }),
+  ];
+  assert.deepEqual(
+    idleEpics([epicOf("PS-A"), epicOf("PS-B")], fs, 14, AS_OF).epics.map((e) => e.age.field ?? null),
+    ["closed_at", null],
+  );
+  const r = idleOf([epicOf("PS-A"), epicOf("PS-B")], fs);
+  assert.deepEqual(r.epics, [
+    ["PS-A", d(40), "dates", 20],
+    ["PS-B", "2026-11-14T00:00:00.000Z", "created", 16],
+  ]);
+});
+
+// [cycle-time#3]
+test("last change: an in-progress epic whose stories carry no date that reads is not listed (edge)", () => {
+  const bare = storyFacts({ rel: "epics/PS-X/stories/story-a.md", epic: "PS-X", slug: "story-a", text: "", fm: {} });
+  assert.deepEqual(idleOf([epicOf("PS-X")], [bare]), { watched: 1, epics: [] });
+});
+
+// [cycle-time#4]
+test("without movement: at N of 14 an epic whose newest status line is 14 days old is listed with that date and days 14, one at 13 is not, and watched is 2", () => {
+  const fs = [
+    ctStory("story-a", { epic: "PS-A", moves: [["in-progress", 46]] }),
+    ctStory("story-b", { epic: "PS-B", moves: [["in-progress", 47]] }),
+  ];
+  assert.deepEqual(idleOf([epicOf("PS-A"), epicOf("PS-B")], fs, 14, dm(60)), {
+    watched: 2,
+    epics: [["PS-A", d(46), "log", 14]],
+  });
+});
+
+// [cycle-time#4]
+test("without movement: two epics quiet since one instant and a third 30 days quiet list the third first, the other two by vault path (edge)", () => {
+  const fs = [
+    ctStory("story-b", { epic: "PS-B", moves: [["in-progress", 40]] }),
+    ctStory("story-a", { epic: "PS-A", moves: [["in-progress", 40]] }),
+    ctStory("story-c", { epic: "PS-C", moves: [["in-progress", 30]] }),
+  ];
+  const r = idleOf([epicOf("PS-B"), epicOf("PS-C"), epicOf("PS-A")], fs);
+  assert.deepEqual(
+    r.epics.map((e) => [e[0], e[3]]),
+    [
+      ["PS-C", 30],
+      ["PS-A", 20],
+      ["PS-B", 20],
+    ],
+  );
+});
+
+// [cycle-time#4]
+test("without movement: an in-progress epic whose stories are all done, the last closed 20 days before, is listed with that close's date (edge)", () => {
+  const fs = [closedFact("story-a", 10, 30), closedFact("story-b", 20, 40)];
+  assert.deepEqual(idleOf([epicOf("PS-X")], fs).epics, [["PS-X", d(40), "log", 20]]);
+});
+
+// [cycle-time#10]
+test("source guard: flow-counts.mjs holds cycleStart, cycleTime and idleEpics and reads no clock, no file and no process", () => {
+  const src = readFileSync(join(REPO, "scripts", "flow-counts.mjs"), "utf8");
+  for (const fn of ["cycleStart", "cycleTime", "idleEpics"]) assert.match(src, new RegExp(`export function ${fn}\\(`));
+  const code = src
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
+  assert.doesNotMatch(code, /node:fs|child_process|\bprocess\.|Date\.now|new Date\(\s*\)|performance\.now/);
+});
+
+// The forms a caller of the cycle-time counts may not hold (contract 10),
+// matched on the source with its comments stripped, so a comment can
+// neither trip the guard nor stand in for a call.
+const CALLER_FORMS = [
+  ["a median computed in place", /length\s*\/\s*2|length\s*>>\s*1|\bn\s*\/\s*2/],
+  ["Math.floor(", /Math\.floor\(/],
+  ["a numeric sort of bare values", /\((\w+),\s*(\w+)\)\s*=>\s*(?:\1\s*-\s*\2|\2\s*-\s*\1)\b(?!\s*\.)/],
+  ["toSorted", /\btoSorted\b/],
+  ["a call cycleStart(", /\bcycleStart\(/],
+  [
+    "an import of parseStatusLog, statusToColumn or columnOf",
+    /import\s*\{[^}]*\b(?:parseStatusLog|statusToColumn|columnOf)\b[^}]*\}\s*from/,
+  ],
+];
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+const callerForms = (src) => CALLER_FORMS.filter(([, re]) => re.test(stripComments(src))).map(([name]) => name);
+const CALLERS = ["scripts/flow-view.mjs", "scripts/doctor-flow.mjs"];
+
+// [cycle-time#10]
+test("source guard: flow-view.mjs and doctor-flow.mjs import cycleTime and idleEpics from flow-counts.mjs, call both, and hold none of the banned forms; the b.held - a.held sort stays", () => {
+  for (const f of CALLERS) {
+    const src = stripComments(readFileSync(join(REPO, f), "utf8"));
+    const imp = src.match(/import\s*\{([^}]*)\}\s*from\s*"\.\/flow-counts\.mjs"/);
+    assert.ok(imp, `${f} imports from ./flow-counts.mjs`);
+    for (const fn of ["cycleTime", "idleEpics"]) {
+      assert.match(imp[1], new RegExp(`\\b${fn}\\b`), `${f} imports ${fn}`);
+      assert.match(src, new RegExp(`\\b${fn}\\(`), `${f} calls ${fn}`);
+    }
+    assert.deepEqual(callerForms(src), [], f);
+  }
+  assert.match(readFileSync(join(REPO, "scripts", "flow-view.mjs"), "utf8"), /\(a, b\) => b\.held - a\.held/);
+});
+
+// [cycle-time#10]
+test("source guard: a copy of flow-view.mjs that sorts the days with (a, b) => a - b and takes days[Math.floor(days.length / 2)] fails, naming the forms (failure)", () => {
+  const src = readFileSync(join(REPO, "scripts", "flow-view.mjs"), "utf8");
+  const copy = `${src}\nconst days = [3, 1, 2].sort((a, b) => a - b);\nconst median = days[Math.floor(days.length / 2)];\n`;
+  assert.deepEqual(callerForms(copy), ["a median computed in place", "Math.floor(", "a numeric sort of bare values"]);
+});
+
+// [cycle-time#10]
+test("source guard: a comparator with other names, toSorted and n / 2 are caught; the same forms in comments neither trip the guard nor count as a call (failure)", () => {
+  assert.deepEqual(callerForms("const s = xs.sort((x, y) => x - y);"), ["a numeric sort of bare values"]);
+  assert.deepEqual(callerForms("const s = xs.sort((p, q) => q - p);"), ["a numeric sort of bare values"]);
+  assert.deepEqual(callerForms("const s = xs.toSorted();"), ["toSorted"]);
+  assert.deepEqual(callerForms("const m = xs[n / 2];"), ["a median computed in place"]);
+  assert.deepEqual(callerForms("rows.sort((a, b) => b.held - a.held);"), []);
+  assert.deepEqual(callerForms("// xs.sort((a, b) => a - b)\n/* Math.floor(n / 2) toSorted */\nconst k = 1;"), []);
+  assert.doesNotMatch(stripComments("// cycleTime( idleEpics(\nconst k = 1;"), /cycleTime\(|idleEpics\(/);
 });

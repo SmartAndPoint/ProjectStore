@@ -16,7 +16,11 @@
 // librarian-proposes-epic-merges. Contract 6 (weeklyCounts) and contract 10
 // (columnPath, cumulativeFlow), amended and added 2026-11-19 by PS-FLOW/story-
 // a-derived-flowmd-beside-the-kanban-shows-wip-age-in-status-throughput-and-
-// the-cumulative-flow, for flow.md (scripts/flow-view.mjs).
+// the-cumulative-flow, for flow.md (scripts/flow-view.mjs). cycleStart,
+// cycleTime and idleEpics: "Cycle time and epics without movement…" (alias
+// `cycle-time`), contracts 1 to 4, added 2026-11-20 by PS-FLOW/story-flowmd-
+// and-doctor-count-cycle-time-and-epics-without-movement-through-new-flow-
+// counts-contracts; flow.md and doctor only call them (its contract 10).
 
 import { stampMs, statusStamp, isAwaitingClose, parseStatusLog, logBullets, sameStatus } from "./status-log.mjs";
 import { statusToColumn, NOT_ACTIONABLE, storyState } from "./stages.mjs";
@@ -320,4 +324,109 @@ export function cumulativeFlow(facts, win, asOfMs, columns) {
     rows,
     approximate: paths.filter(({ path }) => !path.exact || path.steps.length === 0).map(({ f }) => f),
   };
+}
+
+// ─── Cycle time (the cycle-time spec, contracts 1 and 2) ───────────────
+
+// A story's cycle start, from its own file: {at, source} with `source`
+// "log" or "started_at", or null. The `status:` lines whose time reads and
+// is at or before `closed_at` (when that reads), in time order, ties in log
+// order. The start is the first line after the last move to the Backlog
+// (columnOf, so a set-aside or ToDo target is no such move), else the first
+// of all, whose target is In Progress or Review; with none, `started_at`. A
+// broken chain (a `- ` line parseStatusLog drops, or a `from` that is not
+// the previous line's `to`) is not trusted: `started_at` then, else null.
+// Never columnPath's steps.
+export function cycleStart(fact) {
+  const text = String(fact.text ?? "");
+  const entries = parseStatusLog(text) || [];
+  const closedAt = fact.closedAt ?? null;
+  const lines = entries
+    .map((e, i) => ({ ...e, ms: stampMs(e.at), i }))
+    .filter((e) => e.field === "status" && e.ms !== null && (closedAt === null || e.ms <= closedAt))
+    .sort((a, b) => a.ms - b.ms || a.i - b.i);
+  const fromStarted = () =>
+    fact.startedAt === null || fact.startedAt === undefined ? null : { at: fact.startedAt, source: "started_at" };
+  let chained = (logBullets(text) || []).length === entries.length;
+  for (let k = 1; chained && k < lines.length; k++) if (!sameStatus(lines[k].from, lines[k - 1].to)) chained = false;
+  if (!chained) return fromStarted();
+  let after = 0;
+  lines.forEach((l, k) => {
+    if (columnOf(l.to) === "Backlog") after = k + 1;
+  });
+  const first = lines.slice(after).find((l) => columnOf(l.to) === "In Progress" || columnOf(l.to) === "Review");
+  return first ? { at: first.ms, source: "log" } : fromStarted();
+}
+
+// The cycle time over the stories a window counts as closed (windowCounts'
+// `closed`): each placed story's whole days from its start to its
+// `closed_at` (ageDays), ascending; the median, an even count giving the
+// mean of the two middle values rounded down, null with no story placed;
+// the stories with no start (or no `closed_at`) apart, oldest first.
+// Returns {closed, median, days, unplaced}, closed = days + unplaced.
+export function cycleTime(closed) {
+  const days = [];
+  const unplaced = [];
+  for (const f of closed) {
+    const s = f.closedAt === null || f.closedAt === undefined ? null : cycleStart(f);
+    if (s === null) unplaced.push(f);
+    else days.push(ageDays(s.at, f.closedAt));
+  }
+  days.sort((a, b) => a - b);
+  const n = days.length;
+  const median = n === 0 ? null : n % 2 ? days[(n - 1) / 2] : Math.floor((days[n / 2 - 1] + days[n / 2]) / 2);
+  return { closed: n + unplaced.length, median, days, unplaced: oldestFirst(unplaced) };
+}
+
+// ─── Epics without movement (the cycle-time spec, contracts 3 and 4) ───
+
+const newest = (values) => values.reduce((m, v) => (v === null || v === undefined ? m : later(m, v)), null);
+
+// An epic's last change, from its stories (set-aside ones included):
+// the newest `status:` line's time ("log"), else the newest `closed_at` or
+// `started_at` ("dates", with `field` naming which, `closed_at` on a tie),
+// else the newest `created`, the board's `date` standing in ("created");
+// null with none.
+function lastChange(stories) {
+  const log = newest(
+    stories.flatMap((f) =>
+      (parseStatusLog(String(f.text ?? "")) || []).filter((e) => e.field === "status").map((e) => stampMs(e.at)),
+    ),
+  );
+  if (log !== null) return { at: log, source: "log" };
+  const closed = newest(stories.map((f) => f.closedAt));
+  const started = newest(stories.map((f) => f.startedAt));
+  if (closed !== null || started !== null)
+    return closed !== null && (started === null || closed >= started)
+      ? { at: closed, source: "dates", field: "closed_at" }
+      : { at: started, source: "dates", field: "started_at" };
+  const created = newest(stories.map((f) => f.created));
+  return created === null ? null : { at: created, source: "created" };
+}
+
+// The watched epics: those (readFlowEpics) whose own status reads In
+// Progress through columnOf, every one counted. Without movement: a watched
+// epic that holds a story, whose stories carry a date, and whose last change is at least
+// `days` whole days before the as-of instant. Returns {watched, epics}: the
+// number watched, and those without movement, oldest first, ties by vault
+// path, each with `age` {at, source} and its `days`.
+export function idleEpics(epics, facts, days, asOfMs) {
+  const byEpic = new Map();
+  for (const f of facts) {
+    if (!byEpic.has(f.epic)) byEpic.set(f.epic, []);
+    byEpic.get(f.epic).push(f);
+  }
+  let watched = 0;
+  const idle = [];
+  for (const e of epics) {
+    if (columnOf(e.fm?.status) !== "In Progress") continue;
+    watched++;
+    const stories = byEpic.get(e.epic) || [];
+    if (!stories.length) continue;
+    const age = lastChange(stories);
+    if (age === null) continue;
+    const d = ageDays(age.at, asOfMs);
+    if (meets(d, days)) idle.push({ ...e, age, days: d });
+  }
+  return { watched, epics: oldestFirst(idle) };
 }

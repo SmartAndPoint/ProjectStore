@@ -41,6 +41,7 @@ import {
   storyText,
   withLine,
   handOver,
+  closedStory,
   flowVault,
   commitsSeam,
   commit,
@@ -683,7 +684,9 @@ test("idle people: no assignee-idle before flow.idle_days have passed since the 
 // A policy that triggers every check that can fire together.
 const EVERY = {
   wip: { full: 1 },
-  age_days: { review: 3, todo: 3, in_progress_idle: 10 },
+  // The cycle-time spec: PS-Y is in progress and its one story, created
+  // 2026-09-01, has no status line, so it is past epic_idle.
+  age_days: { review: 3, todo: 3, in_progress_idle: 10, epic_idle: 14 },
   idle_days: 7,
   window_weeks: 2,
   capacity_weeks: [1, 2],
@@ -738,13 +741,15 @@ test("the every-check fixture triggers each check that can fire together", () =>
     "grooming-due",
     "epic-single-story",
     "active-epics-over-cap",
+    "flow-cycle-time",
+    "epic-idle",
   ])
     assert.ok(ids(found).includes(c), `${c} in ${ids(found)}`);
 });
 
 // [flow-findings#6]
 test("policy gate: removing flow.age_days.review drops review-aged and the Review stories from status-unstamped, and nothing else (edge)", () => {
-  const [all, less] = twoPolicies(EVERY, { ...EVERY, age_days: { todo: 3, in_progress_idle: 10 } });
+  const [all, less] = twoPolicies(EVERY, without(EVERY, ["age_days", "review"]));
   none(less, "review-aged");
   const before = one(all, "status-unstamped");
   const after = one(less, "status-unstamped");
@@ -1229,6 +1234,197 @@ test("where: the flow group throwing is one flow-checks-failed, and every other 
   assert.deepEqual(rest(thrown), rest(ok));
 });
 
+// ─── The cycle-time spec (alias `cycle-time`): the "doctor runs" scenarios ─
+
+// NOW is Wednesday 2026-11-11, so a window of 2 weeks is 2026-10-26 to
+// 2026-11-09. A close `days` after its start, closed on `close`.
+const ct = (id, startIso, closeIso, opts = {}) => closedStory({ id, start: startIso, close: closeIso, ...opts });
+const at10 = (day) => `${day}T10:00:00.000Z`;
+const OLD = { "PS-X/story-old": planned("story-old", { created: "2026-08-01" }) };
+const threeCloses = () => ({
+  ...OLD,
+  "PS-X/story-c2": ct("story-c2", at10("2026-10-27"), at10("2026-10-29")),
+  "PS-X/story-c5": ct("story-c5", at10("2026-10-26"), at10("2026-10-31")),
+  "PS-X/story-c9": ct("story-c9", at10("2026-10-20"), at10("2026-10-29")),
+});
+
+// [cycle-time#8]
+test("flow-cycle-time: W of 2 and three stories closed 2, 5 and 9 days after their start give one info naming 5, 3 stories and none left out", () => {
+  const f = one(flowRun(flowVault({ vaultCfg: P({ window_weeks: 2 }), stories: threeCloses() })), "flow-cycle-time");
+  assert.equal(f.level, "info");
+  assert.equal(
+    f.message,
+    "Over the 2 weeks from 2026-10-26 to 2026-11-09, the cycle time from a story's start to its close has a median (the middle value) of 5 days, over 3 stories. None is left out.",
+  );
+  assert.equal(f.stories, undefined);
+});
+
+// [cycle-time#8]
+test("flow-cycle-time: W of 2 and no close says none closed in the window; two closed the day they started give under 1 day (edge)", () => {
+  const empty = one(flowRun(flowVault({ vaultCfg: P({ window_weeks: 2 }), stories: OLD })), "flow-cycle-time");
+  assert.match(
+    empty.message,
+    /^No story was closed in the 2 weeks from 2026-10-26 to 2026-11-09, so there is no cycle time/,
+  );
+  const sameDay = flowVault({
+    vaultCfg: P({ window_weeks: 2 }),
+    stories: {
+      ...OLD,
+      "PS-X/story-a": ct("story-a", at10("2026-11-02"), "2026-11-02T15:00:00.000Z"),
+      "PS-X/story-b": ct("story-b", at10("2026-11-03"), "2026-11-03T18:00:00.000Z"),
+    },
+  });
+  assert.match(
+    one(flowRun(sameDay), "flow-cycle-time").message,
+    /has a median \(the middle value\) of under 1 day, over 2 stories\. None is left out\.$/,
+  );
+});
+
+// [cycle-time#8]
+test("flow-cycle-time: a vault younger than the window gives flow-window-young and no flow-cycle-time (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ window_weeks: 2 }),
+    stories: { "PS-X/story-a": ct("story-a", at10("2026-11-02"), at10("2026-11-04"), { created: "2026-11-01" }) },
+  });
+  const found = flowRun(fx);
+  one(found, "flow-window-young");
+  none(found, "flow-cycle-time");
+});
+
+// [cycle-time#8]
+test("flow-cycle-time: one of three closes with no start gives the median of two, says one is left out and names it in stories (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ window_weeks: 2 }),
+    stories: {
+      ...OLD,
+      "PS-X/story-c2": ct("story-c2", at10("2026-10-27"), at10("2026-10-29")),
+      "PS-X/story-c4": ct("story-c4", at10("2026-10-26"), at10("2026-10-30")),
+      "PS-X/story-none": ct("story-none", null, at10("2026-11-02")),
+    },
+  });
+  const f = one(flowRun(fx), "flow-cycle-time");
+  assert.match(
+    f.message,
+    / of 3 days, over 2 stories\. 1 closed story is left out, since it has no start: its Status log has no in-progress or review line, and it has no started_at\.$/,
+  );
+  assert.deepEqual(f.stories, ["epics/PS-X/stories/story-none.md"]);
+});
+
+// [cycle-time#8]
+test("flow-cycle-time: every other flow key set and no flow.window_weeks gives none, and doctor --startup gives none where it is due (edge)", () => {
+  const { window_weeks: _, ...rest } = EVERY;
+  void _;
+  none(flowRun(flowVault({ vaultCfg: P(rest), stories: { ...everyStories(), ...threeCloses() } })), "flow-cycle-time");
+  const fx = flowVault({ vaultCfg: P({ window_weeks: 2 }), stories: threeCloses() });
+  one(flowRun(fx), "flow-cycle-time");
+  const r = runStartupChecks(fx.cfg, fx.proj, 60000);
+  assert.equal(r.skipped, false);
+  assert.deepEqual(byCheck(r.findings, "flow-cycle-time"), []);
+});
+
+// An in-progress epic PS-E whose one story last changed status `n` days
+// before NOW, beside an epic PS-F changed today.
+const quietEpic = (n, flow) =>
+  flowVault({
+    vaultCfg: P(flow),
+    stories: {
+      "PS-E/story-e": inProgress("story-e", { epic: "PS-E", at: daysAgo(n) }),
+      "PS-F/story-f": inProgress("story-f", { epic: "PS-F", at: daysAgo(0) }),
+    },
+  });
+
+// [cycle-time#9]
+test("epic-idle: N of 14 and an in-progress epic whose last change is 14 days before doctor's clock give one warn naming the epic, the date, 14 days, the key, the watched count and the three ways out", () => {
+  const f = one(flowRun(quietEpic(14, { age_days: { epic_idle: 14 } })), "epic-idle");
+  assert.equal(f.level, "warn");
+  assert.equal(f.file, "epics/PS-E/epic.md");
+  assert.equal(
+    f.message,
+    `PS-E is in progress, but none of its stories has changed status for 14 days, since ${daysAgo(14).slice(0, 10)}. That is at or past flow.age_days.epic_idle of 14; 2 epics in progress are watched by this check. To clear it, move one of its stories, set the epic's status to parked or done in its epic.md, or raise flow.age_days.epic_idle.`,
+  );
+  assert.doesNotMatch(f.message, /npx|projectstore /, "no command");
+});
+
+// [cycle-time#9]
+test("epic-idle: the same epic 13 days before doctor's clock gives none (edge)", () => {
+  none(flowRun(quietEpic(13, { age_days: { epic_idle: 14 } })), "epic-idle");
+});
+
+// [cycle-time#9]
+test("epic-idle: flow.age_days.epic_idle as the only key of the flow block still reads the epics and gives epic-idle (edge)", () => {
+  const found = flowRun(quietEpic(40, { age_days: { epic_idle: 14 } }));
+  assert.deepEqual(ids(found), ["epic-idle"]);
+});
+
+// [cycle-time#9]
+test("epic-idle: no flow.age_days.epic_idle, and other keys set but not flow.active_epics_max, gives none and reads no epic.md (edge)", () => {
+  const { active_epics_max: _, ...rest } = EVERY;
+  void _;
+  const rest2 = { ...rest, age_days: { review: 3, todo: 3, in_progress_idle: 10 } };
+  const fx = flowVault({ vaultCfg: P(rest2), stories: everyStories() });
+  const reads = [];
+  const found = checkFlow({
+    cfg: fx.cfg,
+    layout: loadLayout(fx.cfg.layout),
+    vaultCfg: P(rest2),
+    proj: fx.proj,
+    now: NOW,
+    commits: commitsSeam(),
+    read: (p) => {
+      reads.push(p);
+      return readFileSync(p, "utf8");
+    },
+  });
+  none(found, "epic-idle");
+  assert.ok(reads.length > 0, "the stories are read");
+  assert.deepEqual(
+    reads.filter((p) => p.endsWith("epic.md")),
+    [],
+  );
+});
+
+// [cycle-time#9]
+test("epic-idle: an epic.md that cannot be read leaves the other epics judged as before, and flow-stories-unread counts it (failure)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ age_days: { epic_idle: 14 } }),
+    stories: {
+      "PS-E/story-e": inProgress("story-e", { epic: "PS-E", at: daysAgo(20) }),
+      "PS-G/story-g": inProgress("story-g", { epic: "PS-G", at: daysAgo(30) }),
+    },
+  });
+  const run = (read) =>
+    checkFlow({
+      cfg: fx.cfg,
+      layout: loadLayout(fx.cfg.layout),
+      vaultCfg: P({ age_days: { epic_idle: 14 } }),
+      proj: fx.proj,
+      now: NOW,
+      commits: commitsSeam(),
+      read,
+    });
+  const before = run(undefined);
+  assert.equal(byCheck(before, "epic-idle").length, 2);
+  const after = run((p) => {
+    if (p.endsWith(join("PS-G", "epic.md"))) throw new Error("EACCES");
+    return readFileSync(p, "utf8");
+  });
+  assert.match(one(after, "flow-stories-unread").message, /^1 story or epic file or folder could not be read/);
+  const left = byCheck(after, "epic-idle");
+  assert.equal(left.length, 1);
+  assert.equal(left[0].file, "epics/PS-E/epic.md");
+  assert.match(left[0].message, /; 1 epic in progress is watched by this check\./);
+});
+
+// [cycle-time#5]
+test("epic-idle: a hand-written flow.age_days.epic_idle of 0 and an in-progress epic 30 days quiet give flow-policy-invalid for the key and no epic-idle (failure)", () => {
+  const found = flowRun(quietEpic(30, { age_days: { epic_idle: 0 } }));
+  assert.match(
+    one(found, "flow-policy-invalid").message,
+    /^flow\.age_days\.epic_idle takes a whole number of days, 1 or more/,
+  );
+  none(found, "epic-idle");
+});
+
 // ─── Review fixes: every key's checks, boundaries, names, unborn HEAD ──
 
 const without = (flow, path) => {
@@ -1246,12 +1442,13 @@ const KEY_CHECKS = [
   [["age_days", "todo"], ["todo-aged"]],
   [["age_days", "in_progress_idle"], ["in-progress-idle"]],
   [["idle_days"], ["assignee-idle"]],
-  [["window_weeks"], ["intake-over-close", "closed-unstamped", "todo-over-capacity"]],
+  [["window_weeks"], ["intake-over-close", "closed-unstamped", "todo-over-capacity", "flow-cycle-time"]],
   [["capacity_weeks"], ["todo-over-capacity"]],
   [["people"], ["wip-over-limit", "flow-person-unknown", "assignee-left"]],
   [["people", "Gone Person", "left"], ["assignee-left"]],
   [["grooming_days"], ["grooming-due"]],
   [["active_epics_max"], ["epic-single-story", "active-epics-over-cap"]],
+  [["age_days", "epic_idle"], ["epic-idle"]],
 ];
 const idSet = (fs) => [...new Set(ids(fs))].sort();
 
@@ -1271,7 +1468,7 @@ test("policy gate: removing each key of the table drops exactly the checks that 
       [],
       `${key}: nothing new`,
     );
-    const ageKey = path[0] === "age_days" && path[1] !== "in_progress_idle";
+    const ageKey = path[0] === "age_days" && path[1] !== "in_progress_idle" && path[1] !== "epic_idle";
     const rest = (fs) => fs.filter((f) => !gone.includes(f.check) && !(ageKey && f.check === "status-unstamped"));
     assert.deepEqual(rest(less), rest(all), key);
   }

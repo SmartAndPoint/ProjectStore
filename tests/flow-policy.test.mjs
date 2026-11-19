@@ -15,6 +15,7 @@ import {
   isEmailAddress,
   leftDateOf,
   refusedName,
+  flowProblems,
   FLOW_FIXED,
 } from "../scripts/flow-policy.mjs";
 import { mergeConfig, nextVaultConfig } from "../scripts/lib.mjs";
@@ -269,3 +270,35 @@ test("flow policy: refusedName refuses an empty name, @ and a control character;
   for (const good of ["Ada", "First Last", "a]", "a=b", "__proto__", "constructor", "Анна Иванова"])
     assert.equal(refusedName(good), null, good);
 });
+
+// [cycle-time#5]
+test("flow.age_days.epic_idle: a fixed key after flow.age_days.todo, read through flowValue, known to flowProblems, with its --set form (edge)", () => {
+  const keys = FLOW_FIXED.map((k) => k.key);
+  assert.equal(keys.indexOf("flow.age_days.epic_idle"), keys.indexOf("flow.age_days.todo") + 1);
+  assert.deepEqual(ok("flow.age_days.epic_idle=14"), {
+    key: "flow.age_days.epic_idle",
+    path: ["age_days", "epic_idle"],
+    value: 14,
+  });
+  const cfg = { flow: { age_days: { epic_idle: 14 } } };
+  assert.equal(flowValue(cfg, "age_days.epic_idle"), 14);
+  assert.deepEqual(flowProblems(cfg), []);
+  assert.equal(flowForm("flow.age_days.epic_idle"), "--set flow.age_days.epic_idle=<days>");
+  for (const bad of ["2.5", "0", "007", "x"])
+    usage(`flow.age_days.epic_idle=${bad}`, /a whole number of days, 1 or more/);
+  const zero = { flow: { age_days: { epic_idle: 0 } } };
+  assert.equal(flowValue(zero, "age_days.epic_idle"), null);
+  assert.deepEqual(
+    flowProblems(zero).map((p) => p.key),
+    ["flow.age_days.epic_idle"],
+  );
+});
+
+// [configure#2]
+test("flow keys: every fixed key set to a valid value gives no flowProblems, so the readers' key groups hold every fixed key (edge)", () => {
+  const sample = { count: "3", days: "3", weeks: "3", range: "2,3" };
+  let cfg = {};
+  for (const k of FLOW_FIXED) cfg = mergeConfig(cfg, { flow: nest(k.path, ok(`${k.key}=${sample[k.kind]}`).value) });
+  assert.deepEqual(flowProblems(cfg), []);
+});
+const nest = (path, value) => path.reduceRight((acc, step) => ({ [step]: acc }), value);
