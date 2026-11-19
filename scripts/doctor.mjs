@@ -145,6 +145,7 @@ import { effortSpec } from "./model-spec.mjs";
 import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
+import { checkVerbMarks } from "./verb-mark.mjs";
 import { storyState } from "./stages.mjs";
 import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
@@ -4258,6 +4259,10 @@ export function runVaultChecks(
     ...checkNoSpec(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkReviewBy(artifacts, now),
+    ...checkVerbMarks(artifacts, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+      reviewCommand: (rel) => commandForm("review", { args: rel }),
+    }),
     // The flow group (PS-FLOW): advice, warn or info only; never in
     // runStartupChecks below (the flow-findings spec, contract 11).
     ...checkFlow({ cfg, layout, vaultCfg, proj, now, commits }),

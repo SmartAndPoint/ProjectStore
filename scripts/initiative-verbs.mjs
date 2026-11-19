@@ -125,7 +125,7 @@ function vaultOf(cfg, project) {
 }
 
 // The initiative a value names, by the one id rule: {hit} or {error}.
-function findInitiative(items, arg, folder) {
+export function findInitiative(items, arg, folder) {
   const ref = referenceOf(arg);
   const index = initiativeIndex(items);
   const hit = resolveInitiative(index, ref);
@@ -444,6 +444,21 @@ export async function runInitiative(ctx) {
 
 // ─── epic ──────────────────────────────────────────────────────────────
 
+// What an epic at `epicAbs` writes for the initiative `value` names: {target:
+// {id, link}} for applyEpicInitiative, or {error}. Shared by `epic
+// --initiative` and `create epic --initiative` (the create spec, contract 2).
+export function initiativeTarget(vault, folder, epicAbs, value) {
+  const items = readInitiatives(vault, folder);
+  const found = findInitiative(items, value, folder);
+  if (found.error) return { error: found.error };
+  const hit = found.hit;
+  const to = relative(dirname(epicAbs), join(vault, folder, stemOf(hit.rel)))
+    .split(sep)
+    .join("/");
+  const title = fmText(hit.fm.title) || initiativeIdOf(hit);
+  return { target: { id: initiativeIdOf(hit), link: `[[${to}|${title}]]` } };
+}
+
 export async function runEpic(ctx) {
   const { values, positionals, cfg, project, now = null } = ctx;
   const [epicArg, ...extra] = positionals;
@@ -469,15 +484,9 @@ export async function runEpic(ctx) {
   const value = String(values.initiative).trim();
   let target = null;
   if (value) {
-    const items = readInitiatives(v.vault, v.initiatives);
-    const found = findInitiative(items, value, v.initiatives);
-    if (found.error) return fail(found.error);
-    const hit = found.hit;
-    const to = relative(dirname(abs), join(v.vault, v.initiatives, stemOf(hit.rel)))
-      .split(sep)
-      .join("/");
-    const title = fmText(hit.fm.title) || initiativeIdOf(hit);
-    target = { id: initiativeIdOf(hit), link: `[[${to}|${title}]]` };
+    const t = initiativeTarget(v.vault, v.initiatives, abs, value);
+    if (t.error) return fail(t.error);
+    target = t.target;
   }
   return writeRun(ctx, {
     verb: "epic",

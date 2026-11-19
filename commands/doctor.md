@@ -194,6 +194,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates that have no date, `review-by` names an ADR due for review, and
   `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
   each is a judgement, or a `configure` step its message names.
+- `verb-mark` runs under every policy and whatever `lifecycle_gates` says:
+  a note for each file a create or an edit verb wrote that no review has
+  read since (it holds `written_by_verb`), naming the review that clears it,
+  and an issue for a file that holds the mark beside `review_status:
+  reviewed`. `--fix` does not repair it: the review does.
 - The amendment checks read the markers under a spec's contracts
   (`> amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>`) in every
   spec, under every policy: `amendment-form` (a marker that is not the grammar,

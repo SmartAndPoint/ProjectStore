@@ -103,6 +103,21 @@ You are running a peer review on a projectstore artifact.
 
    Do this with one final Edit after all content changes are applied.
 
+   **A file a verb wrote.** When the artifact's frontmatter holds
+   `written_by_verb` (a create or an edit verb wrote it, and no review has
+   read it since), the core clears that mark instead of the Edit above. Run
+   it after every answer but Skip: Apply all and Apply selected after their
+   Edits, Note for later after its section, and a report with no finding
+   (no question is asked then):
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reviewed "<path>" --write --json --project "$PWD"
+   ```
+
+   It removes `written_by_verb` and sets `review_status: reviewed` and
+   `reviewed_at`. A question dismissed with no answer is a Skip: the mark
+   stays. A non-zero exit is reported as it is.
+
 10. **Final print**: file path, what was applied / noted / skipped, and a one-line hint to commit the review if the vault is git-tracked: run `$projectstore-precommit` before you commit those paths, and do what its last line says.
 
 ## Notes for the implementer (you, Codex)
