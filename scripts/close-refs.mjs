@@ -29,8 +29,9 @@
 // one normaliser, and a cap on a close with no person" (alias `close-refs`),
 // contracts 1 to 6; the ADR "A story's close writes its code_refs on every
 // path and widens its epic's footprint in the same approval", decisions 2
-// and 3. `follow` (contract 7) calls prSource and normaliseRefs in process
-// with `person: false` and `who: "follow"`; it never starts the verb. The
+// and 3. `follow` (contract 7) calls followRefs in process, the same adapter
+// and normaliseRefs with `person: false` and the notes' `follow` forms, with
+// the cap FOLLOW_CAP; it never starts the verb. The
 // verb reads the network, so it is not an MCP tool, and no hook reaches it.
 //
 // runCloseRefs(ctx) follows next's contract: it returns {usage} or {ok, code,
@@ -144,6 +145,21 @@ export function normaliseRefs(items, { prefix = null, vault = null, exists = () 
 
 // ─── The sources ───────────────────────────────────────────────────────
 
+// The project's path inside its repository, from `git rev-parse
+// --show-prefix` ("" at its root): {ok, prefix} or {ok: false, reason}.
+// `git` is a runner of gitRun's shape.
+export function readPrefix(git, project) {
+  const r = git(project, ["rev-parse", "--show-prefix"]);
+  if (r.kind === "answer" && r.status === 0) return { ok: true, prefix: String(r.stdout).trim() };
+  return {
+    ok: false,
+    reason:
+      r.kind === "no-git"
+        ? "not a git repository"
+        : r.reason || firstLine(r.stderr) || `git rev-parse exited ${r.status}`,
+  };
+}
+
 // What every source reads once per run: the project's prefix (asked at most
 // once), the vault's path inside the project, the codemap command, and the
 // notes so far. `git` is a runner of gitRun's shape.
@@ -167,17 +183,7 @@ export function closeRun({ project, vault, git, ref, env = process.env, who = "v
     // {ok, prefix} or {ok: false, reason}; asked at most once.
     prefix() {
       if (prefix) return prefix;
-      const r = git(project, ["rev-parse", "--show-prefix"]);
-      prefix =
-        r.kind === "answer" && r.status === 0
-          ? { ok: true, prefix: String(r.stdout).trim() }
-          : {
-              ok: false,
-              reason:
-                r.kind === "no-git"
-                  ? "not a git repository"
-                  : r.reason || firstLine(r.stderr) || `git rev-parse exited ${r.status}`,
-            };
+      prefix = readPrefix(git, project);
       if (!prefix.ok && !run.noted.has("prefix-unknown")) run.note("prefix-unknown", { reason: prefix.reason });
       return prefix;
     },
@@ -237,6 +243,61 @@ export function prSource(run, gh, url) {
     }
   }
   return out;
+}
+
+// Contract 7: the refs `follow` writes for one merged pull request, a close
+// with no person. `gh` is the adapter (its ownRepo is asked once per adapter),
+// `files(url)` its files read (the caller may share one read between the
+// stories a pull request closes), `prefix()` the project's prefix as
+// readPrefix answers it, asked at most once per run by the caller, `vault`
+// the vault's path inside the project or null, `set` the codemap command for
+// the story. The repository is asked only here, when a merged pull request's
+// files are about to be read; the prefix only after the repository answered
+// and the files were read, and not at all for a pull request with no file.
+// Returns {stop: reason} when gh is missing or logged out (the run stops,
+// gh-unavailable), else {blocked, refs, dropped, notes, unwritten}: `blocked`
+// for files-unknown (the story is left as it is, the next run reads again);
+// `unwritten` the code that left the refs unwritten (repo-unknown,
+// files-foreign, prefix-unknown, refs-over-cap), else null; `notes` as
+// [{code, message}], the follow forms of the spec's table.
+export function followRefs({ gh, url, files = (u) => gh.files(u), prefix, vault = null, set }) {
+  const notes = [];
+  const note = (code, facts) => notes.push({ code, message: noteMessage(code, facts, { who: "follow", set }) });
+  const out = (o = {}) => ({ blocked: false, refs: [], dropped: [], unwritten: null, ...o, notes });
+  const repo = repoOfUrl(url);
+  if (!repo) {
+    note("files-unknown", { url, reason: "it is not a pull request URL" });
+    return out({ blocked: true });
+  }
+  const own = gh.ownRepo();
+  if (!own.ok) {
+    if (own.unavailable) return { stop: own.reason };
+    note("repo-unknown", { url, reason: own.reason });
+    return out({ unwritten: "repo-unknown" });
+  }
+  if (repo !== own.repo) {
+    note("files-foreign", { url, repo, own: own.repo });
+    return out({ unwritten: "files-foreign" });
+  }
+  const f = files(url);
+  if (!f.ok) {
+    if (f.unavailable) return { stop: f.reason };
+    note("files-unknown", { url, reason: f.reason });
+    return out({ blocked: true });
+  }
+  if (f.changedFiles > f.files.length) note("files-truncated", { url, n: f.changedFiles, m: f.files.length });
+  if (!f.files.length) return out();
+  const pre = prefix();
+  if (!pre.ok) {
+    note("prefix-unknown", { reason: pre.reason });
+    return out({ unwritten: "prefix-unknown" });
+  }
+  const n = normaliseRefs(f.files, { prefix: pre.prefix, vault, person: false });
+  if (n.refs.length > FOLLOW_CAP) {
+    note("refs-over-cap", { url, n: n.refs.length });
+    return out({ dropped: n.dropped, unwritten: "refs-over-cap" });
+  }
+  return out({ refs: n.refs, dropped: n.dropped });
 }
 
 // The reviewer's line (contract 4): the last line that, trimmed, starts with

@@ -17,7 +17,13 @@
 // Spec: "The follow verb: a merged pull request closes its story through the
 // close computation, and a stale review goes back" (alias `follow`),
 // contracts 1, 7 to 9; the PS-WT record spec's contract 5 (every replace
-// records with the tool `follow`). Decision 2 of the follow ADR: no hook and
+// records with the tool `follow`). The close-refs spec ("The close-refs verb:
+// where a closing story's code_refs come from…", alias `close-refs`),
+// contract 7, and the close-refs ADR, decisions 5 to 7: with the facts, the
+// files of each merged pull request about to close a story are read once
+// (close-refs.mjs followRefs), the close writes them as the story's
+// code_refs, and after the story's write its epic's code_refs widen
+// (widenEpicRefs; a failure is the finding `epic-refs-error`). Decision 2 of the follow ADR: no hook and
 // no MCP module imports this file (tests/follow.test.mjs holds it).
 //
 // runFollow(ctx) follows move's contract: it returns {usage} or {ok, code,
@@ -26,11 +32,29 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { packageCommand } from "./harness.mjs";
-import { loadLayout, folderByKind, parseFrontmatter, fromTerminalIn, nowIso, readVaultConfig } from "./lib.mjs";
+import {
+  loadLayout,
+  folderByKind,
+  parseFrontmatter,
+  fromTerminalIn,
+  nowIso,
+  readVaultConfig,
+  commandForm,
+} from "./lib.mjs";
 import { normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
 import { statusToColumn, NOT_ACTIONABLE } from "./stages.mjs";
-import { stampMs } from "./status-log.mjs";
-import { replaceWithRetry, syncEpicRow, CHANGED_MEANWHILE, EPIC_ROW_MISSING } from "./status-change.mjs";
+import { stampMs, refsLineOf, addRefs } from "./status-log.mjs";
+import {
+  replaceWithRetry,
+  syncEpicRow,
+  widenEpicRefs,
+  epicAdditions,
+  epicFileOf,
+  CHANGED_MEANWHILE,
+  EPIC_ROW_MISSING,
+} from "./status-change.mjs";
+import { followRefs, readPrefix } from "./close-refs.mjs";
+import { vaultInside } from "./spec-drift.mjs";
 import { nodeWriteRecorder, realRoot } from "./write-record.mjs";
 import { readFlowStories } from "./flow-stories.mjs";
 import { flowValue } from "./flow-policy.mjs";
@@ -39,7 +63,7 @@ import { resolveStory } from "./move.mjs";
 import { defaultGit } from "./precommit.mjs";
 import { scanArtifacts, storyCloseFindings } from "./doctor.mjs";
 import { ghFacts } from "./follow-gh.mjs";
-import { planStory, closesStoryRefs, isCounted, prUrlOf, prState, normUrl } from "./follow-plan.mjs";
+import { planStory, closingMerge, closesStoryRefs, isCounted, prUrlOf, prState, normUrl } from "./follow-plan.mjs";
 
 const lower = (s) =>
   String(s ?? "")
@@ -161,8 +185,12 @@ export function branchReader(vault, git) {
 // counted line or a merge needs. Returns {unavailable} (gh-unavailable:
 // nothing is written), or {named, factsOf, branchOf, unreadable, unknown}:
 // `unreadable` the run's pr-unreadable reason (no body line is used and no
-// merge is judged), `unknown` the lines naming no story, as [{pr, ref, error}].
-function readFacts({ gh, stories, scopeOf, since, vault, epicsPath }) {
+// merge is judged), `unknown` the lines naming no story, as [{pr, ref, error}],
+// and `refsOf(abs)` the refs of the merged pull request about to close that
+// story (followRefs's answer with the url it read, or null): its files are
+// read here, once, before any plan (the close-refs spec, contract 7), the
+// project's repository asked at most once and its prefix at most once.
+function readFacts({ gh, stories, scopeOf, since, vault, epicsPath, project, git, env }) {
   const out = { named: new Map(), unknown: [], unreadable: null };
   const stop = (r) => ({ unavailable: r.reason });
   const list = gh.list({ since });
@@ -238,10 +266,47 @@ function readFacts({ gh, stories, scopeOf, since, vault, epicsPath }) {
     const b = gh.defaultBranch(url);
     return b.ok ? b : null;
   };
+  // The files of each merged pull request about to close a story in scope:
+  // one read per pull request, the refs per story (its codemap command).
+  const refs = new Map();
+  out.refsOf = (abs) => refs.get(abs) ?? null;
+  if (out.unreadable) return out;
+  const read = new Map();
+  const files = (u) => {
+    if (!read.has(normUrl(u))) read.set(normUrl(u), gh.files(u));
+    return read.get(normUrl(u));
+  };
+  let pre = null;
+  const prefix = () => (pre = pre ?? readPrefix(git, project));
+  const inside = vaultInside(project, vault);
+  for (const s of stories) {
+    const named = out.named.get(s.abs) || [];
+    if (!scopeOf(s, named)) continue;
+    const pr = closingMerge(s.text, { named, factsOf: out.factsOf, branchOf: out.branchOf });
+    if (!pr) continue;
+    const set = commandForm("codemap", { args: `set ${s.ref}`, env });
+    const r = followRefs({ gh, url: pr.url, files, prefix, vault: inside, set });
+    if (r.stop) return stop({ reason: r.stop });
+    refs.set(s.abs, { url: normUrl(pr.url), ...r });
+  }
   return out;
 }
 
 // ─── The text ──────────────────────────────────────────────────────────
+
+// What a close adds to code_refs, the story's and its epic's: the count of
+// the story's, and the epic's additions by name (the first ten, then a count).
+const SHOWN_REFS = 10;
+function refsSentence(i, { wrote = false, epicFailed = false } = {}) {
+  const n = i.refs.length;
+  const story = `code_refs: ${n} ${n === 1 ? "file" : "files"} of the pull request ${wrote ? "added" : "to add"} to the story`;
+  if (epicFailed) return `${story}; its epic's code_refs were not widened (epic-refs-error below).`;
+  const m = i.epic_refs.length;
+  if (!m) return `${story}; its epic's code_refs already cover them.`;
+  const named = i.epic_refs.slice(0, SHOWN_REFS).join(", ");
+  const more = m > SHOWN_REFS ? ` and ${m - SHOWN_REFS} more` : "";
+  return `${story}, and ${m} to its epic's: ${named}${more}.`;
+}
 
 function renderFollow(result, { project, args, asking = false, wrote = false }) {
   const lines = [];
@@ -250,10 +315,13 @@ function renderFollow(result, { project, args, asking = false, wrote = false }) 
   const changes = result.items.filter((i) => i.line);
   if (changes.length) {
     lines.push("", wrote ? "Written:" : "Changes:");
-    for (const i of changes)
+    for (const i of changes) {
       lines.push(
         `  ${i.story}: ${i.line.replace(/^- \S+ /, "")}${wrote && !i.written ? ` — not written: ${i.error}` : ""}`,
       );
+      const epicFailed = result.findings.some((f) => f.code === "epic-refs-error" && f.story === i.story);
+      if (i.refs?.length) lines.push(`    ${refsSentence(i, { wrote, epicFailed })}`);
+    }
   } else lines.push("", "No story changes.");
   const listed = (title, list) => {
     if (!list.length) return;
@@ -357,7 +425,8 @@ export async function runFollow(ctx) {
   const since = starts.length ? new Date(Math.min(...starts)).toISOString().slice(0, 10) : null;
 
   const gh = ghFacts({ cwd: project, env, ...(ghTimeout ? { timeout: ghTimeout } : {}) });
-  const facts = readFacts({ gh, stories, scopeOf, since, vault, epicsPath: epics.path });
+  const gitRun = git || defaultGit(env);
+  const facts = readFacts({ gh, stories, scopeOf, since, vault, epicsPath: epics.path, project, git: gitRun, env });
   const finding = (code, story, pr, message) => result.findings.push({ code, story, pr, message });
   const note = (code, story, pr, message) => result.notes.push({ code, story, pr, message });
   if (facts.unavailable) {
@@ -390,6 +459,19 @@ export async function runFollow(ctx) {
     const self = { abs: s.abs, rel: s.rel, kind: "story", fm: parseFrontmatter(judged).data, body: judged };
     return storyCloseFindings([...others, self], vaultCfg, layout).filter((f) => f.file === s.rel);
   };
+  // The refs of the story's merge, read once with the facts: a re-plan from
+  // fresh bytes keeps them while the story is closed by the same url.
+  const refsOf = (s) => (url) => {
+    const r = facts.refsOf(s.abs);
+    return r && r.url === normUrl(url) ? r : null;
+  };
+  const epicTextOf = (s) => {
+    try {
+      return readFileSync(epicFileOf(s.abs), "utf8");
+    } catch {
+      return null;
+    }
+  };
   const optsOf = (s) => ({
     named: facts.named.get(s.abs) || [],
     factsOf: facts.factsOf,
@@ -399,6 +481,8 @@ export async function runFollow(ctx) {
     lang,
     ageReview,
     refusal: refusalFor(s),
+    refsOf: refsOf(s),
+    epicText: epicTextOf(s),
   });
   const plans = [];
   for (const s of stories) {
@@ -411,12 +495,34 @@ export async function runFollow(ctx) {
     }
     plans.push({ s, p });
   }
+  // What each close adds to its epic's code_refs, in plan order: a later
+  // story of the same epic sees the earlier one's additions.
+  const epicNow = new Map();
+  for (const { s, p } of plans) {
+    p.epicRefs = [];
+    if (!p.closes || !p.refs?.length) continue;
+    const e = epicFileOf(s.abs);
+    if (!epicNow.has(e)) epicNow.set(e, epicTextOf(s));
+    const text = epicNow.get(e);
+    if (text === null || !refsLineOf(text).readable) continue;
+    p.epicRefs = epicAdditions(text, p.refs);
+    epicNow.set(e, addRefs(text, p.epicRefs).text);
+  }
 
   // One story's plan into `into` ({checked, items, findings, notes}).
   const report = (into, s, p, { written = false, error = null } = {}) => {
     if (p.judged) into.checked++;
     const err = error ?? p.error ?? null;
-    const item = (l) => ({ story: s.ref, path: s.abs, pr: p.pr, ...l, written, error: err });
+    const item = (l) => ({
+      story: s.ref,
+      path: s.abs,
+      pr: p.pr,
+      ...l,
+      refs: l.to === "done" ? (p.refs ?? []) : [],
+      epic_refs: l.to === "done" ? (p.epicRefs ?? []) : [],
+      written,
+      error: err,
+    });
     for (const l of p.lines)
       into.items.push(item({ from: l.from, to: l.to, reason: l.reason, line: l.line, at: l.at }));
     if (!p.lines.length && err) into.items.push(item({ from: null, to: null, reason: null, line: null, at: null }));
@@ -443,7 +549,7 @@ export async function runFollow(ctx) {
   // Each write lands in this session's record of its vault writes (the record
   // spec, contract 5), with the tool `follow`.
   const onWrite = nodeWriteRecorder({ env, project, tool: "follow" });
-  const branches = branchReader(vault, git || defaultGit(env));
+  const branches = branchReader(vault, gitRun);
   if (!branches.known)
     finding(
       "branches-unknown",
@@ -451,6 +557,7 @@ export async function runFollow(ctx) {
       null,
       `the vault's worktrees cannot be listed (${branches.reason}): a story a branch changed may be written on trunk.`,
     );
+  const widen = [];
   for (const { s, p } of plans) {
     if (p.content === s.text || p.error) {
       report(result, s, p);
@@ -479,7 +586,28 @@ export async function runFollow(ctx) {
         `${s.ref} changed before each of ${r.attempts} attempts; the file is left as its last editor left it. Run follow again.`,
       );
       report(result, s, { ...last, findings: [], notes: [] }, { error: CHANGED_MEANWHILE });
-    } else report(result, s, last, { written: Boolean(r.written), error: r.error ?? null });
+    } else {
+      const from = result.items.length;
+      report(result, s, { ...last, epicRefs: [] }, { written: Boolean(r.written), error: r.error ?? null });
+      if (r.written && last.closes && last.refs.length)
+        widen.push({ s, refs: last.refs, pr: last.pr, items: result.items.slice(from) });
+    }
+  }
+
+  // The epics' code_refs widened by the refs each written close added (the
+  // close-refs ADR, decisions 5 and 6), after the stories and before their
+  // rows. A failed widening leaves the story as written.
+  for (const { s, refs, pr, items } of widen) {
+    const w = widenEpicRefs(s.abs, { refs, write: true, onWrite });
+    if (w.error) {
+      const set = commandForm("codemap", { args: `set ${s.epic}`, env });
+      finding(
+        "epic-refs-error",
+        s.ref,
+        pr,
+        `${s.ref}: its code_refs were written, but its epic's were not widened: ${String(w.error).replace(/\.?$/, ".")} The refs: ${refs.join(", ")}. To add them to the epic by hand: ${set}, with the epic's refs and these.`,
+      );
+    } else for (const i of items) if (i.to === "done") i.epic_refs = [...w.add];
   }
 
   // Every judged story's row in its epic's Stories table, also when it did not change.
