@@ -1145,7 +1145,7 @@ const SCRIPT_ONLY = [
   },
   {
     script: "status-change.mjs",
-    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, through the same read-again writer move uses",
+    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, and its create step adds the new story's row (--add), through the same read-again writer move uses",
   },
   {
     script: "epic-rule.mjs",
