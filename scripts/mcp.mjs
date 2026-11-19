@@ -174,11 +174,11 @@ export const TOOLS = Object.freeze({
   lineage: {
     verb: "graph",
     description:
-      "The typed ancestry and descent of one artifact: supersedes, spec-covers, spec-implements-adr, epic-contains, amends, breadth-first to a depth (default 3).",
+      "The typed ancestry and descent of one artifact: supersedes, spec-covers, spec-implements-adr, epic-contains, amends, spec-part-of, breadth-first to a depth (default 3).",
     inputSchema: schema(
       {
         path: str("vault-relative path of the artifact"),
-        kind: strs("only these lineage kinds (a subset of the five)"),
+        kind: strs("only these lineage kinds (a subset of the six)"),
         depth: int("how far to walk (default 3, maximum 10)"),
       },
       ["path"],

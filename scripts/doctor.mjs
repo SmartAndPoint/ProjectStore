@@ -145,6 +145,7 @@ import { effortSpec } from "./model-spec.mjs";
 import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
 import { checkInitiatives } from "./initiative.mjs";
+import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
 import { checkVerbMarks } from "./verb-mark.mjs";
 import { storyState } from "./stages.mjs";
 import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
@@ -4260,9 +4261,16 @@ export function runVaultChecks(
     }
   }
   const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
+  const nodeIndex = buildNodeIndex(cfg, layout);
+  // The spec tree, once per run (the spec tree spec, contracts 4 to 6).
+  const specParents = resolveSpecParents(nodeIndex, vaultFiles);
+  const specTree = analyseSpecTree(nodeIndex, specParents);
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
-    ...checkWikilinks(cfg, artifacts, vaultFiles, buildNodeIndex(cfg, layout)),
+    ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
+    ...checkSpecTree(nodeIndex, specParents, specTree, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),

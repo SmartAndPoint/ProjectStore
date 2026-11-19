@@ -396,7 +396,7 @@ export const VERBS = Object.freeze([
     requiresBinding: true,
     mcp: Object.freeze(["neighbors", "lineage"]),
     options: [
-      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its five)", true),
+      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its six)", true),
       opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"),
       opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`),
       opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`),
@@ -850,7 +850,11 @@ const EXAMPLES = {
   orientation: ["{cmd} orientation --json"],
   search: ['{cmd} search "entry rule" --kind spec', "{cmd} search queue --status accepted --limit 5"],
   show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],
-  graph: ["{cmd} graph neighbors adr/README.md --direction out", "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2"],
+  graph: [
+    "{cmd} graph neighbors adr/README.md --direction out",
+    "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2",
+    "{cmd} graph lineage specs/app.md --kind spec-part-of --depth 3",
+  ],
   codemap: ["{cmd} codemap --for PS-CORE", "{cmd} codemap --for scripts/lib.mjs --reverse"],
   guide: [
     "{cmd} guide spec --section Must",
