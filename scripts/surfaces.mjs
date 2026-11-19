@@ -26,7 +26,7 @@
 // ours). Pure node, no external deps.
 
 import { readFileSync, existsSync, realpathSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { loadHarnesses, harnessIds, detectHarnesses, sourceHarness, MANIFEST_DIR } from "./harness.mjs";
 import { stamp, deriveState, parseProvenance, sourceHash, STALE, STALE_TEXT, FOREIGN_TEXT } from "./provenance.mjs";
@@ -57,6 +57,7 @@ import {
   LAUNCHER_HEADER,
   commandForm,
   registrationProvenance,
+  installChannel,
 } from "./lib.mjs";
 import {
   analysePortableRegistration,
@@ -424,6 +425,125 @@ export function registrationPaths(s, { home = homedir(), projectDir = null, harn
     projectSettings: projectDir ? join(projectDir, cfgDir, ...(reg.project_settings || ["settings.json"])) : null,
     userSettings: join(hh, ...(reg.user_settings || ["settings.json"])),
   };
+}
+
+// A root inside our npm registration's marketplace directory: the payload a
+// host loads in place, <dir>/<plugin_subdir>, which installChannel reads as a
+// checkout although npm installed it. Compared as given and as real paths, so
+// a symlinked home counts. The converge step's hostCopyRoot asks it, and so does
+// the dashboard's page fetch, for which such a copy is one from npm (the
+// dashboard spec, contract 4).
+export function registrationPayloadRoot(root, { home = homedir() } = {}) {
+  return Boolean(registrationAt(root, { home }));
+}
+
+const realOrResolved = (p) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
+
+// Every npm registration a manifest declares, with its paths: the surfaces of
+// the host-plugin-registration format, the one whose directory a host loads.
+function* hostRegistrations(home) {
+  for (const m of loadHarnesses().values())
+    for (const s of Object.values(m.surfaces || {})) {
+      if (s?.kind !== "registration" || s.format !== "host-plugin-registration") continue;
+      yield { m, s, paths: registrationPaths(s, { home, harness: m }) };
+    }
+}
+
+// The registration whose marketplace directory holds `root`, or null.
+function registrationAt(root, { home = homedir() } = {}) {
+  if (!root) return null;
+  const r = realOrResolved(root);
+  for (const reg of hostRegistrations(home)) {
+    const d = realOrResolved(reg.paths.payload);
+    if (r === d || r.startsWith(d + sep)) return reg;
+  }
+  return null;
+}
+
+// A package root's origin from npm's hidden lockfile (the dashboard spec,
+// contract 21): only the lockfile of the node_modules folder that directly
+// holds the root's real path, under node_modules/<name>. "local" only for a
+// `resolved` with a scheme other than http or https (file:, git+ssh:,
+// git+https:); a missing or relative `resolved`, a link entry, no entry and a
+// lockfile that is missing or unreadable are unknown. A registry copy can carry
+// any of those (omit-lockfile-registry-resolved, install-strategy=linked, a
+// core bundled in a shell), so only positive evidence counts.
+function packageRootOrigin(root) {
+  let real;
+  try {
+    real = realpathSync(root);
+  } catch {
+    return null;
+  }
+  const holder = dirname(real);
+  if (basename(holder) !== "node_modules") return null;
+  const lock = readJson(join(holder, ".package-lock.json"));
+  const entry = lock?.packages?.[`node_modules/${basename(real)}`];
+  if (!entry || typeof entry !== "object" || entry.link === true) return null;
+  const scheme = typeof entry.resolved === "string" ? /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(entry.resolved) : null;
+  if (!scheme) return null;
+  return /^https?$/i.test(scheme[1]) ? null : "local";
+}
+
+// Where a copy of the core came from, as far as positive evidence shows (the
+// dashboard spec, contract 21): "local" (a checkout, a tarball packed in one, a
+// git source, or a payload setup laid from one of those) or null, unknown.
+// Only "local" makes the dashboard refuse to fetch a released page. Read once
+// per run by the installer, which writes it into the registration's field
+// (the install spec, contract 2), and by the dashboard's copy predicate.
+export function payloadOrigin(root, { home = homedir() } = {}) {
+  if (!root) return null;
+  const at = registrationAt(root, { home });
+  if (at) return registrationOrigin(at) === "local" ? "local" : null;
+  const channel = installChannel(root, { home });
+  if (channel === "synced") return null;
+  if (channel === "package") return packageRootOrigin(root);
+  if (channel === "registration") {
+    // The host's cache copy of the registration: the field speaks for it only
+    // when it describes these very bytes.
+    for (const reg of hostRegistrations(home)) {
+      if (installChannel(root, { home, harness: reg.m }) !== "registration") continue;
+      const prov = registrationProvenance(readJson(reg.paths.manifest), reg.s);
+      if (!prov || prov.origin !== "local" || prov.pkg !== pluginVersionAt(root, reg.m)) return null;
+      let d = null;
+      try {
+        d = packageDigest(root);
+      } catch {}
+      return d && prov.digest && d.sha256 === prov.digest.sha256 && d.count === prov.digest.count ? "local" : null;
+    }
+    return null;
+  }
+  // A copy under another harness's home (Codex's ~/.codex: its plugin cache,
+  // its registration's payload) is unknown: that harness lays its copy from
+  // npm through its own shell, and installChannel knows only this host's paths.
+  if (underOtherHarnessHome(root, home)) return null;
+  // A checkout, the git marketplace's copy, an unpacked tarball: not installed
+  // from npm at all.
+  return "local";
+}
+
+function underOtherHarnessHome(root, home, env = process.env) {
+  const r = realOrResolved(root);
+  const own = sourceHarness()?.id;
+  for (const m of loadHarnesses().values()) {
+    if (m.id === own || !m.runtime?.home_default) continue;
+    for (const h of [env[m.runtime.home_env || ""], join(home, m.runtime.home_default)]) {
+      if (!h) continue;
+      const d = realOrResolved(h);
+      if (r === d || r.startsWith(d + sep)) return true;
+    }
+  }
+  return false;
+}
+
+function registrationOrigin({ s, paths }) {
+  return registrationProvenance(readJson(paths.manifest), s)?.origin ?? null;
 }
 
 export function analyseRegistration(

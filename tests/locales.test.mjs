@@ -51,6 +51,7 @@ const KINDS = [
   "concept",
   "epic",
   "folder-readme",
+  "initiative",
   "kanban",
   "meeting",
   "research",
@@ -415,7 +416,17 @@ for (const lang of LOCALES) {
     // named), so absence of an error proves nothing. Assert presence instead: every
     // scaffolded folder must come back as a rebuilt index.
     const rebuilt = new Set((rec.indexes || []).map((i) => i.folder));
-    for (const folder of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+    for (const folder of [
+      "adr",
+      "specs",
+      "initiatives",
+      "epics",
+      "research",
+      "concepts",
+      "meetings",
+      "ops",
+      "diagrams",
+    ]) {
       assert.ok(
         rebuilt.has(folder),
         `reconcile skipped ${folder}/README.md — its localized index header was not recognized`,
@@ -668,7 +679,7 @@ test("inline grammars accept the CJK-width colon in both directions (contract 6)
 // translated template label that is not the registered first form breaks the
 // row silently. The sweep reads the labels by place: the story header's rows
 // are Epic, Status, Priority, Assignee; the epic header's first row is Status;
-// the Stories table's second column is Status.
+// the Stories table's second column is Status and its third Description.
 function templateLabels(lang, read = (name) => readFileSync(join(REPO, "templates", lang, `${name}.md.tmpl`), "utf8")) {
   const cells = (row) =>
     row
@@ -689,6 +700,7 @@ function templateLabels(lang, read = (name) => readFileSync(join(REPO, "template
     { template: "epic.md.tmpl", field: "updated", label: bold(eRows[3]) },
     { template: "epic.md.tmpl", field: "story", label: cells(storiesHeader)[0] },
     { template: "epic.md.tmpl", field: "status", label: cells(storiesHeader)[1] },
+    { template: "epic.md.tmpl", field: "description", label: cells(storiesHeader)[2] },
   ];
 }
 function labelFindings(lang, read) {
@@ -704,10 +716,34 @@ function labelFindings(lang, read) {
 // [adding-a-bundled-locale#14] [SPEC-001#2]
 test("locales: every bundled locale's templates spell the Status, Assignee, Updated and Story labels in the first registered form", () => {
   for (const lang of LOCALES) {
-    for (const field of ["status", "assignee", "updated", "story"])
+    for (const field of ["status", "assignee", "updated", "story", "description"])
       assert.ok(registry.fields[field][lang]?.[0]?.trim(), `${lang}: fields.${field} registered`);
     assert.ok(registry.headings.status_log[lang]?.[0]?.trim(), `${lang}: headings.status_log registered`);
     assert.deepEqual(labelFindings(lang), [], lang);
+  }
+});
+
+// [initiative#12]
+test("locales: every bundled locale spells the initiative's Status, Priority and Owner rows, and the epic's Priority row, in the first registered form", () => {
+  const bold = (row) =>
+    row
+      .split("|")[1]
+      .trim()
+      .replace(/^\*\*|\*\*$/g, "");
+  const rows = (lang, name) =>
+    loadTemplate(lang, name)
+      .split("\n")
+      .filter((l) => /^\| \*\*/.test(l))
+      .map(bold);
+  for (const lang of LOCALES) {
+    for (const field of ["priority", "owner", "initiative"])
+      assert.ok(registry.fields[field][lang]?.[0]?.trim(), `${lang}: fields.${field} registered`);
+    assert.deepEqual(
+      rows(lang, "initiative"),
+      ["status", "priority", "owner"].map((f) => registry.fields[f][lang][0]),
+      `${lang}/initiative.md.tmpl`,
+    );
+    assert.equal(rows(lang, "epic")[1], registry.fields.priority[lang][0], `${lang}/epic.md.tmpl`);
   }
 });
 

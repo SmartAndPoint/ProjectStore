@@ -66,7 +66,7 @@ import {
 } from "./lib.mjs";
 import { loadHarness, loadHarnesses } from "./harness.mjs";
 import { analysePortableRegistration, portableRegistrationPaths } from "./portable-registration.mjs";
-import { registrationPaths } from "./surfaces.mjs";
+import { registrationPaths, registrationPayloadRoot } from "./surfaces.mjs";
 
 // The package every literal command here names: the core, in the core form
 // (rule 9's command-form rule). The shells bundle it; the notice and the stop
@@ -127,12 +127,13 @@ export function hostCopyRoot(root, { home = homedir(), env = process.env } = {})
   // A copy synced from claude.ai (Anthropic's directory) is one too: claude.ai
   // updates it (the install spec, contract 21, rule 2).
   if (["registration", "marketplace", "synced"].includes(installChannel(root, { home }))) return true;
+  // The npm registration's payload, loaded in place (surfaces.mjs owns the check).
+  if (registrationPayloadRoot(root, { home })) return true;
   for (const m of loadHarnesses().values()) {
     for (const s of Object.values(m.surfaces || {})) {
       if (s?.kind !== "registration") continue;
       if (s.format === "host-plugin-registration") {
-        const p = registrationPaths(s, { home, harness: m });
-        if (within(root, p.payload) || within(root, p.cacheDir)) return true;
+        if (within(root, registrationPaths(s, { home, harness: m }).cacheDir)) return true;
       } else if (s.format === "portable-plugin-registration") {
         const p = portableRegistrationPaths(s, { home, projectDir: home, harness: m, env });
         if (within(root, p.dir) || within(root, p.cacheDir)) return true;

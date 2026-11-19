@@ -13,6 +13,8 @@ import {
   blockedAt,
   isFlowSet,
   isEmailAddress,
+  leftDateOf,
+  refusedName,
   FLOW_FIXED,
 } from "../scripts/flow-policy.mjs";
 import { mergeConfig, nextVaultConfig } from "../scripts/lib.mjs";
@@ -235,4 +237,35 @@ test("flow policy: a capacity_weeks bound below 0.01 counts as absent in every r
   assert.ok(ok("flow.capacity_weeks=0.005,3"), "configure accepts it");
   assert.equal(flowValue({ flow: { capacity_weeks: [0.005, 3] } }, "capacity_weeks"), null);
   assert.deepEqual(flowValue({ flow: { capacity_weeks: [0.01, 3] } }, "capacity_weeks"), [0.01, 3]);
+});
+
+// [handover#2] [handover#6]
+test("flow policy: leftDateOf is a person's valid left date, past or future, else null; an invalid key or date has none (edge)", () => {
+  const cfg = {
+    flow: {
+      people: {
+        Ada: { left: "2026-11-01" },
+        Grace: { left: "2027-01-31" },
+        Lin: { left: "soon" },
+        Kim: { left: "2026-02-30" },
+        Max: { wip: 2 },
+        constructor: { left: "2026-11-01" },
+        "a@b": { left: "2026-11-01" },
+      },
+    },
+  };
+  assert.equal(leftDateOf(cfg, "Ada"), "2026-11-01");
+  assert.equal(leftDateOf(cfg, "Grace"), "2027-01-31");
+  for (const name of ["Lin", "Kim", "Max", "Nobody", "a@b", "__proto__", "toString"])
+    assert.equal(leftDateOf(cfg, name), null, name);
+  assert.equal(leftDateOf(cfg, "constructor"), "2026-11-01");
+  assert.equal(leftDateOf(null, "Ada"), null);
+  assert.equal(leftDateOf({ flow: { people: [] } }, "Ada"), null);
+});
+
+// [handover#1]
+test("flow policy: refusedName refuses an empty name, @ and a control character; ], =, __proto__ and constructor are names (edge)", () => {
+  for (const bad of ["", "Ad@", "Gr@ce", "a\nb", "a\tb", "a\u2028b"]) assert.ok(refusedName(bad), JSON.stringify(bad));
+  for (const good of ["Ada", "First Last", "a]", "a=b", "__proto__", "constructor", "Анна Иванова"])
+    assert.equal(refusedName(good), null, good);
 });

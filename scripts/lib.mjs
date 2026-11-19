@@ -1319,10 +1319,12 @@ function ourLauncherPath(p, projectDir) {
 }
 
 // The provenance field of a registration directory's manifest, or null — the
-// install spec's contract 2 for a JSON directory: emitted by one function
-// (registrationManifest, the installer) and read by this one. The registration
-// analysis (surfaces.mjs) and statusLineIsOurWiring both call it; the key is
-// the surface's provenance_key.
+// install spec's contract 2 for a JSON directory: emitted by the installer
+// (registrationManifest, and the manifest-only rewrite, which keeps every key
+// it does not change) and read by this one. The registration analysis
+// (surfaces.mjs), statusLineIsOurWiring, the installer's apply-time re-check
+// and the dashboard's payloadOrigin (surfaces.mjs) call it; the key is the
+// surface's provenance_key.
 export function registrationProvenance(manifest, s) {
   const prov = manifest && s && s.provenance_key ? manifest[s.provenance_key] : null;
   return prov && typeof prov === "object" && typeof prov.pkg === "string" ? prov : null;

@@ -3076,7 +3076,7 @@ const NEVER = () => new Promise(() => {});
 
 function mkVault({ stories = [], activity = null, sessionId = "s1", readmes = {} } = {}) {
   const vault = mkdtempSync(join(tmpdir(), "ps-facts-"));
-  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+  for (const f of ["adr", "specs", "initiatives", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
     mkdirSync(join(vault, f), { recursive: true });
     writeFileSync(join(vault, f, "README.md"), readmes[f] ?? `# ${f}\n\nThe ${f} folder.\n\n## Index\n`);
   }

@@ -65,6 +65,7 @@ const STAGE_OF = {
   epic: "authoring",
   story: "authoring",
   spec: "authoring",
+  initiative: "authoring",
   concept: "authoring",
   meeting: "authoring",
   runbook: "authoring",

@@ -86,6 +86,10 @@ const sub = (heading) => (section() === null ? null : under(section(), heading))
 // code or the manifest data that holds it], so a row cannot outlive what it
 // describes.
 const code = (rel) => stripComments(read(rel));
+// The one module of the page's package that starts git and gh (the processes
+// ADR, decision 1). It is not shipped in the plugin, so MODULES does not hold
+// it; the browser row discloses it, and a test below reads its calls.
+const WRITE_MODULE = "dashboard/lib/write.mjs";
 const manifest = (id) => harness.loadHarness(id);
 const catalogs = (id) => manifest(id)?.agent_translation?.models?.catalogs || [];
 const hostCli = () =>
@@ -115,6 +119,9 @@ const ROWS = {
       ["each new artifact names it as its author", "author: cfg.default_author", code("scripts/draft.mjs")],
       ["`git check-ignore`", '"check-ignore"', code("scripts/doctor.mjs")],
       ["`git ls-files`", '"ls-files"', code("scripts/doctor.mjs")],
+      // Doctor's note on the dashboard's kept branches (dashboard-delivery, contract 7).
+      ["`git for-each-ref`", '"for-each-ref"', code("scripts/doctor.mjs")],
+      ["`git rev-list --count`", '"rev-list", "--count"', code("scripts/doctor.mjs")],
       ["`git diff --name-only`", '"diff", "--name-only"', code("scripts/diff-refs.mjs")],
       ["`git log`", '"log"', code("scripts/diff-refs.mjs")],
       ["`git grep --untracked`", '"--untracked"', code("scripts/diff-refs.mjs")],
@@ -136,6 +143,14 @@ const ROWS = {
         code("scripts/precommit.mjs"),
       ],
       ["`git cat-file --filters`", '"cat-file", "--filters"', code("scripts/precommit.mjs")],
+      // follow's branch check (the follow spec, contract 8): local reads in the vault's repository.
+      ["`git worktree list`", '"worktree", "list"', code("scripts/follow.mjs")],
+      ["`git merge-base`", '"merge-base"', code("scripts/follow.mjs")],
+      [
+        "it runs `git worktree list` and `git merge-base` and `git cat-file`",
+        '"cat-file", "--filters"',
+        code("scripts/follow.mjs"),
+      ],
       ["Optional locks are off", 'GIT_OPTIONAL_LOCKS: "0"', code("scripts/diff-refs.mjs")],
       ["SessionStart hook", "resolveBinding(", code("hooks/session-start.mjs")],
       // Agents read history with the agent's own tools, not through ProjectStore's code.
@@ -159,6 +174,75 @@ const ROWS = {
         .map((c) => [`\`${c.argv.join(" ")}\``, JSON.stringify(c.argv), JSON.stringify(c)]),
     ],
   },
+  // The follow spec, contract 10: gh, started only by follow, through its adapter.
+  gh: {
+    sub: RUNS,
+    lead: "gh",
+    says: () => [
+      ["started only by `follow`", 'spawnSync("gh"', code("scripts/follow-gh.mjs")],
+      ["`gh pr view`", '["pr", "view"', code("scripts/follow-gh.mjs")],
+      ["`gh pr list`", '["pr", "list"', code("scripts/follow-gh.mjs")],
+      ["`gh repo view`", '["repo", "view"', code("scripts/follow-gh.mjs")],
+      ["over the network with your own `gh` login", "env, encoding", code("scripts/follow-gh.mjs")],
+      ["ProjectStore reads no token", "{ cwd, env, timeout }", code("scripts/follow-gh.mjs")],
+      // The page beside follow, and its exception to "nothing is written to the
+      // code host" (the dashboard-writes spec's acceptance; the processes ADR, decision 3).
+      ["started only by `follow` and by the dashboard's page", '"pr", "create"', code(WRITE_MODULE)],
+      [
+        "nothing is written to the code host except by the page: the branch and the pull request you send from it",
+        '"pr", "close"',
+        code(WRITE_MODULE),
+      ],
+    ],
+  },
+  // The dashboard spec, contracts 5 and 6: the page's own server through this
+  // Node, and the default browser at its address, both from `dashboard` only.
+  browser: {
+    sub: RUNS,
+    lead: "The dashboard and your browser",
+    says: () => [
+      ["started only by `dashboard`", "process.execPath, args", code("scripts/dashboard.mjs")],
+      ["on `127.0.0.1`", "127.0.0.1", read("dashboard/server.mjs")],
+      ["`open` on macOS", 'darwin: ["open"', code("scripts/dashboard.mjs")],
+      ["`xdg-open`", '"xdg-open"', code("scripts/dashboard.mjs")],
+      ["`rundll32` on Windows", '"rundll32"', code("scripts/dashboard.mjs")],
+      ["only when you run it at a terminal", "interactive &&", code("scripts/dashboard.mjs")],
+      // The page's writes (the dashboard-writes spec's acceptance; the
+      // processes ADR, decision 3): its sentences, each held to the module or
+      // the server. Every other git and gh subcommand of the module is named
+      // too, which the test below reads from the module.
+      [
+        "it starts a program only for a request from the page itself, one that carries the run's token",
+        '"x-projectstore-token"',
+        code("dashboard/server.mjs"),
+      ],
+      // The one process the server starts unasked: the start's refresh.
+      ["Apart from the refresh it runs once at its own start", "START_BUDGET_MS", code("dashboard/server.mjs")],
+      [
+        "When it starts, when the page is opened, and when you ask for it in the page's ⌘K palette, it runs `git fetch` in its own clone of the vault and asks `gh pr list` about its own pull request",
+        '["fetch", "--quiet", "--", "origin"]',
+        code(WRITE_MODULE),
+      ],
+      ["`git clean -d -x` put the clone back", '["clean", "-d", "-x", "--quiet"]', code(WRITE_MODULE)],
+      ["only when that branch is ahead of the clone's, `git merge`", "`HEAD..${remote}`", code(WRITE_MODULE)],
+      ["After a click, it commits on its own branch in that clone.", '["commit", "--quiet"', code(WRITE_MODULE)],
+      [
+        "Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it; with no `gh` to ask, Send pushes and opens no pull request",
+        '["push", "--porcelain", "--", "origin", `refs/heads/${branch}`]',
+        code(WRITE_MODULE),
+      ],
+      ["In the vault's repository it changes nothing", '["remote", "get-url", "--", "origin"]', code(WRITE_MODULE)],
+      ["`.projectstore/state/dashboard/<you>/clone/`", 'lib.LAYOUT.state, "dashboard", person', code(WRITE_MODULE)],
+      ["No git hook runs in the clone", "core.hooksPath=${NO_HOOKS}", code(WRITE_MODULE)],
+      ["no call can stop to ask for a password", "GIT_TERMINAL_PROMPT", code(WRITE_MODULE)],
+      [
+        "ProjectStore's own `move` and `handover` in the clone through the same Node",
+        'verb: "move"',
+        code(WRITE_MODULE),
+      ],
+      ["ProjectStore's own `move` and `handover` in the clone", 'verb: "handover"', code(WRITE_MODULE)],
+    ],
+  },
   npm: {
     sub: RUNS,
     lead: "npm",
@@ -167,6 +251,13 @@ const ROWS = {
       ["`npm install`", '"install"', npmArgv()],
       ["`--ignore-scripts`", '"--ignore-scripts"', npmArgv()],
       [`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)],
+      // The dashboard spec, contract 15: the page's fetch, from `dashboard` in an npm copy.
+      [
+        "from `dashboard` in a copy installed from npm",
+        "fetchArgv({ prefix: scratch",
+        code("scripts/dashboard-fetch.mjs"),
+      ],
+      ["`projectstore-dashboard`", 'PAGE_PACKAGE = "projectstore-dashboard"', code("scripts/dashboard-fetch.mjs")],
     ],
   },
   // The band is a hooks module: no spawn and no fetch in its reach (checked
@@ -220,6 +311,18 @@ const ROWS = {
     lead: "The Codex package",
     says: () => [[`\`${codexShell()}\``, String(codexShell()), JSON.stringify(manifest("codex")?.install)]],
   },
+  // The dashboard spec, contracts 14 and 15: the page's package, at exactly
+  // the running version, kept in the user cache and started from there.
+  dashboard: {
+    sub: SENDS,
+    lead: "The dashboard package",
+    says: () => [
+      ["`projectstore-dashboard`", 'PAGE_PACKAGE = "projectstore-dashboard"', code("scripts/dashboard-fetch.mjs")],
+      ["at exactly that version, never another", "shell: PAGE_PACKAGE, version", code("scripts/dashboard-fetch.mjs")],
+      ["keeps it in ProjectStore's cache", "cache.dashboard(version)", code("scripts/dashboard-fetch.mjs")],
+      ["make no request", "if (checkPage(target, version) === null) return", code("scripts/dashboard-fetch.mjs")],
+    ],
+  },
 };
 
 // The one named exemption: shipped, never run by the plugin. It names itself
@@ -241,8 +344,12 @@ const MODULES = {
   "scripts/binding.mjs": { rows: ["git"] },
   "scripts/cli.mjs": { rows: ["git"], execPath: true },
   "scripts/convergence.mjs": { rows: ["registry"] },
+  // The page's server through this Node, and the browser at its address.
+  "scripts/dashboard.mjs": { rows: ["browser"], execPath: true },
   "scripts/diff-refs.mjs": { rows: ["git"] },
   "scripts/doctor.mjs": { rows: ["git"], execPath: true },
+  // The one module that starts gh (the follow spec, contract 10).
+  "scripts/follow-gh.mjs": { rows: ["gh"] },
   "scripts/install-harness.mjs": { rows: ["hosts", "node"] },
   // `codex debug models`; since 0.30.7 it makes no request of its own.
   "scripts/models.mjs": { rows: ["hosts"] },
@@ -250,7 +357,8 @@ const MODULES = {
   // (the read-verb runner, the MCP entry story); mcp.mjs itself spawns nothing.
   "scripts/read-verbs.mjs": { rows: [], execPath: true },
   "scripts/reconcile.mjs": { rows: [], execPath: true },
-  "scripts/run-host.mjs": { rows: ["npm", "codex", "node"] },
+  // The one runner npm goes through: the Codex package, and the dashboard's.
+  "scripts/run-host.mjs": { rows: ["npm", "codex", "dashboard", "node"] },
   "scripts/setup.mjs": { rows: ["git"] },
   "scripts/statusline-launcher.mjs": { rows: ["statusline"] },
   "scripts/statusline.mjs": { rows: ["statusline"] },
@@ -303,8 +411,9 @@ function nonExecPathUses(src) {
 const SPAWN_CALL = /(?<![\w$.])(?:spawn\w*|nodeSpawn|exec(?:File)?(?:Sync)?|fork)\s*\(\s*(["'`])([^"'`]*)\1/g;
 const literalPrograms = (src) => [...stripComments(src).matchAll(SPAWN_CALL)].map((m) => m[2]);
 // The literals each kind of module may start: git anywhere, npm only in the
-// named exemption.
-const allowedLiterals = (file) => (MODULES[file]?.exempt ? ["npm"] : ["git"]);
+// named exemption, gh only in follow's adapter.
+const allowedLiterals = (file) =>
+  MODULES[file]?.exempt ? ["npm"] : file === "scripts/follow-gh.mjs" ? ["gh"] : ["git"];
 
 const pinned = () =>
   SHIPPED_CODE.filter((f) => {
@@ -331,8 +440,8 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   );
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
-    [RUNS, ["node", "git", "hosts", "npm", "statusline"]],
-    [SENDS, ["registry", "codex"]],
+    [RUNS, ["node", "git", "gh", "browser", "hosts", "npm", "statusline"]],
+    [SENDS, ["registry", "codex", "dashboard"]],
   ]) {
     const have = rowsOf(sub(heading));
     for (const id of rows) assert.ok(have.has(ROWS[id].lead), `README's "${heading}" has the row **${ROWS[id].lead}**`);
@@ -406,7 +515,11 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The modules whose git calls are read: the pinned ones, and those that run
   // git through a seam another module spawns for (worktree.mjs through
   // binding's gitTop, precommit.mjs through diff-refs' gitRun).
-  const GIT_CALLERS = Object.keys(MODULES).concat(["scripts/worktree.mjs", "scripts/precommit.mjs"]);
+  const GIT_CALLERS = Object.keys(MODULES).concat([
+    "scripts/worktree.mjs",
+    "scripts/precommit.mjs",
+    "scripts/follow.mjs",
+  ]);
   const GIT_CALL = /(?:spawn(?:Sync)?\(\s*"git",\s*|gitIn\([^,]+,\s*|\bgit\((?:[a-zA-Z]+,\s*)?)\[\s*"([a-z-]+)"/g;
   const subcommandsOf = (src) => [...src.matchAll(GIT_CALL)].map((m) => m[1]);
   const subcommands = new Set();
@@ -416,10 +529,21 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // caught (PS-WT, the precommit spec's acceptance).
   for (const s of ["rev-parse", "status", "cat-file"])
     assert.ok(subcommandsOf(code("scripts/precommit.mjs")).includes(s), `precommit.mjs's git ${s} is read`);
+  // follow's branch check is read too, so the row must name merge-base (the follow spec, contract 10).
+  for (const s of ["worktree", "merge-base", "cat-file"])
+    assert.ok(subcommandsOf(code("scripts/follow.mjs")).includes(s), `follow.mjs's git ${s} is read`);
   const planted = code("scripts/precommit.mjs") + '\nconst x = git(root, ["commit", "-qm", "planted"]);\n';
   assert.ok(subcommandsOf(planted).includes("commit"), "a commit planted in precommit.mjs is read, and fails below");
   for (const s of subcommands) assert.ok(gitRow.includes(`\`git ${s}`), `the git row names git ${s}`);
   assert.ok(/never commits, pushes, pulls or fetches/.test(gitRow), "the git row says what git never does");
+  // …outside the dashboard's page, which its lead and its sentence both name
+  // (the processes ADR, decision 3).
+  assert.ok(
+    gitRow.startsWith(
+      "**git**, on this machine only, outside the dashboard's page. Outside that page, ProjectStore never commits, pushes, pulls or fetches",
+    ),
+    "the git row's lead and sentence name their scope",
+  );
   for (const s of ["push", "pull", "fetch", "clone", "commit", "remote"])
     assert.ok(!subcommands.has(s), `no shipped code runs git ${s}`);
   // Nor does any command, skill or agent text tell the agent to: "never commits" covers them too.
@@ -435,8 +559,21 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The one program that connects on its own is named where the sends are.
   for (const c of catalogs("codex").filter((x) => x.kind === "command"))
     assert.ok(sends.includes(`\`${c.argv.join(" ")}\``), `the sends section names ${c.argv.join(" ")}, which connects`);
-  assert.ok(section().includes("Its own code makes two requests"), "the intro counts ProjectStore's own requests");
-  assert.equal(rowsOf(sends).size, 2, "the sends section lists those two");
+  assert.ok(section().includes("Its own code makes three requests"), "the intro counts ProjectStore's own requests");
+  assert.ok(
+    section().includes("Three programs it runs make requests of their own") &&
+      sends.includes("Four programs it runs may connect on their own"),
+    "the intro and the sends section count the programs that connect: codex, gh, the page's git and the status line command",
+  );
+  assert.ok(sends.includes("`gh` reads your pull requests"), "the sends section names gh");
+  // The page's git and gh, and where its sends stop (the dashboard-writes spec's acceptance).
+  for (const s of [
+    "On the dashboard's page, `gh` reads, opens and closes the page's own pull request",
+    "`git clone` and `git fetch` and `git ls-remote` read from it, and Send's `git push` writes one branch there",
+    "Nothing the page sends reaches the vault's default branch until a person merges that pull request",
+  ])
+    assert.ok(sends.includes(s), `the sends section says: ${s}`);
+  assert.equal(rowsOf(sends).size, 3, "the sends section lists those three");
   assert.ok(sends.includes(new URL(fetchShell.DEFAULT_REGISTRY).host), "the sends section names the default registry");
   // No credential is read from the environment (the 0.30.7 story,
   // PS-DIRECTORY): the intro says so, and no catalog asks for a key.
@@ -446,6 +583,96 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   );
   for (const id of ["claude-code", "codex"])
     for (const c of catalogs(id)) assert.ok(["file", "command"].includes(c.kind), `${id}: a ${c.kind} catalog`);
+});
+
+// [follow#10]
+test("disclosure: only scripts/follow-gh.mjs starts gh, and README names gh, git worktree list and git merge-base; a second gh module or a README without the gh row fails, naming it", () => {
+  const starts = (src) => literalPrograms(src).includes("gh");
+  assert.deepEqual(
+    Object.keys(MODULES).filter((f) => !MODULES[f].exempt && starts(read(f))),
+    ["scripts/follow-gh.mjs"],
+    "follow's adapter is the one module that starts gh",
+  );
+  assert.ok(!/TOKEN|token/.test(code("scripts/follow-gh.mjs")), "the adapter reads no token: gh owns the login");
+  const runs = sub(RUNS);
+  assert.ok(rowsOf(runs).has("gh"), "README's What it runs has the row **gh**");
+  const gitRow = rowsOf(runs).get(ROWS.git.lead);
+  for (const s of ["`git worktree list`", "`git merge-base`", "`git cat-file`"]) assert.ok(gitRow.includes(s), s);
+  // Planted: gh started from a second module is a literal its rows do not admit, named by its file.
+  const planted = {
+    file: "scripts/binding.mjs",
+    src: read("scripts/binding.mjs") + '\nspawnSync("gh", ["pr", "list"]);\n',
+  };
+  const beyond = literalPrograms(planted.src).filter((p) => !allowedLiterals(planted.file).includes(p));
+  assert.deepEqual(beyond, ["gh"], `${planted.file} starts a literal program its README row does not name`);
+  // Planted: the README without its gh row has no row for the module that needs it.
+  const without = runs
+    .split("\n")
+    .filter((l) => !l.startsWith("- **gh**"))
+    .join("\n");
+  const missing = Object.entries(MODULES)
+    .flatMap(([f, m]) => (m.rows || []).map((id) => [f, id]))
+    .filter(([, id]) => ROWS[id].sub === RUNS && !rowsOf(without).has(ROWS[id].lead));
+  assert.deepEqual(missing, [["scripts/follow-gh.mjs", "gh"]], "the missing row is named with its module");
+});
+
+// The page's package is not in the plugin's packed files, so the pinned map
+// above does not read its module; the browser row discloses that module's
+// calls instead, every git subcommand and every gh one as a command span, and
+// says in which repository they run (the dashboard-writes spec's acceptance;
+// the processes ADR, decision 3).
+const MODULE_GIT = /\bgit\(\s*[\w.]+\s*,\s*\[\s*"([a-z-]+)"(?:\s*,\s*"([a-z-]+)")?/g;
+const MODULE_GH = /\bgh\(\s*[\w.]+\s*,\s*\[\s*"([a-z]+)"\s*,\s*"([a-z]+)"/g;
+// "git <sub>", and "git remote <name>" for remote's own subcommands.
+const moduleGit = (src) =>
+  [...new Set([...src.matchAll(MODULE_GIT)].map((m) => (m[1] === "remote" ? `remote ${m[2]}` : m[1])))].sort();
+const moduleGh = (src) => [...new Set([...src.matchAll(MODULE_GH)].map((m) => `${m[1]} ${m[2]}`))].sort();
+const unnamed = (row, src) => [
+  ...moduleGit(src)
+    .map((s) => `git ${s}`)
+    .filter((s) => !row.includes(`\`${s}`)),
+  ...moduleGh(src)
+    .map((s) => `gh ${s}`)
+    .filter((s) => !row.includes(`\`${s}\``)),
+];
+
+test("disclosure: the browser row names every git and gh subcommand of the page's module, and where each runs; one planted in the module fails, named", () => {
+  const row = rowsOf(sub(RUNS)).get(ROWS.browser.lead);
+  assert.ok(row, `README's "${RUNS}" has the row **${ROWS.browser.lead}**`);
+  const src = code(WRITE_MODULE);
+  const git = moduleGit(src);
+  // Not vacuous: the reader sees the module's calls, in the vault's
+  // repository, the project's and the clone, the push among them.
+  for (const s of [
+    "rev-parse",
+    "remote get-url",
+    "var",
+    "clone",
+    "fetch",
+    "commit",
+    "push",
+    "cherry-pick",
+    "for-each-ref",
+  ])
+    assert.ok(git.includes(s), `the module's git ${s} is read: ${git.join(", ")}`);
+  assert.ok(git.length >= 20, `the module's git calls are read: ${git.join(", ")}`);
+  assert.deepEqual(moduleGh(src), ["pr close", "pr create", "pr list"], "the module's gh calls");
+  assert.deepEqual(unnamed(row, src), [], "the browser row names each of the module's git and gh subcommands");
+  for (const s of ["In the vault's repository it changes nothing", "In the project's repository", "In the clone,"])
+    assert.ok(row.includes(s), `the browser row says where its calls run: ${s}`);
+  assert.ok(
+    row.includes("`git clone` and `git fetch` and `git ls-remote` and `git push` reach `origin` over the network."),
+    "the row says which calls reach origin",
+  );
+  // Planted: a new git subcommand and a gh merge in the module are each named as missing.
+  const planted = `${src}\nawait git(clone, ["gc", "--prune=now"]);\nawait proc.gh(paths.clone, ["pr", "merge", "1"]);\n`;
+  assert.deepEqual(unnamed(row, planted), ["git gc", "gh pr merge"]);
+  // A row without its gh sentence misses the module's gh calls.
+  assert.deepEqual(
+    unnamed(row.replaceAll("`gh pr create`", "gh's create"), src),
+    ["gh pr create"],
+    "the row's own spans are what is read",
+  );
 });
 
 test("disclosure: the hooks start only git, from SessionStart, and fetch nothing", () => {
@@ -586,7 +813,20 @@ test("disclosure: the listing fields and the icon", () => {
 
 // A command copied with the comma after it fails (the 0.29.1 upgrade did):
 // no command span in the two sections is followed by punctuation.
-const PROGRAMS = ["git", "npm", "npx", "node", "codex", "claude", "bunx", "pnpm", "deno", "projectstore", "plugin"];
+const PROGRAMS = [
+  "git",
+  "gh",
+  "npm",
+  "npx",
+  "node",
+  "codex",
+  "claude",
+  "bunx",
+  "pnpm",
+  "deno",
+  "projectstore",
+  "plugin",
+];
 const commandSpan = (t) =>
   /^\/[a-z]/.test(t) || (PROGRAMS.includes(t.split(/\s+/)[0]) && t.trim().split(/\s+/).length > 1);
 function spansBeforePunctuation(text) {
@@ -629,6 +869,8 @@ test("disclosure: the section's writes and the directory report, and no key-shap
     ["models", "`models/`"],
     ["welcomed", "`welcomed/`"],
     ["fetch", "`fetch/`"],
+    // The dashboard's page, one folder per version (the dashboard spec, contract 14).
+    ["dashboard", "`dashboard/<version>/`"],
   ]) {
     const p = typeof cache[k] === "function" ? cache[k]("x") : cache[k];
     assert.ok(p && p.startsWith(cache.root), `cachePaths().${k} is under the cache root`);

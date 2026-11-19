@@ -101,6 +101,12 @@ register a form per bundled language (en, ru, es, de, fr, zh) in
 `scaffold/headings.json` — matchers accept every registered language, so a
 ru-headed file lints in an en-bound vault.
 
+A kind with a command also needs its stage in `STAGE_OF`
+(`scripts/tokens.mjs`), or the token report counts its runs as `other`. A
+kind whose frontmatter links it to another kind (as an epic's `initiative:`
+names an initiative) needs that edge in `scripts/graph.mjs` and its check in
+doctor; the `initiative` kind is the worked example (`scripts/initiative.mjs`).
+
 ## Adding a new layout
 
 A layout is a JSON file at `scaffold/layouts/<name>.json` declaring folders,
@@ -251,6 +257,24 @@ each key activates.
   `scripts/status-log.mjs`), else `created`. Both instants are read through
   `stampMs`, so a stamp with no zone is UTC on every machine.
   `move <story> todo|planned --reason "<why>"` is the one change no gate makes.
+  `handover --from <name> --to <name> --reason "<why>"` changes only the
+  assignee of a person's open stories (`openStoriesOf` in
+  `scripts/flow-counts.mjs`), through `changeAssignee` in
+  `scripts/status-change.mjs`, with the actor `handover`. A name holding `@`
+  or a control character is refused. `flow.people[<name>].left` marks a
+  person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
+  `assignee-left` then lists their open work, and the verb refuses them as
+  `--to`.
+- An initiative's `status` and Outcome, its `title`, `owner` and `priority`,
+  and an epic's `initiative:` are written by the `initiative` and `epic` verbs
+  (`scripts/initiative-verbs.mjs`). They find the header rows by the registry's
+  `fields` (`priority`, `owner`, `initiative`, any bundled language) and add
+  an epic's Initiative row with the bound language's first form.
+- `create` (`scripts/item-verbs.mjs`) renders through `renderDraft` in
+  `scripts/draft.mjs`, so a new kind's template reaches the verb and the agent
+  command alike. The mark's key and the one predicate every reader asks,
+  `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
+  the key, and only its `reviewed` removes it.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant

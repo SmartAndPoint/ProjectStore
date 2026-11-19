@@ -16,7 +16,16 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { runStartupChecks } from "../scripts/doctor.mjs";
-import { checkFlow, FLOW_LEVELS, FLOW_CHECKS, namesOf, activityTime } from "../scripts/doctor-flow.mjs";
+import {
+  checkFlow,
+  FLOW_LEVELS,
+  FLOW_CHECKS,
+  namesOf,
+  activityTime,
+  handoverCommand,
+} from "../scripts/doctor-flow.mjs";
+import { packageCommand } from "../scripts/harness.mjs";
+import { fromTerminalIn } from "../scripts/lib.mjs";
 import { commitsSince, ACTIVITY_REASONS } from "../scripts/diff-refs.mjs";
 import { refCovers } from "../scripts/code-refs.mjs";
 import { isEmailAddress } from "../scripts/flow-policy.mjs";
@@ -612,8 +621,42 @@ test("idle people: First Last with two stories, git_names flast and an email-sha
     /^First Last holds 2 stories in progress or review and has no local commit in the last 7 days under the names First Last, flast:/,
   );
   assert.match(f.message, /can be handed over/);
+  // As amended 2026-11-14: the handover command, alone on its line after a colon.
+  const cmd = packageCommand([], "handover", { args: "--from 'First Last' --to <name> --reason '<why>'" });
+  assert.equal(handoverCommand(ME), cmd);
+  const lines = f.message.split("\n");
+  assert.equal(lines.length, 2, f.message);
+  assert.ok(lines[0].endsWith(`can be handed over to someone else, ${fromTerminalIn(fx.proj)}:`), lines[0]);
+  assert.equal(lines[1], cmd);
   assert.ok(!emailShaped(f.message));
   assert.deepEqual(f.stories, ["epics/PS-X/stories/story-a.md", "epics/PS-X/stories/story-b.md"]);
+});
+
+// [flow-findings#5]
+test("idle people: an idle person whose assignee name is email-shaped is named so, can be handed over, and gets no handover command (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ idle_days: 7 }),
+    stories: { "PS-X/story-a": inProgress("story-a", { assignee: ADDRESS, at: daysAgo(30) }) },
+  });
+  const f = one(flowRun(fx), "assignee-idle");
+  assert.match(f.message, /^an email-shaped name holds 1 story/);
+  assert.match(f.message, /The work can be handed over to someone else\.$/);
+  assert.ok(!f.message.includes("\n"), f.message);
+  assert.doesNotMatch(f.message, /handover --from/);
+  assert.ok(!emailShaped(f.message));
+  // A name with @ that is not email-shaped, and one with a control character, get no command either.
+  for (const name of ["lead@team", "Tab\tName"]) {
+    const g = one(
+      flowRun(
+        flowVault({
+          vaultCfg: P({ idle_days: 7 }),
+          stories: { "PS-X/story-a": inProgress("story-a", { assignee: name, at: daysAgo(30) }) },
+        }),
+      ),
+      "assignee-idle",
+    );
+    assert.doesNotMatch(g.message, /handover --from/, name);
+  }
 });
 
 // [flow-findings#5]
@@ -644,10 +687,11 @@ const EVERY = {
   idle_days: 7,
   window_weeks: 2,
   capacity_weeks: [1, 2],
-  people: { [ME]: { time: "full" }, "Nobody Here": { wip: 2 } },
+  people: { [ME]: { time: "full" }, "Nobody Here": { wip: 2 }, "Gone Person": { left: "2026-11-01" } },
 };
 const everyStories = () => ({
   "PS-X/story-old": planned("story-old", { created: "2026-08-01" }),
+  "PS-X/story-gone": planned("story-gone", { created: "2026-08-01", assignee: "Gone Person" }),
   "PS-X/story-ip1": inProgress("story-ip1", { at: daysAgo(30) }),
   "PS-X/story-ip2": inProgress("story-ip2", { at: daysAgo(25) }),
   "PS-X/story-rev": inReview("story-rev", { at: daysAgo(5) }),
@@ -686,6 +730,7 @@ test("the every-check fixture triggers each check that can fire together", () =>
     "closed-unstamped",
     "todo-over-capacity",
     "flow-person-unknown",
+    "assignee-left",
   ])
     assert.ok(ids(found).includes(c), `${c} in ${ids(found)}`);
 });
@@ -720,6 +765,16 @@ test("policy gate: with only flow.idle_days set, git is read and assignee-idle c
   assert.equal(seam.calls.length, 1);
   one(found, "assignee-idle");
   none(found, "in-progress-idle");
+});
+
+// [flow-findings#6]
+test("policy gate: a person marked left among a policy that triggers every check; removing their left drops assignee-left and nothing else (edge)", () => {
+  const [all, less] = twoPolicies(EVERY, without(EVERY, ["people", "Gone Person", "left"]));
+  const f = one(all, "assignee-left");
+  assert.deepEqual(f.stories, ["epics/PS-X/stories/story-gone.md"]);
+  none(less, "assignee-left");
+  const rest = (fs) => fs.filter((x) => x.check !== "assignee-left");
+  assert.deepEqual(rest(less), rest(all));
 });
 
 // ─── Contract 7: an unset or invalid policy ────────────────────────────
@@ -812,6 +867,134 @@ test("people: commits as flast are First Last's and those under an email-shaped 
     flowRun(fx, { commits: commitsSeam({ status: "ok", commits: [commit({ author: "flast", at: daysAgo(1) })] }) }),
     "assignee-idle",
   );
+});
+
+// [flow-findings#8]
+test("people: Ada with a valid left date and Lin with left soon, neither named by a story: Ada gets no flow-person-unknown, Lin gets one (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ people: { Ada: { left: "2026-11-01" }, Lin: { left: "soon" } } }),
+    stories: { "PS-X/story-a": inProgress("story-a") },
+  });
+  const found = flowRun(fx);
+  const unknown = byCheck(found, "flow-person-unknown");
+  assert.equal(unknown.length, 1, JSON.stringify(ids(found)));
+  assert.match(unknown[0].message, /^Lin is listed in flow\.people/);
+  assert.match(one(found, "flow-policy-invalid").message, /^flow\.people\[Lin\]\.left takes /);
+  none(found, "assignee-left");
+});
+
+// ─── The handover spec, contract 6: people who left ───────────────────
+
+// [handover#6]
+test("assignee-left: Ada left on 2026-11-01 with a todo and an in-progress story gets one warn naming her, the date, both stories and the handover command", () => {
+  const fx = flowVault({
+    vaultCfg: P({ people: { Ada: { left: "2026-11-01" } } }),
+    stories: {
+      "PS-X/story-a": inTodo("story-a", { assignee: "Ada", at: daysAgo(3) }),
+      "PS-X/story-b": inProgress("story-b", { assignee: "Ada", at: daysAgo(9) }),
+    },
+  });
+  const seam = commitsSeam();
+  const found = flowRun(fx, { commits: seam });
+  const f = one(found, "assignee-left");
+  assert.equal(f.level, "warn");
+  assert.equal(seam.calls.length, 0, "no git is read for it");
+  const [first, cmd, ...more] = f.message.split("\n");
+  assert.deepEqual(more, []);
+  assert.match(
+    first,
+    /^Ada is marked left as of 2026-11-01 and still holds 2 open stories: PS-X\/story-b, PS-X\/story-a\./,
+  );
+  assert.ok(first.endsWith(`can be handed over to someone else, ${fromTerminalIn(fx.proj)}:`), first);
+  assert.equal(cmd, "npx projectstore handover --from Ada --to <name> --reason '<why>'");
+  assert.equal(cmd, packageCommand([], "handover", { args: "--from Ada --to <name> --reason '<why>'" }));
+  assert.deepEqual(f.stories, ["epics/PS-X/stories/story-b.md", "epics/PS-X/stories/story-a.md"]);
+});
+
+// [handover#6]
+test("assignee-left: Ada left with only done and parked stories gets none (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ people: { Ada: { left: "2026-11-01" } } }),
+    stories: {
+      "PS-X/story-a": done("story-a", { assignee: "Ada" }),
+      "PS-X/story-b": storyText({ id: "story-b", assignee: "Ada", status: "parked" }),
+    },
+  });
+  const found = flowRun(fx);
+  none(found, "assignee-left");
+  none(found, "flow-person-unknown");
+});
+
+// [handover#6]
+test("assignee-left: Ada with open stories and no left, and Lin with open stories and left soon, get none; flow-policy-invalid names Lin's left (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ people: { Ada: { wip: 5 }, Lin: { left: "soon" } } }),
+    stories: {
+      "PS-X/story-a": inProgress("story-a", { assignee: "Ada" }),
+      "PS-X/story-b": inProgress("story-b", { assignee: "Lin" }),
+    },
+  });
+  const found = flowRun(fx);
+  none(found, "assignee-left");
+  assert.match(one(found, "flow-policy-invalid").message, /^flow\.people\[Lin\]\.left /);
+});
+
+// [handover#6]
+test("assignee-left: a left date after the as-of instant still gives one assignee-left (edge)", () => {
+  const fx = flowVault({
+    vaultCfg: P({ people: { Ada: { left: "2026-12-31" } } }),
+    stories: { "PS-X/story-a": inTodo("story-a", { assignee: "Ada" }) },
+  });
+  assert.match(one(flowRun(fx), "assignee-left").message, /^Ada is marked left as of 2026-12-31/);
+});
+
+// [handover#6]
+test("assignee-left: Ada and First Last both left give two findings; the second quotes 'First Last', and a Cyrillic name comes quoted (edge)", () => {
+  const RU = "Анна Иванова";
+  const fx = flowVault({
+    vaultCfg: P({
+      people: { Ada: { left: "2026-11-01" }, [ME]: { left: "2026-11-02" }, [RU]: { left: "2026-11-03" } },
+    }),
+    stories: {
+      "PS-X/story-a": inTodo("story-a", { assignee: "Ada" }),
+      "PS-X/story-b": inTodo("story-b", { assignee: ME }),
+      "PS-X/story-c": inTodo("story-c", { assignee: RU }),
+    },
+  });
+  const found = byCheck(flowRun(fx), "assignee-left");
+  assert.equal(found.length, 3);
+  const cmds = found.map((f) => f.message.split("\n")[1]);
+  assert.deepEqual(cmds, [
+    "npx projectstore handover --from Ada --to <name> --reason '<why>'",
+    "npx projectstore handover --from 'First Last' --to <name> --reason '<why>'",
+    `npx projectstore handover --from '${RU}' --to <name> --reason '<why>'`,
+  ]);
+});
+
+// [handover#6]
+test("assignee-left: eleven open stories name the eight oldest and 3 more, stories holds all eleven, and doctor --startup reports none (edge)", () => {
+  const stories = many(11, (i) => [
+    `PS-X/story-${String(i).padStart(2, "0")}`,
+    inTodo(`story-${String(i).padStart(2, "0")}`, { assignee: "Ada", at: daysAgo(10 + i) }),
+  ]);
+  const fx = flowVault({ vaultCfg: P({ people: { Ada: { left: "2026-11-01" } } }), stories });
+  const f = one(flowRun(fx), "assignee-left");
+  const oldest = Array.from({ length: 11 }, (_, i) => String(10 - i).padStart(2, "0"));
+  assert.ok(
+    f.message.includes(
+      `: ${oldest
+        .slice(0, 8)
+        .map((n) => `PS-X/story-${n}`)
+        .join(", ")} and 3 more.`,
+    ),
+    f.message,
+  );
+  assert.deepEqual(
+    f.stories,
+    oldest.map((n) => `epics/PS-X/stories/story-${n}.md`),
+  );
+  const r = runStartupChecks(fx.cfg, fx.proj, 60000);
+  assert.deepEqual(byCheck(r.findings, "assignee-left"), []);
 });
 
 // ─── Contract 9: levels ────────────────────────────────────────────────
@@ -1010,7 +1193,8 @@ const KEY_CHECKS = [
   [["idle_days"], ["assignee-idle"]],
   [["window_weeks"], ["intake-over-close", "closed-unstamped", "todo-over-capacity"]],
   [["capacity_weeks"], ["todo-over-capacity"]],
-  [["people"], ["wip-over-limit", "flow-person-unknown"]],
+  [["people"], ["wip-over-limit", "flow-person-unknown", "assignee-left"]],
+  [["people", "Gone Person", "left"], ["assignee-left"]],
 ];
 const idSet = (fs) => [...new Set(ids(fs))].sort();
 

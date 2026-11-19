@@ -65,11 +65,14 @@ export function repoSlug({ core = corePackage(), env = process.env } = {}) {
   return /github\.com[/:]([^/]+\/[^/.]+)/.exec(url)?.[1] ?? null;
 }
 
-// The core and every publishable shell, each with the file npm shows as its
-// readme. A private shell is never published, so it has no surface.
+// The core, every publishable shell and the dashboard's page (the dashboard
+// spec, contract 20), each with the file npm shows as its readme. A private
+// shell is never published, so it has no surface.
+export const DASHBOARD_PACKAGE = "projectstore-dashboard";
 export const packagesFor = () => [
   { name: CORE, readme: "README.md" },
   ...publishable().map((name) => ({ name, readme: `${SHELLS_DIR}/${name}/README.md` })),
+  { name: DASHBOARD_PACKAGE, readme: "dashboard/README.md" },
 ];
 
 export function urls({ repo, version, packages = packagesFor() }) {

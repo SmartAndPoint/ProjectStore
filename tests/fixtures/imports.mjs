@@ -165,11 +165,14 @@ export function hookEntries(root, { placeholder, file = join("hooks", "hooks.jso
 // The install family, as root-relative paths: the installer and its split
 // (every scripts/install*.mjs, so a new leaf joins without an edit here), the
 // shell fetch that runs `npm install` and the runner it spawns through, the
-// release fetch, and setup. What a hook or the MCP server must never reach.
+// release fetch, setup, and the dashboard page's fetch, which runs `npm
+// install` too. What a hook or the MCP server must never reach.
 export function installFamily(root) {
   const split = readdirSync(join(root, "scripts"))
     .filter((f) => /^install.*\.mjs$/.test(f))
     .map((f) => `scripts/${f}`);
-  const named = ["fetch-shell.mjs", "run-host.mjs", "convergence.mjs", "setup.mjs"].map((f) => `scripts/${f}`);
+  const named = ["fetch-shell.mjs", "run-host.mjs", "convergence.mjs", "setup.mjs", "dashboard-fetch.mjs"].map(
+    (f) => `scripts/${f}`,
+  );
   return [...new Set([...split, ...named])].sort();
 }

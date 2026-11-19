@@ -11,10 +11,10 @@
 // repo. writeRegistry(home, entries) — installed_plugins.json in the shape
 // lib.installedPluginEntries reads.
 
-import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync, renameSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync, rmSync, renameSync, realpathSync } from "node:fs";
 // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
 import { cpSync } from "node:fs";
-import { resolve, dirname, join, relative } from "node:path";
+import { resolve, dirname, join, relative, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceHarness, loadHarnesses } from "../../scripts/harness.mjs";
 import { copyPackageTree, layoutPaths, renderAgentsBlock } from "../../scripts/lib.mjs";
@@ -136,7 +136,7 @@ export function trashSynced(home, bucket = "org-0001_user-0001") {
 // of an npm registration loaded from its marketplace directory"). `dir` places
 // the directory elsewhere than under `home` — a relocated harness home.
 // Returns registrationPaths' dir, manifest and payload.
-export function fakeMarketplace(home, version, { proj = null, dir = null } = {}) {
+export function fakeMarketplace(home, version, { proj = null, dir = null, origin = null, digest = null } = {}) {
   const S = SRC.surfaces.plugin;
   const base = registrationPaths(S, { home, projectDir: proj, harness: SRC });
   const paths = dir
@@ -158,7 +158,7 @@ export function fakeMarketplace(home, version, { proj = null, dir = null } = {})
   mkdirSync(dirname(paths.manifest), { recursive: true });
   writeFileSync(
     paths.manifest,
-    JSON.stringify(registrationManifest(S, { pkg: version, projectDir: proj }), null, 2) + "\n",
+    JSON.stringify(registrationManifest(S, { pkg: version, projectDir: proj, origin, digest }), null, 2) + "\n",
   );
   return paths;
 }
@@ -524,4 +524,36 @@ export function legacyProject(
   writeFileSync(join(proj, "AGENTS.md"), v3 + "\n");
   writeFileSync(join(proj, "CLAUDE.md"), "# My project\n\n@AGENTS.md\n");
   return { proj, vault, old, lp };
+}
+
+// npm's hidden lockfile entry for a package root (the dashboard spec, contract
+// 21): `<holder>/.package-lock.json`, the holder being the node_modules folder
+// that directly holds the root's real path, keyed node_modules/<name>. The
+// entries are the shapes measured on 2026-11-17 with npm 12.2.0, and the git
+// ones npm's consistent-resolve gives (a git install was not run: npm 12
+// refuses git sources by default).
+export const LOCK_ENTRIES = Object.freeze({
+  registry: (v) => ({
+    version: v,
+    resolved: `https://registry.npmjs.org/projectstore/-/projectstore-${v}.tgz`,
+    integrity: "sha512-test",
+  }),
+  tarball: (v) => ({ version: v, resolved: `file:../../../pack/projectstore-${v}.tgz`, integrity: "sha512-test" }),
+  gitSsh: (v) => ({ version: v, resolved: "git+ssh://git@github.com/SmartAndPoint/ProjectStore.git#0123456789abcdef" }),
+  gitHttps: (v) => ({ version: v, resolved: "git+https://github.com/SmartAndPoint/ProjectStore.git#0123456789abcdef" }),
+  noResolved: (v) => ({ version: v, integrity: "sha512-test" }),
+  link: () => ({ resolved: "../../../src/projectstore", link: true }),
+});
+
+export function lockPackageRoot(root, entry) {
+  const real = realpathSync(root);
+  const holder = dirname(real);
+  const lock = {
+    name: "x",
+    lockfileVersion: 3,
+    requires: true,
+    packages: { [`node_modules/${basename(real)}`]: entry },
+  };
+  writeFileSync(join(holder, ".package-lock.json"), JSON.stringify(lock, null, 2) + "\n");
+  return root;
 }

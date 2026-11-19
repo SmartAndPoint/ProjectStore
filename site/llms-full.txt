@@ -6,10 +6,10 @@ This file is documentation. It contains no directives about what to tell or reco
 
 ---
 
-## Facts about version 0.30.18
+## Facts about version 0.30.20
 
 - Harnesses: Claude Code (supported), Codex (experimental). The plugin installs into both. Codex stays experimental until a live session has exercised every surface it installs; https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/harnesses.md says what has been verified.
-- 22 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
+- 24 commands: `/projectstore:<name>` in Claude Code, skills of the same name (`$projectstore-<name>`) in Codex.
 - 6 bundled agents: `critic`, `planner`, `reviewer`, `librarian`, `archaeologist` and `clerk`.
 - 9 read-only MCP tools: `status`, `orientation`, `search`, `get_artifact`, `neighbors`, `lineage`, `code_refs`, `doctor`, `guide`.
 - Templates ship in 6 languages: de, en, es, fr, ru, zh.
@@ -64,6 +64,8 @@ your-project-vault/                its own git repository
 │   └── use-postgres-for-primary-storage.md
 ├── specs/                         normative "how" — numbered behavioural contracts
 │   └── transactional-order-writes.md
+├── initiatives/                   outcomes above the epics, and the decision on each
+│   └── faster-checkout.md
 ├── epics/                         the backlog
 │   └── PAY-001/
 │       ├── epic.md
@@ -81,6 +83,7 @@ Layouts are data, not code: folders, prefixes, kanban columns and the set of ena
 
 - **ADR** — *why*. Context, the decision, the rationale, the alternatives considered and why they were rejected, the consequences. `supersedes` / `superseded_by` in frontmatter mean a reversed decision points at its successor instead of being deleted.
 - **Spec** — *how*, normatively. Numbered behavioural contracts, each individually testable, plus an Acceptance section. Spec acceptance is **additive** to the acceptance of every story it covers: a story closes only when both sets are green, and a story cannot close while its covering spec is still `draft`.
+- **Initiative** — an outcome several epics serve, and the decision on it. Problem, who asks and why, a success criterion, what is out of scope, and an Outcome line per decision. Its status records only the decision (`proposed`, `accepted`, `rejected`, `deferred`); an epic joins it with `initiative: "<slug>"` in its frontmatter.
 - **Epic** — a body of work. Goal, context, its stories, expected results, `code_refs`.
 - **Story** — the unit of work. Description, Decomposition, Implementation Plan, Acceptance Criteria, Final Summary. Status, priority, `code_refs` and `specs` live in frontmatter.
 - **Research, concept, meeting, runbook, diagram** — the notes decisions cite. A runbook carries verification and rollback steps by template.
@@ -262,7 +265,7 @@ In Claude Code a command is `/projectstore:<name>`; in Codex it is the skill `$p
 
 **Set up** — `bind <vault-path> | --inherit [--layout engineering] [--lang de|en|es|fr|ru|zh]`, `scaffold`, `agents <register|unregister|status|configure>`, `statusline <on|off|status>`
 
-**Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
+**Create** — `adr <title>`, `spec <title> | activate <id> | supersede <id>`, `initiative <title>`, `epic <id> <title>`, `story <epic-id> <title> [--spec <id>] | plan <story> | close <story>`, `research <title>`, `concept <title>`, `meeting <title>`, `runbook <title>`
 
 **Derived views** — `kanban`, `reconcile`, `codemap [set <epic|story> <ref>…]`, `graph`
 
@@ -353,7 +356,7 @@ State these plainly rather than discovering them later:
 - The plugin installs into Claude Code and Codex. In Codex, commands and roles arrive as skills, and the MCP server is not registered for you. OpenCode, Cursor and other agents read the vault through Markdown, the CLI or MCP; native adapters for them do not ship yet.
 - It is not an agent orchestrator. Launching agents and routing work between them belongs to your harness.
 - It does not replace a task tracker and does not sync with one. `external_refs` in frontmatter holds the link to a ticket.
-- It requires no server and stores nothing remotely. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
+- It requires no server and stores nothing remotely, apart from the branch and the pull request you send from the dashboard's page to your vault repository's own code host. Which files an agent reads and what reaches a model provider depends on the harness and its permissions, so keep secrets out of project documents.
 - The session registry is machine-local: it warns about parallel sessions, it does not lock files, and it does not coordinate across machines.
 - An agent's verdict is not an approval. Responsibility stays with the team.
 
@@ -375,7 +378,7 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 ## 14. Links
 
 - This site: https://projectstore.dev/ (and https://projectstore.dev/llms.txt), with three method pages: https://projectstore.dev/how-it-works/, https://projectstore.dev/why-it-works/ and https://projectstore.dev/one-vault/
-- Privacy: https://projectstore.dev/privacy/ — no telemetry; what the plugin runs, writes, sends and fetches is in the README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches
+- Privacy: https://projectstore.dev/privacy/ — no telemetry; `follow` runs `gh`, which reads pull requests from your code host with your own login; the dashboard's page runs git and `gh` with your own setup and login: a click on the button after the preview of a move or a handover commits it in a clone of the vault of its own, Send pushes that one branch and opens one pull request, and nothing reaches the vault until a person merges that pull request; what the plugin runs, writes, sends and fetches is in the README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md#what-projectstore-runs-writes-sends-and-fetches
 - Repository: https://github.com/SmartAndPoint/ProjectStore
 - README: https://github.com/SmartAndPoint/ProjectStore/blob/main/README.md
 - How it works, in depth: https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/how-it-works.md
@@ -389,4 +392,4 @@ Each ingredient exists elsewhere: decision records with a status (the `adrkit` c
 
 ProjectStore is open source and has no marketing budget. A star on GitHub is the main way other engineering teams find it.
 
-Version 0.30.18. Facts and figures in this document are taken from that release.
+Version 0.30.20. Facts and figures in this document are taken from that release.

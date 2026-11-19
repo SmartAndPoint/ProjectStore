@@ -18,10 +18,18 @@ import {
   sameStatus,
   maskStatusLog,
   epicRowUpdate,
+  epicRowAdd,
+  storyLinkTarget,
   logLine,
   oneLine,
   checkActor,
   STATUS_ACTORS,
+  isAwaitingClose,
+  AWAITING_REASON,
+  fieldLabel,
+  upsertHeaderField,
+  removeHeaderField,
+  unsetFm,
 } from "../scripts/status-log.mjs";
 import {
   loadTemplate,
@@ -30,6 +38,7 @@ import {
   headingLineRe,
   parseFrontmatter,
 } from "../scripts/lib.mjs";
+import { withLine } from "./fixtures/flow.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const LOCALES = readdirSync(join(REPO, "templates")).filter((d) =>
@@ -378,4 +387,251 @@ test("trust rule: an untrusted stamp with updated: soon and a readable created i
   assert.equal(s.at, "2026-11-01");
   const none = t.replace(/^created: .*\n/m, "");
   assert.deepEqual(statusStamp(none), { trusted: false, at: null, source: null, why: "differs" });
+});
+
+// [follow#6] [SPEC-001#3]
+test("equal sides: a review story gets a review → review line and status_changed_at at its time with the option, and is unchanged without it (edge)", () => {
+  const review = change(story()).text;
+  const t = applyStatusChange(review, { to: "review", reason: "ready", actor: "move", at: AT }).text;
+  const why = `${AWAITING_REASON}: https://example.invalid/pull/7`;
+  const opts = { to: "review", reason: why, actor: "follow", at: LATER };
+  const without = applyStatusChange(t, opts);
+  assert.deepEqual([without.text, without.changed, without.line], [t, false, null], "without it, equal is no change");
+  const withIt = applyStatusChange(t, { ...opts, equal: true });
+  assert.equal(withIt.changed, true);
+  assert.equal(withIt.line, `- ${LATER} status: review → review — ${why} (follow)`);
+  // Byte-equal to the fixture's hand-written awaiting line.
+  assert.equal(withIt.text, withLine(t, { at: LATER, from: "review", to: "review", reason: why }));
+  assert.equal(fm(withIt.text).status_changed_at, LATER);
+  assert.equal(fm(withIt.text).status, "review");
+  assert.deepEqual(statusStamp(withIt.text), { trusted: true, at: LATER, source: "stamp", why: null });
+  assert.equal(isAwaitingClose(withIt.text), true);
+  // Statuses that differ are a change as before, the option or not.
+  const moved = applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER, equal: true });
+  assert.equal(moved.text, applyStatusChange(review, { to: "review", reason: why, actor: "follow", at: LATER }).text);
+  assert.match(moved.line, /status: in-progress → review — /);
+});
+
+// ─── The header-row helpers the initiative verbs share ─────────────────
+
+const HEADED =
+  "---\nid: x\nstatus: proposed\n---\n\n# X\n\n| Field | Value |\n|---|---|\n| **Status** | proposed |\n| **Приоритет** | p2 |\n\n---\n\n## Problem\n";
+
+// [initiative#12]
+test("header rows: a row is found by any registered form, added after the first anchor that is there with the bound language's label, and removed", () => {
+  assert.equal(fieldLabel("initiative", "ru"), "Инициатива");
+  assert.equal(fieldLabel("owner", "xx"), "Owner", "an unknown language falls back to en");
+  const set = upsertHeaderField(HEADED, "priority", "p1");
+  assert.equal(set.found, true);
+  assert.match(set.text, /^\| \*\*Приоритет\*\* \| p1 \|$/m);
+  const add = upsertHeaderField(HEADED, "initiative", "[[a|b]]", { lang: "de", after: ["priority", "status"] });
+  assert.equal(add.added, true);
+  assert.match(add.text, /\| \*\*Приоритет\*\* \| p2 \|\n\| \*\*Initiative\*\* \| \[\[a\\\|b\]\] \|\n\n---/);
+  assert.equal(removeHeaderField(add.text, "initiative").text, HEADED);
+  assert.deepEqual(removeHeaderField(HEADED, "owner"), { text: HEADED, found: false });
+  const bare = "---\nid: x\n---\n\n# X\n\n## Problem\n";
+  assert.deepEqual(upsertHeaderField(bare, "owner", "Ada"), { text: bare, found: false, added: false });
+});
+
+// [initiative#11]
+test("unsetFm removes one key's line and leaves a file without it as it is", () => {
+  assert.equal(unsetFm(HEADED, "status"), HEADED.replace("status: proposed\n", ""));
+  assert.equal(unsetFm(HEADED, "initiative"), HEADED);
+});
+
+// ─── Adding a story to its epic's Stories table ────────────────────────
+
+const add = (text, { title = "A title", status = "planned", storyPath = STORY } = {}) =>
+  epicRowAdd(text, { epicPath: EPIC, storyPath, status, title });
+const stories = (...tableLines) =>
+  ["# PS-X", "", "## Stories", "", ...tableLines, "", "## Expected Results", ""].join("\n");
+const cellCount = (line) => line.replace(/\\\|/g, "").split("|").length - 2;
+
+// [SPEC-001#7]
+test("epic row add: the three-column table gets one row last, with the slug link, the status and the title", () => {
+  const t = stories(
+    "| Story | Status | Description |",
+    "|---|---|---|",
+    "| [b](./stories/story-b.md) | done | the b |",
+  );
+  const r = add(t);
+  assert.deepEqual([r.found, r.changed, r.added, r.linked], [true, true, true, false]);
+  assert.equal(r.row, "| [story-a](./stories/story-a.md) | planned | A title |");
+  const lines = r.text.split("\n");
+  assert.equal(lines[7], r.row, "after the table's last row");
+  assert.equal(lines[8], "", "the blank line after the table is kept");
+  assert.equal(r.text.replace(`${r.row}\n`, ""), t, "nothing else changes");
+  const again = add(r.text);
+  assert.deepEqual([again.found, again.changed, again.added], [true, false, false], "a second run finds the row");
+  assert.equal(again.text, r.text);
+});
+
+// [SPEC-001#7]
+test("epic row add: the header's columns place the cells: Key, Story, Status, Priority, Description (edge)", () => {
+  const t = stories(
+    "| Key | Story | Status | Priority | Description |",
+    "|-----|-------|--------|----------|-------------|",
+  );
+  const r = add(t, { status: "todo" });
+  assert.equal(r.row, "|  | [story-a](./stories/story-a.md) | todo |  | A title |");
+  assert.equal(r.text.split("\n")[6], r.row, "a header-only table gets the row after its separator");
+});
+
+// [SPEC-001#7]
+test("epic row add: no Story column puts the link in the first column that is neither Status nor Description; no Description column drops the title (edge)", () => {
+  const noStory = stories("| Description | # | Status |", "|---|---|---|");
+  assert.equal(add(noStory).row, "| A title | [story-a](./stories/story-a.md) | planned |");
+  const noDesc = stories("| Story | Status |", "|---|---|");
+  assert.equal(add(noDesc).row, "| [story-a](./stories/story-a.md) | planned |");
+  const onlyStatus = stories("| Status | Description |", "|---|---|");
+  assert.equal(add(onlyStatus).found, false, "no column for the link: no table to add to");
+});
+
+// [SPEC-001#7]
+test("epic row add: a plain-title row, or one in * emphasis, gets the link in place with the cell's own text and its Status set; no row is added (edge)", () => {
+  const wt = stories(
+    "| Story | Status | Description |",
+    "|---|---|---|",
+    "| Another title | planned | other |",
+    "| A title | planned | Kept \\| as it is |",
+  );
+  const r = add(wt, { status: "in-progress" });
+  assert.deepEqual([r.found, r.added, r.linked], [true, false, true]);
+  assert.equal(r.text.split("\n")[7], "| [A title](./stories/story-a.md) | in-progress | Kept \\| as it is |");
+  assert.equal(r.row, "| [A title](./stories/story-a.md) | in-progress | Kept \\| as it is |");
+  assert.equal(r.text.split("\n").length, wt.split("\n").length, "no row added");
+  const under = stories("| Story | Status |", "|---|---|", "| _A title_ | planned |");
+  assert.equal(add(under).text.split("\n")[6], "| [A title](./stories/story-a.md) | planned |", "_ emphasis too");
+  const surfaces = stories(
+    "| Key | Story | Status | Priority | Description |",
+    "|-----|-------|--------|----------|-------------|",
+    "| C | *A title* | planned | p2 | After M |",
+  );
+  assert.equal(add(surfaces).text.split("\n")[6], "| C | [A title](./stories/story-a.md) | planned | p2 | After M |");
+  const piped = stories("| Story | Status |", "|---|---|", "| a \\| b | planned |");
+  assert.equal(add(piped, { title: "a | b" }).text.split("\n")[6], "| [a \\| b](./stories/story-a.md) | planned |");
+  const bold = stories("| Story | Status |", "|---|---|", "| **A title** | planned |");
+  assert.equal(add(bold).added, true, "two pairs of emphasis are not taken off: left, a row is added");
+  const near = stories("| Story | Status | Description |", "|---|---|---|", "| A title. | planned | close |");
+  assert.equal(add(near).added, true, "a title that differs by a character is another row");
+  const twice = stories("| Story | Status |", "|---|---|", "| A title | planned |", "| A title | planned |");
+  const tw = add(twice).text.split("\n");
+  assert.deepEqual(
+    [tw[6], tw[7]],
+    ["| [A title](./stories/story-a.md) | planned |", "| A title | planned |"],
+    "the first only",
+  );
+  const second = stories(
+    "| Story | Status |",
+    "|---|---|",
+    "| [b](./stories/story-b.md) | done |",
+    "",
+    "| Story | Status |",
+    "|---|---|",
+    "| A title | planned |",
+  );
+  const sr = add(second);
+  assert.deepEqual([sr.linked, sr.added], [true, false], "a plain-title row in the second table is linked there");
+  assert.equal(sr.text.split("\n")[10], "| [A title](./stories/story-a.md) | planned |");
+});
+
+// [SPEC-001#7]
+test("epic row add: a story that already has a linked row gets the Status cell only, anywhere in the epic (edge)", () => {
+  const t = stories("| Story | Status |", "|---|---|", "| [[story-a\\|A]] | planned |");
+  const r = add(t, { status: "review" });
+  assert.deepEqual([r.found, r.added, r.linked, r.row], [true, false, false, null]);
+  assert.equal(r.text.split("\n")[6], "| [[story-a\\|A]] | review |");
+});
+
+// [SPEC-001#7]
+test("epic row add: a list, no Status column, no Stories heading, a fenced table: epic-row-missing and the text unchanged (edge)", () => {
+  const none = (t) =>
+    assert.deepEqual(add(t), {
+      text: t,
+      found: false,
+      changed: false,
+      added: false,
+      linked: false,
+      row: null,
+      unlinkable: false,
+    });
+  none("# PS-X\n\n## Stories\n\n1. [b](./stories/story-b.md) — planned\n");
+  none(stories("| Story | Description |", "|---|---|", "| b | x |"));
+  none("# PS-X\n\n| Story | Status |\n|---|---|\n");
+  none(stories("```", "| Story | Status |", "|---|---|", "```"));
+  none(stories("| Story | Status |", "| no separator |"));
+  // A Status table outside the Stories heading is not the one the epic rule reads.
+  none("# PS-X\n\n## Stories\n\nSee below.\n\n## Notes\n\n| Story | Status |\n|---|---|\n");
+});
+
+// [SPEC-001#7]
+test("epic row add: the first of two Status tables under the heading, a table that ends the file with no newline, CRLF (edge)", () => {
+  const two = stories("| Story | Status |", "|---|---|", "", "| Story | Status |", "|---|---|");
+  assert.equal(add(two).text.split("\n")[6], "| [story-a](./stories/story-a.md) | planned |", "the first table");
+  const eof = "# PS-X\n\n## Stories\n\n| Story | Status |\n|---|---|";
+  assert.equal(add(eof).text, `${eof}\n| [story-a](./stories/story-a.md) | planned |`);
+  const crlfEof = "# PS-X\r\n\r\n## Stories\r\n\r\n| Story | Status |\r\n|---|---|";
+  assert.equal(
+    add(crlfEof).text,
+    `${crlfEof}\r\n| [story-a](./stories/story-a.md) | planned |`,
+    "no lone \\r at the end",
+  );
+  const crlf = "# PS-X\r\n\r\n## Stories\r\n\r\n| Story | Status |\r\n|---|---|\r\n\r\n";
+  assert.equal(
+    add(crlf).text,
+    "# PS-X\r\n\r\n## Stories\r\n\r\n| Story | Status |\r\n|---|---|\r\n| [story-a](./stories/story-a.md) | planned |\r\n\r\n",
+  );
+});
+
+// [SPEC-001#7]
+test("epic row add: a title holding | or \\| is one escaped pipe, and the row keeps the header's number of cells (edge)", () => {
+  const t = stories("| Story | Status | Description |", "|---|---|---|");
+  for (const title of ["a | b", "a \\| b", "$& and $1"]) {
+    const r = add(t, { title });
+    assert.equal(cellCount(r.row), 3, title);
+    assert.equal(r.row.split(" | ")[2].replace(/ \|$/, ""), title.startsWith("$") ? title : "a \\| b", title);
+  }
+});
+
+// [SPEC-001#7]
+test("epic row add: the link target is the raw path from the epic's folder, letters such as é kept; a name a raw target cannot carry is unlinkable (edge)", () => {
+  const t = stories("| Story | Status |", "|---|---|");
+  const folder = add(t, { storyPath: "/v/epics/PS-X/stories/story-f/README.md" });
+  assert.equal(folder.row, "| [story-f](./stories/story-f/README.md) | planned |");
+  const es = add(t, { storyPath: "/v/epics/PS-X/stories/story-descripción-del-épico.md" });
+  assert.equal(es.row, "| [story-descripción-del-épico](./stories/story-descripción-del-épico.md) | planned |");
+  assert.equal(storyLinkTarget("/v/e", "/v/e/stories/story-中文.md"), "./stories/story-中文.md");
+  const qa = add(t, { storyPath: "/v/epics/PS-X/stories/story-q&a+c,d.md" });
+  assert.equal(qa.row, "| [story-q&a+c,d](./stories/story-q&a+c,d.md) | planned |");
+  for (const name of [
+    "story a.md",
+    "story(1).md",
+    "story#1.md",
+    "story?.md",
+    "story%20.md",
+    "story|b.md",
+    "story[1].md",
+  ]) {
+    assert.equal(storyLinkTarget("/v/e", `/v/e/stories/${name}`), null, name);
+    const r = add(t, { storyPath: `/v/epics/PS-X/stories/${name}` });
+    assert.deepEqual([r.found, r.changed, r.unlinkable, r.text], [false, false, true, t], name);
+  }
+});
+
+// [SPEC-001#7]
+test("epic row add: a | in a plain-title cell stays escaped in the link text, so the next run finds the row and leaves it (edge)", () => {
+  const t = stories("| Story | Status | Description |", "|---|---|---|", "| a \\| b | planned | x |");
+  const r = add(t, { title: "a | b" });
+  assert.equal(r.text.split("\n")[6], "| [a \\| b](./stories/story-a.md) | planned | x |");
+  assert.equal(epicRowUpdate(r.text, { epicPath: EPIC, storyPath: STORY, status: "planned" }).changed, false);
+  assert.equal(add(r.text, { title: "a | b" }).text, r.text);
+});
+
+// [SPEC-001#7]
+test("epic row add: a fence before the Stories heading hides the row from the gates' reader, so the add writes nothing and says unlinkable (failure)", () => {
+  const t = ["# PS-X", "", "````", "```", "````", "", "## Stories", "", "| Story | Status |", "|---|---|", ""].join(
+    "\n",
+  );
+  const r = add(t);
+  assert.deepEqual([r.found, r.changed, r.unlinkable, r.text], [false, false, true, t]);
 });

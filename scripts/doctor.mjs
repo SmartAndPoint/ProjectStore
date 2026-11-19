@@ -110,6 +110,7 @@ import {
   doctorFallbackText,
   fromTerminalIn,
   COPY_UPDATE_STEPS,
+  slugify,
 } from "./lib.mjs";
 import {
   agentOverrides,
@@ -141,10 +142,12 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince } from "./diff-refs.mjs";
+import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { checkInitiatives } from "./initiative.mjs";
+import { checkVerbMarks } from "./verb-mark.mjs";
 import { storyState } from "./stages.mjs";
-import { resolveBinding } from "./worktree.mjs";
+import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
 import { GUIDE_NAME, guidesDir, parseGuide, resolveGuide } from "./guides.mjs";
 
@@ -2808,6 +2811,27 @@ export function checkLifecycleGates(artifacts, vaultCfg) {
   return out;
 }
 
+// The refusal of follow's close (the follow spec, contract 5): these checks'
+// findings of the seven kinds, on artifacts holding the would-be bytes closed
+// at the run time. The caller keeps those whose `file` is its story.
+const CLOSE_KINDS = new Set([
+  "acceptance",
+  "evidence",
+  "plan-gate",
+  "final-summary",
+  "spec-coverage",
+  "spec-status",
+  "spec-acceptance",
+]);
+export function storyCloseFindings(artifacts, vaultCfg, layout) {
+  return [
+    ...checkStoriesAndEpics(artifacts),
+    ...checkSpecCoverage(artifacts, vaultCfg, layout),
+    ...checkSpecAcceptance(layout, artifacts, vaultCfg),
+    ...checkLifecycleGates(artifacts, vaultCfg),
+  ].filter((f) => CLOSE_KINDS.has(f.check));
+}
+
 // ─── Contract scenarios and citations (the spec policy ADR, Part A) ───
 
 // A spec's Behavioral contracts as data. A contract is a top-level numbered
@@ -3997,6 +4021,142 @@ export function checkGraph(cfg) {
   return [];
 }
 
+// The dashboard's kept branches (the spec with alias `dashboard-delivery`,
+// contract 7). The write path keeps its clone at
+// <anchor>/.projectstore/state/dashboard/<person>/clone, <anchor> being the
+// code repository's main checkout, and every batch branch
+// dashboard/<person>/<YYYYMMDDTHHMMSSZ> there that the clone has not checked
+// out is kept (contract 6): it may hold commits that were never sent. One
+// info per kept branch, with its count of commits the clone's fetched default
+// branch (refs/remotes/origin/HEAD's target) lacks; in a clone whose person is
+// not the binding's author today, the checked-out batch too, since the page
+// now works in another clone. No command is printed: sending or deleting a
+// kept branch is the person's judgement (dashboard/README.md says how).
+//
+// Local reads only, `git for-each-ref` and `git rev-list --count`: no fetch,
+// no gh, nothing written. git runs with no variable that locates another
+// repository and with GIT_CEILING_DIRECTORIES at the person's folder, so a
+// clone/ that is no repository is answered as one, never by the code
+// repository it sits in. A missing clone, or a folder that is no repository,
+// gives nothing (it keeps no branch); a clone git cannot read gives one info
+// saying so, since staying quiet then would read as "nothing kept". Vault
+// checks only: never in runStartupChecks, whose budget forbids a subprocess.
+const DASHBOARD_GIT_MS = 5000;
+const DASHBOARD_STAMP = /^\d{8}T\d{6}Z$/;
+const DASHBOARD_LOCATING_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_NAMESPACE",
+  "GIT_PREFIX",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+];
+
+export function checkDashboardKept(cfg, proj = projectRoot(), { env = process.env } = {}) {
+  const out = [];
+  const anchor = mainCheckoutOfProject(proj);
+  const root = join(anchor, LAYOUT.root, LAYOUT.state, "dashboard");
+  let people;
+  try {
+    people = readdirSync(root, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+  } catch {
+    return out; // no dashboard place: nothing kept
+  }
+  const today = slugify(String(cfg?.default_author ?? ""));
+  const plural = (n) => `${n} commit${n === 1 ? "" : "s"}`;
+  const said = (r) =>
+    r.kind === "failure"
+      ? r.reason
+      : String(r.stderr || "")
+          .trim()
+          .split("\n")[0] || `git exited ${r.status}`;
+  for (const person of people) {
+    const place = join(root, person);
+    const clone = join(place, "clone");
+    if (!existsSync(clone)) continue;
+    let ceiling = place;
+    try {
+      ceiling = realpathSync(place);
+    } catch {}
+    const callEnv = { ...env, GIT_CEILING_DIRECTORIES: ceiling };
+    for (const k of DASHBOARD_LOCATING_ENV) delete callEnv[k];
+    const git = (cwd, args) => gitRun(cwd, args, { env: callEnv, timeout: DASHBOARD_GIT_MS });
+    const prefix = `refs/heads/dashboard/${person}/`;
+    const refs = git(clone, [
+      "for-each-ref",
+      "--format=%(HEAD)%09%(refname)%09%(symref)",
+      "--",
+      prefix,
+      "refs/remotes/origin/HEAD",
+    ]);
+    if (refs.kind === "no-git") continue; // no repository: it keeps no branch
+    if (refs.kind !== "answer" || refs.status !== 0) {
+      out.push(
+        finding(
+          "vault",
+          "info",
+          "dashboard-kept-branch",
+          `Doctor could not read the dashboard's clone at ${clone}, so it cannot tell whether that clone keeps branches with commits that were never sent: ${said(refs)}.`,
+          clone,
+        ),
+      );
+      continue;
+    }
+    let base = null;
+    const branches = [];
+    for (const line of String(refs.stdout).split("\n")) {
+      const [head, ref, symref = ""] = line.split("\t");
+      if (ref === "refs/remotes/origin/HEAD") {
+        if (symref.startsWith("refs/remotes/origin/")) base = symref;
+        continue;
+      }
+      if (!ref || !ref.startsWith(prefix)) continue;
+      const branch = ref.slice("refs/heads/".length);
+      const parts = branch.split("/");
+      if (parts.length !== 3 || !DASHBOARD_STAMP.test(parts[2])) continue;
+      const current = head === "*";
+      // The checked-out batch is the page's own, unless the clone is no
+      // longer this binding's author's (contract 7).
+      if (current && person === today) continue;
+      branches.push({ ref, branch, current });
+    }
+    const named = base ? base.slice("refs/remotes/origin/".length) : null;
+    // The slug, never the name as written, which may be email-shaped.
+    const authorNow = String(cfg?.default_author ?? "").trim()
+      ? `the binding's author is now ${today}`
+      : "the binding names no author now";
+    for (const { ref, branch, current } of branches) {
+      const what = current
+        ? `The dashboard's clone at ${clone} is on the batch ${branch}, but that clone is ${person}'s and ${authorNow}, so the page works in another clone and no longer shows this one`
+        : `The dashboard keeps the branch ${branch} in its clone at ${clone}`;
+      let count = null;
+      let why = null;
+      if (!base) {
+        why = "the clone does not know origin's default branch (it has no refs/remotes/origin/HEAD naming a branch)";
+      } else {
+        const c = git(clone, ["rev-list", "--count", "--end-of-options", `${base}..${ref}`]);
+        const n = c.kind === "answer" && c.status === 0 ? Number(String(c.stdout).trim()) : NaN;
+        if (Number.isInteger(n) && String(c.stdout).trim() !== "") count = n;
+        else why = said(c);
+      }
+      const message =
+        count === null
+          ? `${what}. Doctor could not count its commits that the default branch lacks, because ${why}; they may be work that was never sent.`
+          : count === 0
+            ? `${what}. It has no commit that the fetched default branch origin/${named} lacks, so nothing on it is unsent.`
+            : `${what}. It has ${plural(count)} that the fetched default branch origin/${named} lacks; they may be work that was never sent.`;
+      out.push(finding("vault", "info", "dashboard-kept-branch", message, clone));
+    }
+  }
+  return out;
+}
+
 // ─── Runners ───────────────────────────────────────────────────────────
 
 export async function runInstallChecks(cfg, proj, opts = {}) {
@@ -4081,6 +4241,15 @@ export function runVaultChecks(
       const scan = scanCitations(cfg, artifacts, proj, grep);
       return [...checkContractCitations(artifacts, scan), ...checkEvidenceCitations(artifacts, vaultCfg, scan)];
     },
+    () => {
+      const epicFolder = layout.folders.find((f) => f.kind === "epic");
+      const epicPath = epicFolder ? epicFolder.path : "epics";
+      return checkInitiatives(layout, artifacts, {
+        finding: (level, check, message, file) => finding("vault", level, check, message, file),
+        resolveStory: (entry) => resolveSpecStory(entry, artifacts, epicPath),
+        epicIdOf: (a) => epicIdOf(a.rel, epicPath),
+      });
+    },
   ];
   for (const step of guarded) {
     try {
@@ -4101,6 +4270,10 @@ export function runVaultChecks(
     ...checkNoSpec(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkReviewBy(artifacts, now),
+    ...checkVerbMarks(artifacts, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+      reviewCommand: (rel) => commandForm("review", { args: rel }),
+    }),
     // The flow group (PS-FLOW): advice, warn or info only; never in
     // runStartupChecks below (the flow-findings spec, contract 11).
     ...checkFlow({ cfg, layout, vaultCfg, proj, now, commits }),
@@ -4109,6 +4282,8 @@ export function runVaultChecks(
     ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
+    // The dashboard's kept branches: git reads, so never in runStartupChecks.
+    ...checkDashboardKept(cfg, proj),
   );
   return findings;
 }

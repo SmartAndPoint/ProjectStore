@@ -40,6 +40,10 @@
       "name": "规格",
       "description": "各子系统规范性的“如何做” — ADR 引用、编号的行为契约，以及在所覆盖 story 的验收之外追加的验收。"
     },
+    "initiative": {
+      "name": "倡议",
+      "description": "倡议 — 多个 epic 共同服务的成果，附所作决定：提议、接受、拒绝或搁置。"
+    },
     "epic": {
       "name": "Epic",
       "description": "拆分为 story 的大块工作。每个 epic 都有自己的子文件夹，其中包含 `stories/` 目录。"

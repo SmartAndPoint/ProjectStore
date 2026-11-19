@@ -187,3 +187,85 @@ export function writeBinding(proj, cfg) {
   writeFileSync(p, typeof cfg === "string" ? cfg : JSON.stringify(cfg, null, 2) + "\n");
   return p;
 }
+
+// An initiative's and an epic's text, for seedInitiativeFixture and its tests.
+export const initiativeDoc = (
+  id,
+  status,
+  { success = "- Checked by a person.", outcome = "", elaboration = "" } = {},
+) =>
+  [
+    "---",
+    "type: initiative",
+    `id: "${id}"`,
+    `title: "${id}"`,
+    `status: ${status}`,
+    "priority: p2",
+    'owner: "Test"',
+    "created: 2026-11-14",
+    "updated: 2026-11-14",
+    `elaboration: "${elaboration}"`,
+    "external_refs: {}",
+    "tags: []",
+    "review_status: pending",
+    "reviewed_at: null",
+    "---",
+    "",
+    `# ${id}`,
+    "",
+    "## Problem",
+    "",
+    "Something is wrong.",
+    "",
+    "## Success criterion",
+    "",
+    success,
+    "",
+    "## Outcome",
+    "",
+    outcome,
+    "",
+    "## Related",
+    "",
+    "-",
+    "",
+  ].join("\n");
+export const epicDoc = (id, fmExtra = "", body = "") =>
+  `---\ntype: epic\nid: "${id}"\ntitle: "${id}"\nstatus: planned\ncreated: 2026-11-14\n${fmExtra}---\n\n# ${id}\n\n${body}`;
+
+// A vault with the initiative kind (the initiative spec, contracts 4 to 7):
+// two initiatives, two epics that name them, and a story the first works
+// out. `extra` adds or replaces files by vault-relative path. Its own
+// fixture, so the graph goldens over seedGraphFixture stay as they are.
+export function seedInitiativeFixture(extra = {}) {
+  const { proj, vault } = makeVaultProject();
+  const put = (rel, content) => {
+    mkdirSync(join(vault, dirname(rel)), { recursive: true });
+    writeFileSync(join(vault, rel), content);
+  };
+  put(
+    "initiatives/faster-onboarding.md",
+    initiativeDoc("faster-onboarding", "accepted", {
+      outcome: "- 2026-11-14 accepted: grouped existing work",
+      elaboration: "PS-A/story-work-it-out",
+    }),
+  );
+  put(
+    "initiatives/empty-criterion.md",
+    initiativeDoc("empty-criterion", "accepted", {
+      success: "<!-- How a person who did not write this will know it worked. -->",
+      outcome: "- 2026-11-14 accepted: the maintainer asked",
+    }),
+  );
+  put("epics/PS-A/epic.md", epicDoc("PS-A", 'initiative: "faster-onboarding"\n'));
+  put(
+    "epics/PS-A/stories/story-work-it-out.md",
+    `---\ntype: story\nid: "story-work-it-out"\ntitle: "Work it out"\nstatus: review\ncreated: 2026-11-14\n---\n\n# Work it out\n`,
+  );
+  put(
+    "epics/PS-B/epic.md",
+    epicDoc("PS-B", 'initiative: "empty-criterion"\n', "See [[../../initiatives/faster-onboarding]].\n"),
+  );
+  for (const [rel, content] of Object.entries(extra)) put(rel, content);
+  return { proj, vault };
+}

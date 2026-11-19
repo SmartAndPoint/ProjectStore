@@ -4,6 +4,7 @@
 // import this file back, so a spawned stub loads nothing of the core.
 //
 //   layShellTree(prefix, spec, mode)  → what `npm install --prefix` lays down
+//   layDashboardTree(prefix, spec, mode) → the same, for projectstore-dashboard
 //   NPM_ERRORS                        → npm's --json error bodies, by mode
 //   fakeNpm(dir)                      → a PATH stub: { bin, env(extra), log(), reset() }
 //   fakeNpmSpawn({ mode, registry })  → an in-process spawn: ChildProcess-like
@@ -12,7 +13,9 @@
 //
 // Modes (FAKE_NPM_MODE for the stub, `mode` in-process): ok (default),
 // wrong-name, wrong-version, no-plugin-manifest, plugin-version,
-// core-version, ETARGET, E404, E401, E403, ECONNREFUSED, FETCH_ERROR, hang.
+// core-version, no-server (the dashboard's tree), ETARGET, E404, E401, E403,
+// ECONNREFUSED, ENOTCACHED, FETCH_ERROR, hang. FAKE_NPM_DELAY_MS holds the
+// stub's install answer that long, so two runs overlap.
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from "node:fs";
 // eslint-disable-next-line n/no-unsupported-features/node-builtins -- test-only: fs.cpSync is experimental but warning-free at Node 20 and stable from 22.3, and the suite runs on Node 20 in CI
@@ -24,6 +27,9 @@ import { PassThrough } from "node:stream";
 
 const SELF = pathToFileURL(fileURLToPath(import.meta.url)).href;
 export const FAKE_REGISTRY = "https://registry.example.test/";
+// The page's package, and the stand-in server its fake tree carries.
+export const DASHBOARD_PACKAGE = "projectstore-dashboard";
+const STUB_SERVER = join(dirname(fileURLToPath(import.meta.url)), "dashboard-stub-server.mjs");
 
 // npm's --json failure bodies (stdout), as npm 11.19 prints them, with the
 // stderr line it prints beside them.
@@ -50,6 +56,13 @@ export const NPM_ERRORS = {
     detail: "",
   },
   FETCH_ERROR: { code: "FETCH_ERROR", summary: "network timeout at: <registry><name>", detail: "" },
+  // What npm says offline (npm_config_offline, the suite's own setting) for a
+  // package its cache does not hold.
+  ENOTCACHED: {
+    code: "ENOTCACHED",
+    summary: "request to <registry><name> failed: cache mode is 'only-if-cached' but no cached response is available.",
+    detail: "",
+  },
 };
 
 // The argv's last word, `<name>@<version>`, and its --prefix.
@@ -105,6 +118,34 @@ export function layShellTree(
   return root;
 }
 
+// The tree projectstore-dashboard lays: its package.json, the stand-in
+// server (tests/fixtures/dashboard-stub-server.mjs), one page file — plus
+// what npm writes beside it at the prefix top. Each mode breaks one check of
+// the dashboard spec's contract 14.
+export function layDashboardTree(prefix, { name = DASHBOARD_PACKAGE, version }, mode = "ok") {
+  const root = join(prefix, "node_modules", name);
+  mkdirSync(join(root, "public"), { recursive: true });
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: mode === "wrong-name" ? `${name}-other` : name,
+        version: mode === "wrong-version" ? `${version}-other` : version,
+        type: "module",
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  if (mode !== "no-server") writeFileSync(join(root, "server.mjs"), readFileSync(STUB_SERVER, "utf8"));
+  writeFileSync(join(root, "public", "index.html"), `<!doctype html><title>${version}</title>\n`);
+  writeFileSync(
+    join(prefix, "node_modules", ".package-lock.json"),
+    JSON.stringify({ name: "fetch", lockfileVersion: 3 }) + "\n",
+  );
+  return root;
+}
+
 const errorBody = (mode, { name, spec, registry }) => {
   const e = NPM_ERRORS[mode];
   const fill = (t) => t.split("<spec>").join(spec).split("<name>").join(name).split("<registry>").join(registry);
@@ -127,7 +168,8 @@ export function npmAnswer(argv, { mode = "ok", registry = FAKE_REGISTRY } = {}) 
   const call = parseInstall(argv);
   if (mode === "hang") return { hang: true };
   if (NPM_ERRORS[mode]) return { status: 1, ...errorBody(mode, call) };
-  layShellTree(call.prefix, call, mode);
+  if (call.name === DASHBOARD_PACKAGE) layDashboardTree(call.prefix, call, mode);
+  else layShellTree(call.prefix, call, mode);
   return {
     status: 0,
     stdout:
@@ -213,9 +255,13 @@ if (argv[0] === "config" && argv[1] === "get" && argv[2] === "registry" && ${JSO
   process.stdout.write(r.stdout || ""); process.stderr.write(r.stderr || ""); process.exit(r.status ?? 1);
 }
 import(${JSON.stringify(SELF)}).then(({ npmAnswer }) => {
-  const r = npmAnswer(argv, { mode: argv[0] === "install" ? (process.env.FAKE_NPM_MODE || "ok") : "ok" });
-  if (r.hang) { setInterval(() => {}, 1 << 30); return; }
-  process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exitCode = r.status;
+  const answer = () => {
+    const r = npmAnswer(argv, { mode: argv[0] === "install" ? (process.env.FAKE_NPM_MODE || "ok") : "ok" });
+    if (r.hang) { setInterval(() => {}, 1 << 30); return; }
+    process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exitCode = r.status;
+  };
+  const delay = Number(process.env.FAKE_NPM_DELAY_MS || 0);
+  if (argv[0] === "install" && delay > 0) setTimeout(answer, delay); else answer();
 });
 `;
   writeFileSync(bin, script, { mode: 0o755 });

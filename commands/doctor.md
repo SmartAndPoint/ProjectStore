@@ -194,6 +194,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates that have no date, `review-by` names an ADR due for review, and
   `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
   each is a judgement, or a `configure` step its message names.
+- `verb-mark` runs under every policy and whatever `lifecycle_gates` says:
+  a note for each file a create or an edit verb wrote that no review has
+  read since (it holds `written_by_verb`), naming the review that clears it,
+  and an issue for a file that holds the mark beside `review_status:
+  reviewed`. `--fix` does not repair it: the review does.
 - The amendment checks read the markers under a spec's contracts
   (`> amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>`) in every
   spec, under every policy: `amendment-form` (a marker that is not the grammar,
@@ -205,6 +210,15 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   token in the project that cites a removed contract or step, with the why of
   its marker. None of them is repairable by `--fix`: the marker and the test
   are the author's text.
+- The initiative checks run when the layout has an `initiative` kind:
+  `initiative-links` (an issue: an epic's `initiative:` that is a list or the
+  id of no single file in the initiatives folder, or an initiative's
+  `elaboration:` that resolves to no story), `initiative-status` (a status
+  outside proposed, accepted, rejected, deferred) and `initiative-decision`
+  (an accepted initiative that no epic names; a decided one whose Outcome has
+  no line `- YYYY-MM-DD <status>: <reason>` for its status; and, as a note,
+  an accepted one with an empty Success criterion). None of them is
+  repairable by `--fix`: the link and the decision are the author's text.
 - The guide checks read the vault's `guides/` folder, the per-kind overrides
   of the authoring guides: `guide-shape` (an override that does not parse, so
   readers fall back to the package default), `guide-unknown` (a guide for a
@@ -214,8 +228,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   file, and merging a newer default into it is a judgement.
 - The flow checks read the `flow` block of the vault's `.projectstore.json`
   and run only for the keys it sets: `wip-over-limit`, `review-aged`,
-  `todo-aged`, `in-progress-idle`, `assignee-idle`, `intake-over-close`,
-  `todo-over-capacity` and `todo-under-capacity`, with the infos that explain
+  `todo-aged`, `in-progress-idle`, `assignee-idle`, `assignee-left` (a
+  person marked left in `flow.people` who still holds open stories),
+  `intake-over-close`, `todo-over-capacity` and `todo-under-capacity`, with the infos that explain
   them (`status-unstamped`, `closed-unstamped`, `flow-window-young`,
   `todo-capacity-unknown`, `flow-activity-unknown`, `flow-person-unknown`,
   `flow-stories-unread`). `flow-policy-unset` says the vault has no flow
@@ -223,4 +238,13 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   ignore, never the value. The idle checks read the project's local commits,
   never the code host, and doctor does not fetch. Flow findings are advice: a
   warn or an info, never an issue, and `--fix` touches none of them. Relay a
-  `todo-aged` finding's command as it is, alone on its line.
+  `todo-aged` finding's command as it is, alone on its line, and so the
+  `handover` command of an `assignee-left` or `assignee-idle` finding: it
+  leaves `--to <name>` and `--reason '<why>'` for the user to fill in, so
+  never run it yourself and never choose the receiver.
+- `dashboard-kept-branch` (info) names a batch branch the dashboard keeps in
+  its clone under `.projectstore/state/dashboard/`, with its count of commits
+  the fetched default branch lacks: they may be work that was never sent.
+  Doctor reads the clone locally and never fetches. `--fix` touches none of
+  them: sending or deleting a kept branch is the user's judgement, so never
+  push, merge or delete it yourself; `dashboard/README.md` says how by hand.

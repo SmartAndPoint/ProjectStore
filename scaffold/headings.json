@@ -1,5 +1,5 @@
 {
-  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section), and the bold field labels of a story's and an epic's header table (`fields`: Status and Assignee, which status-log.mjs rewrites, and Updated, which epic-rule.mjs rewrites on an epic; `status` and `story` are also the Status and Story columns of an epic's Stories table, which epic-rule.mjs reads under the `stories` heading beside the `expected_results` checkboxes). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
+  "_description": "Language-independent registry of section headings, inline keywords and index-table column names recognized by the deterministic scripts (doctor, reconcile, story-section), and the bold field labels of a story's and an epic's header table (`fields`: Status and Assignee, which status-log.mjs rewrites, Updated, which epic-rule.mjs rewrites on an epic, and Priority, Owner and Initiative, which the `initiative` and `epic` verbs (initiative-verbs.mjs) rewrite on an initiative and an epic; `status`, `story` and `description` are also the Status, Story and Description columns of an epic's Stories table: epic-rule.mjs reads the first two under the `stories` heading beside the `expected_results` checkboxes, and status-log.mjs's epicRowAdd writes a new story's row by all three). Per id, per language: an ARRAY of accepted forms; the FIRST form of the bound language is the canonical form used when writing. Matching accepts every form of every language, so a ru-headed file lints in an en-bound vault. New sections/keywords added by any story MUST register a form for every bundled language (en, ru, es, de, fr, zh) here (PS-SPEC story-002).",
   "headings": {
     "goal": {
       "en": ["Goal"],
@@ -136,6 +136,22 @@
       "de": ["Erwartete Ergebnisse"],
       "fr": ["Résultats attendus"],
       "zh": ["预期成果"]
+    },
+    "initiative_success": {
+      "en": ["Success criterion"],
+      "ru": ["Критерий успеха"],
+      "es": ["Criterio de éxito"],
+      "de": ["Erfolgskriterium"],
+      "fr": ["Critère de réussite"],
+      "zh": ["成功标准"]
+    },
+    "initiative_outcome": {
+      "en": ["Outcome"],
+      "ru": ["Итог"],
+      "es": ["Resultado"],
+      "de": ["Ergebnis"],
+      "fr": ["Résultat"],
+      "zh": ["结果"]
     }
   },
   "keywords": {
@@ -232,6 +248,38 @@
       "de": ["Story"],
       "fr": ["Story"],
       "zh": ["Story"]
+    },
+    "description": {
+      "en": ["Description"],
+      "ru": ["Описание"],
+      "es": ["Descripción"],
+      "de": ["Beschreibung"],
+      "fr": ["Description"],
+      "zh": ["描述"]
+    },
+    "priority": {
+      "en": ["Priority"],
+      "ru": ["Приоритет"],
+      "es": ["Prioridad"],
+      "de": ["Priorität"],
+      "fr": ["Priorité"],
+      "zh": ["优先级"]
+    },
+    "owner": {
+      "en": ["Owner"],
+      "ru": ["Владелец"],
+      "es": ["Propietario"],
+      "de": ["Verantwortlich"],
+      "fr": ["Porteur"],
+      "zh": ["所有者"]
+    },
+    "initiative": {
+      "en": ["Initiative"],
+      "ru": ["Инициатива"],
+      "es": ["Iniciativa"],
+      "de": ["Initiative"],
+      "fr": ["Initiative"],
+      "zh": ["倡议"]
     }
   }
 }

@@ -397,7 +397,7 @@ const IDX_HEAD = "| File | Title | Status | Date |\n|------|-------|--------|---
 
 function seedCreationFixture() {
   const { proj, vault } = makeVaultProject();
-  for (const path of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops"]) {
+  for (const path of ["adr", "specs", "initiatives", "epics", "research", "concepts", "meetings", "ops"]) {
     mkdirSync(join(vault, path), { recursive: true });
     writeFileSync(join(vault, path, "README.md"), `# ${path}\n\n## Index\n\n${IDX_HEAD}\nPROSE BELOW THE TABLE.\n`);
   }
@@ -445,6 +445,7 @@ test("draft: index.folder is the layout folder, not the kind; stories carry no i
     ["runbook", "ops"],
     ["concept", "concepts"],
     ["meeting", "meetings"],
+    ["initiative", "initiatives"],
     ["adr", "adr"],
   ]) {
     assert.equal(
@@ -2054,7 +2055,7 @@ test("SessionStart: auto_inject false emits no vault content, and still arms the
 
 function seedSkeletonVault() {
   const { root, proj, vault } = seedHookProject();
-  const folders = ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"];
+  const folders = ["adr", "specs", "initiatives", "epics", "research", "concepts", "meetings", "ops", "diagrams"];
   for (const f of folders) {
     mkdirSync(join(vault, f), { recursive: true });
     // A README shaped like the real ones: prose, then an index table. The
@@ -2104,7 +2105,7 @@ test("SessionStart: the payload is a skeleton, delivered inline, with no artifac
   const flat = ctx.replace(/\s+/g, " ");
   assert.ok(/How to work with this vault/.test(flat));
   assert.ok(/Before authoring an ADR or spec/.test(flat), "the deciding step, not just the searching ones");
-  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+  for (const f of ["adr", "specs", "initiatives", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
     assert.ok(ctx.includes(`\`${f}/\``), `layout folder ${f} has a row`);
   }
   assert.ok(/regenerated/.test(flat), "the staleness clause");
@@ -2133,7 +2134,7 @@ test("SessionStart: the payload does not grow with the vault (contract 2, driven
     .additionalContext;
 
   const small = seedHookProject();
-  for (const f of ["adr", "specs", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
+  for (const f of ["adr", "specs", "initiatives", "epics", "research", "concepts", "meetings", "ops", "diagrams"]) {
     mkdirSync(join(small.vault, f), { recursive: true });
     writeFileSync(join(small.vault, f, "README.md"), `# ${f}\n\nThe ${f} folder holds ${f} artifacts.\n`, "utf8");
   }

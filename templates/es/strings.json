@@ -40,6 +40,10 @@
       "name": "Especificaciones",
       "description": "El «cómo» normativo de cada subsistema — referencias a ADR, contratos de comportamiento numerados, aceptación adicional a la de las historias cubiertas."
     },
+    "initiative": {
+      "name": "Iniciativas",
+      "description": "Iniciativas — resultados a los que sirven varios epics, con la decisión tomada: propuesta, aceptada, rechazada o aplazada."
+    },
     "epic": {
       "name": "Épicas",
       "description": "Grandes bloques de trabajo divididos en historias. Cada épica tiene su propia subcarpeta con un directorio `stories/`."

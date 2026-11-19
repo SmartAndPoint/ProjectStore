@@ -940,3 +940,20 @@ test("independent test: the close gate closes the last story; the preview lists 
   assert.deepEqual([again.code, again.json.moved, again.json.epics], [0, [], []]);
   assert.ok(existsSync(join(vault, "kanban.md")), "the reconcile wrote the board");
 });
+
+// [follow#9]
+test("the sweep: assume takes a list, as follow's plan passes the stories it closes; a list is for a plan only (edge)", () => {
+  const v = makeVault({ "PS-X": { stories: { "story-a": "review", "story-b": "in-progress" } } });
+  const before = read(v.epic("PS-X"));
+  const epicsDir = dirname(dirname(v.epic("PS-X")));
+  const one = applyEpicRule({ epicsDir, assume: [v.story("PS-X", "story-a")] });
+  assert.deepEqual(one.epics, [], "one of two open stories assumed done: the epic stays, unlisted");
+  const both = applyEpicRule({ epicsDir, assume: [v.story("PS-X", "story-a"), v.story("PS-X", "story-b")] });
+  assert.deepEqual(
+    both.epics.map((e) => [e.epic, e.to]),
+    [["PS-X", "done"]],
+  );
+  assert.deepEqual(applyEpicRule({ epicsDir, assume: [] }).epics, [], "an empty list assumes nothing");
+  assert.throws(() => applyEpicRule({ epicsDir, write: true, assume: [v.story("PS-X", "story-a")] }), /plan only/);
+  assert.equal(read(v.epic("PS-X")), before);
+});

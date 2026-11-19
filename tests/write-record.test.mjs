@@ -42,7 +42,7 @@ import { runConfigure } from "../scripts/configure.mjs";
 import { gitVault, addWorktree, writeStory } from "./fixtures/git-vault.mjs";
 import { writeBinding, makeVaultProject } from "./fixtures/vault.mjs";
 import { hookEnv, payload, fireTouch, fireTouchAsync, toolWrite } from "./fixtures/hooks.mjs";
-import { loadTemplate, renderTemplate } from "../scripts/lib.mjs";
+import { loadTemplate, renderTemplate, parseFrontmatter } from "../scripts/lib.mjs";
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = sourceHarness();
@@ -387,6 +387,77 @@ test("node writers: move puts a planned story in ToDo with one event for the sto
 });
 
 // [writerecord#5]
+test("node writers: move puts a planned story in ToDo, then handover --write gives it to another person: one more story event, tool handover", async () => {
+  const { proj, path } = moveFixture();
+  const env = { ...process.env, [SID_ENV]: "s1" };
+  const moved = await cli(proj, ["move", "PS-X/story-a", "todo", "--reason", "next up", "--write", "--json"], env);
+  assert.equal(moved.code, 0, moved.err);
+  const from = parseFrontmatter(readFileSync(path, "utf8")).data.assignee;
+  assert.ok(from, "the fixture story has an assignee (control)");
+  const before = readFileSync(path, "utf8");
+  const r = await cli(
+    proj,
+    ["handover", "--from", from, "--to", "Other Person", "--reason", "left the team", "--write", "--json"],
+    env,
+  );
+  assert.equal(r.code, 0, r.err);
+  const ev = events(proj, "s1");
+  // move's two events can share a timestamp, so their order is not pinned.
+  assert.deepEqual(
+    ev
+      .filter((e) => e.tool === "move")
+      .map((e) => e.rel)
+      .sort(),
+    ["epics/PS-X/epic.md", "epics/PS-X/stories/story-a.md"],
+  );
+  const handed = ev.filter((e) => e.tool === "handover");
+  assert.deepEqual(
+    handed.map((e) => e.rel),
+    ["epics/PS-X/stories/story-a.md"],
+  );
+  assert.equal(handed[0].before, sha(before));
+  assert.equal(handed[0].after, sha(readFileSync(path, "utf8")));
+  assert.ok(!ev.some((e) => !e.rel.startsWith("epics/")), "no derived view is recorded");
+});
+
+// [writerecord#5]
+test("node writers: epic --initiative, then initiative accepted, each leave one event with the verb as the tool", async () => {
+  const { proj, vault } = moveFixture();
+  mkdirSync(join(vault, "initiatives"), { recursive: true });
+  const init = join(vault, "initiatives", "faster.md");
+  writeFileSync(
+    init,
+    renderTemplate(loadTemplate("en", "initiative"), {
+      id: "faster",
+      title: "Faster",
+      date: "2026-11-01",
+      author: "A",
+      tags: "[]",
+    }),
+  );
+  const env = { ...process.env, [SID_ENV]: "s1" };
+  const epicPath = join(vault, "epics", "PS-X", "epic.md");
+  const epicBefore = readFileSync(epicPath, "utf8");
+  const e = await cli(proj, ["epic", "PS-X", "--initiative", "faster", "--write", "--json"], env);
+  assert.equal(e.code, 0, e.err);
+  const initBefore = readFileSync(init, "utf8");
+  const d = await cli(proj, ["initiative", "faster", "accepted", "--reason", "grouped work", "--write", "--json"], env);
+  assert.equal(d.code, 0, d.err);
+  const ev = events(proj, "s1");
+  assert.deepEqual(
+    ev.map((x) => [x.tool, x.rel]),
+    [
+      ["epic", "epics/PS-X/epic.md"],
+      ["initiative", "initiatives/faster.md"],
+    ],
+  );
+  assert.equal(ev[0].before, sha(epicBefore));
+  assert.equal(ev[0].after, sha(readFileSync(epicPath, "utf8")));
+  assert.equal(ev[1].before, sha(initBefore));
+  assert.equal(ev[1].after, sha(readFileSync(init, "utf8")));
+});
+
+// [writerecord#5]
 test("node writers: configure --set flow.window_weeks=4 leaves one event for .projectstore.json", async () => {
   const { proj, vault } = moveFixture();
   writeFileSync(join(vault, ".projectstore.json"), "{}\n");
@@ -442,6 +513,26 @@ test("node writers: epic-row, which takes no --project, records under the projec
   const [e] = events(proj, "s1");
   assert.deepEqual([e.rel, e.tool, e.before], ["epics/PS-X/epic.md", "epic-row", sha(before)]);
   assert.equal(e.after, sha(readFileSync(epic, "utf8")));
+});
+
+// [writerecord#5] [SPEC-001#7]
+test("node writers: epic-row --add records the epic it links the story into, as epic-row", () => {
+  const { proj, vault, path } = moveFixture();
+  const epic = join(vault, "epics", "PS-X", "epic.md");
+  const before = "---\ntype: epic\n---\n\n# PS-X\n\n## Stories\n\n| Story | Status | Description |\n|---|---|---|\n";
+  writeFileSync(epic, before);
+  const r = spawnSync(process.execPath, [join(REPO, "scripts", "status-change.mjs"), "epic-row", path, "--add"], {
+    encoding: "utf8",
+    env: sessionEnv(proj, "s1"),
+    cwd: tmpdir(),
+    timeout: 20000,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).added, true);
+  const ev = events(proj, "s1");
+  assert.equal(ev.length, 1);
+  assert.deepEqual([ev[0].rel, ev[0].tool, ev[0].before], ["epics/PS-X/epic.md", "epic-row", sha(before)]);
+  assert.equal(ev[0].after, sha(readFileSync(epic, "utf8")));
 });
 
 // [writerecord#5] [epic-rule#4]

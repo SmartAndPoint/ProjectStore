@@ -87,7 +87,10 @@ Edits made through the shell are not seen; a Read of the story sets the pointer.
 
 ### Before a vault commit: whose edits are in a file
 
-ProjectStore never commits. Each session commits its own vault work, a whole
+Outside the dashboard's page, ProjectStore never commits. (The page commits a
+story's move or handover in a clone of the vault of its own, on a branch of its own, and
+the change reaches the vault only through a pull request a person merges.) Each
+session commits its own vault work, a whole
 file at a time, so when two sessions edit one file, the first to commit takes
 the other's uncommitted edits too. The pre-commit check says which files those
 are before the commit, and the session-start rules, the commit hints of the adr,
@@ -102,7 +105,7 @@ by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
 hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
 `NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
 `tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
-to it too (`move`, the epic row, `configure`'s vault settings, `guide eject`),
+to it too (`move`, `handover`, the epic row, `configure`'s vault settings, `guide eject`),
 and the story close brackets the clerk's copy, which no hook sees, with
 `session snapshot <story> --for <scratch>` before the spawn and
 `session record <story> --from <scratch>` after it. Derived views are not
@@ -242,6 +245,34 @@ resistance. v0.13 makes that safe instead of forbidden:
   project tree is dirty and no story is in progress. It is the only seam that
   sees Bash-mediated writes, which bypass hook path extraction entirely.
 
+- **`follow`** moves a story by its pull request: the one its
+  `external_refs.pr` names, or one whose description holds
+  `Closes-story: <EPIC>/<story-id>`. It reads the pull requests through `gh`
+  (with your own `gh` login; ProjectStore reads no token) and plans each
+  change: a merge closes the story through the close gate's own computation,
+  stamped at the merge, unless doctor's story checks on the closed text find
+  something, and then the story waits in review, awaiting close; a review
+  whose pull request was closed, put back to draft or left past
+  `flow.age_days.review` goes back to in-progress. Bare, it prints the plan;
+  with `--write` it reads the pull requests and the vault again and writes
+  each story through the same read-again writer `move` uses. In a vault that
+  is a git repository it reads `git worktree list`, `git merge-base` and
+  `git cat-file` first, and leaves alone a story a linked worktree's branch
+  changed.
+- **`handover`** gives one person's open stories to another:
+  `handover --from <name> --to <name> --reason "<why>"`, or one story with
+  `--story <EPIC>/<id>`. Open means neither done nor set aside, so planned,
+  ToDo, in-progress and review stories move, awaiting close included. Bare,
+  it prints the plan, with a warning when the receiver would go over their
+  WIP limit; with `--write` it asks once at a terminal and writes each story
+  through the same read-again writer `move` uses: the `assignee:`, the
+  header's Assignee row and one Status log line,
+  `assignee: <from> → <to> — handover: <why> (handover)`. The status and its
+  stamp do not change. A `--to` marked left is refused. It runs no git and no
+  `gh`, and it has no MCP tool. Doctor's `assignee-left` lists the open work
+  of each person `flow.people[<name>].left` marks as left, and it and
+  `assignee-idle` end with the `handover` command to run.
+
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.
 
@@ -311,6 +342,46 @@ by one byte — the count is the file size — because the shared session-state 
 is an unguarded read-modify-write, and a tally incremented on every vault write
 would eventually truncate the ADR-006 statusline pointer out from under an
 unrelated feature.
+
+## Initiatives above the epics
+
+An initiative (`initiatives/<slug>.md`) records an outcome that several epics
+serve and the decision taken on it. Its `status` holds the decision only:
+`proposed`, `accepted`, `rejected` or `deferred`, each decision with a line
+`- YYYY-MM-DD <status>: <reason>` in its Outcome section. What it is doing is
+never written: `initiativeStage` in `scripts/stages.mjs` reads it from the
+stories of the epics that name it (in progress while one is active, done when
+all of them are). An epic names its parent in one frontmatter key,
+`initiative: "<slug>"`; the initiative's file does not list its epics, so the
+two cannot drift. The link graph draws `initiative-contains` from the
+initiative to each such epic, and doctor's `initiative-links`,
+`initiative-status` and `initiative-decision` checks (`scripts/initiative.mjs`)
+report a link that names nothing, a status outside the four, and a decision
+without its epic or its Outcome line.
+
+Two CLI verbs write them (`scripts/initiative-verbs.mjs`), while the slash
+commands of the same names create. `initiative <id> accepted|rejected|deferred
+--reason "<why>"` sets the status and the header's Status row and appends the
+dated line to Outcome; `accepted` needs an epic that names the initiative
+first. `initiative <id> --title|--owner|--priority` edits those fields, and a
+new title keeps the file name. `epic <EPIC-ID> --initiative <id>` sets the
+epic's `initiative:` and an Initiative row that links to the file, and
+`--initiative ""` removes both. Bare, each prints the plan; with `--write`
+it asks at a terminal, writes through the same read-again writer `move` uses,
+and refreshes the derived views, as `move` does. They have no MCP tool.
+
+`create initiative|epic|story` writes a new one outside a session
+(`scripts/item-verbs.mjs`): the file `draft.mjs` renders for the agent
+command of the same kind, with the fields its options name, through
+`createFileExclusive`, so an existing file is never replaced. A story's row
+goes into its epic's Stories table through the same add as `epic-row --add`,
+and the derived views are refreshed. Anyone may run it, an agent too, so the
+file carries `written_by_verb: "create <instant>"` beside `review_status:
+pending`. The story gates print the marked files (`marked`: the story, its
+epic and the epic's initiative on a plan) and the story command reviews each
+first; `/projectstore:review` then runs `reviewed <path> --write`, the one
+writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
+`follow` names a marked story it closes. Neither verb has an MCP tool.
 
 ## The epic ↔ code mapping
 

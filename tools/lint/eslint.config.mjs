@@ -23,8 +23,10 @@ export default [
     // .claude/ holds worktrees, whole copies of this repository; .projectstore/
     // is this checkout's untracked binding; dist/ is build output; site/ is
     // generated, and its site.js is browser code; tools/lint/node_modules/ is
-    // the toolchain itself.
-    ignores: [".claude/", ".projectstore/", "dist/", "site/", "**/node_modules/"],
+    // the toolchain itself; dashboard/ is the page over one vault, browser
+    // scripts sharing one global scope, checked by its own tests (the
+    // dashboard ADR, decision 1).
+    ignores: [".claude/", ".projectstore/", "dist/", "site/", "dashboard/", "**/node_modules/"],
   },
   js.configs.recommended,
   n.configs["flat/recommended-module"],

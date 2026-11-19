@@ -64,6 +64,14 @@ function die(msg, code = 1) {
   process.exit(code);
 }
 
+// A builder's refusal: renderDraft throws it, main() prints it and exits 1.
+// The create verb (item-verbs.mjs) calls renderDraft in process, so a
+// builder never exits the caller's process.
+export class DraftError extends Error {}
+const fail = (msg) => {
+  throw new DraftError(msg);
+};
+
 function commonVars(cfg) {
   return {
     date: today(),
@@ -127,9 +135,9 @@ function digitLeadingWarnings(slug) {
 function buildEpic(cfg, layout, args) {
   const id = args[0];
   const title = args.slice(1).join(" ").trim();
-  if (!id || !title) die("Epic requires <id> and <title>");
+  if (!id || !title) fail("Epic requires <id> and <title>");
   const folder = folderByKind(layout, "epic");
-  if (!folder) die("Layout has no folder of kind=epic");
+  if (!folder) fail("Layout has no folder of kind=epic");
   const vault = cfg.vault_path;
   const epicDir = join(vault, folder.path, id);
   const vars = { ...commonVars(cfg), id, title };
@@ -155,13 +163,13 @@ function buildEpic(cfg, layout, args) {
 function buildStory(cfg, layout, args) {
   const epicId = args[0];
   const title = args.slice(1).join(" ").trim();
-  if (!epicId || !title) die("Story requires <epic_id> and <title>");
+  if (!epicId || !title) fail("Story requires <epic_id> and <title>");
   const folder = folderByKind(layout, "epic");
-  if (!folder) die("Layout has no folder of kind=epic");
+  if (!folder) fail("Layout has no folder of kind=epic");
   const vault = cfg.vault_path;
   const storiesDir = join(vault, folder.path, epicId, "stories");
   if (!existsSync(join(vault, folder.path, epicId))) {
-    die(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via ${commandForm("epic")}.`);
+    fail(`Epic folder not found: ${folder.path}/${epicId}. Create the epic first via ${commandForm("epic")}.`);
   }
   const storyPrefix = folder.story_prefix || "story-";
   const slug = slugify(title);
@@ -195,7 +203,7 @@ function buildStory(cfg, layout, args) {
 
 function buildSimple(kind, cfg, layout, args) {
   const title = args.join(" ").trim();
-  if (!title) die(`${kind} requires a title`);
+  if (!title) fail(`${kind} requires a title`);
   const folder = folderByKind(layout, kind);
   const vault = cfg.vault_path;
   const dir = join(vault, folder.path);
@@ -231,6 +239,22 @@ function buildSimple(kind, cfg, layout, args) {
 
 // ─── Main ──────────────────────────────────────────────────────────────
 
+// The draft of a kind for the arguments, as main() prints it, for a bound
+// config and its loaded layout. Pure: it reads the vault and writes nothing.
+// Throws a DraftError on a refusal.
+export function renderDraft(cfg, layout, kind, rest) {
+  if (kind === "epic") return buildEpic(cfg, layout, rest);
+  if (kind === "story") return buildStory(cfg, layout, rest);
+  const folder = folderByKind(layout, kind);
+  if (!folder) {
+    const known = layout.folders.map((f) => f.kind).filter((k) => k !== "epic");
+    fail(`Unknown kind: ${kind}. This layout (${cfg.layout}) declares: epic, story, ${known.join(", ")}.`);
+  }
+  // `numbered` folders route through buildSimple too (ADR-010): the key
+  // stays declared in layouts for grandfathered labels, creation ignores it.
+  return buildSimple(kind, cfg, layout, rest);
+}
+
 function main() {
   const argv = process.argv.slice(2);
   if (argv.length < 2) die("usage: draft.mjs <kind> <args...>");
@@ -242,19 +266,11 @@ function main() {
   const layout = loadLayout(cfg.layout);
 
   let result;
-  if (kind === "epic") {
-    result = buildEpic(cfg, layout, rest);
-  } else if (kind === "story") {
-    result = buildStory(cfg, layout, rest);
-  } else {
-    const folder = folderByKind(layout, kind);
-    if (!folder) {
-      const known = layout.folders.map((f) => f.kind).filter((k) => k !== "epic");
-      die(`Unknown kind: ${kind}. This layout (${cfg.layout}) declares: epic, story, ${known.join(", ")}.`);
-    }
-    // `numbered` folders route through buildSimple too (ADR-010): the key
-    // stays declared in layouts for grandfathered labels, creation ignores it.
-    result = buildSimple(kind, cfg, layout, rest);
+  try {
+    result = renderDraft(cfg, layout, kind, rest);
+  } catch (e) {
+    if (e instanceof DraftError) die(e.message);
+    throw e;
   }
 
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");

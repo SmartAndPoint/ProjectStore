@@ -1,0 +1,40 @@
+{
+  "name": "projectstore-dashboard",
+  "version": "0.30.20",
+  "type": "module",
+  "description": "A local page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. A story moved on it is committed in the page's own clone of the vault and reaches the vault only through a pull request a person merges. Started by `projectstore dashboard`, which fetches this package at its own version; reads the vault through that core.",
+  "keywords": [
+    "projectstore",
+    "dashboard",
+    "kanban",
+    "backlog",
+    "markdown",
+    "obsidian"
+  ],
+  "homepage": "https://projectstore.dev",
+  "bugs": {
+    "url": "https://github.com/SmartAndPoint/ProjectStore/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SmartAndPoint/ProjectStore.git",
+    "directory": "dashboard"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Evgenii Konev",
+    "email": "ekonev@smartandpoint.com",
+    "url": "https://github.com/SmartAndPoint"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "server.mjs",
+    "lib/",
+    "public/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
