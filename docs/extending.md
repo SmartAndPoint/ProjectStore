@@ -193,7 +193,7 @@ Constraints the deterministic scripts impose on the translation:
 - **Inline grammars carry a keyword and a colon**: the evidence suffix on a
   checked criterion and the `stories:` attribution on a spec acceptance item.
   Both accept the CJK-width colon (`evidenceSuffixRe` / `storiesAttributionRe`
-  in `lib.mjs`); if your language punctuates differently, widen them there
+  in `scripts/grammar.mjs`); if your language punctuates differently, widen them there
   rather than working around it in the template.
 
 Where two spellings are realistic (Russian `ё`/`е`, a French typographic vs
