@@ -75,6 +75,7 @@
   "scripts/binding.mjs",
   "scripts/build-adapters.mjs",
   "scripts/cli.mjs",
+  "scripts/close-refs.mjs",
   "scripts/code-refs.mjs",
   "scripts/codemap.mjs",
   "scripts/configure-menu.mjs",

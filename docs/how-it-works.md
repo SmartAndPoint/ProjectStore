@@ -430,9 +430,12 @@ no MCP tool.
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature
 actually owns in the codebase (`["src/auth/", "adapters/csv/"]`). The
-`/projectstore:codemap` command is the only writer (`codemap set`), the
-`planner` agent reads them to keep new epics consistent with how old ones
-landed, the `reviewer` proposes updates when a story completes, and
-`code-map.md` is the generated overview. Doctor checks refs status-aware:
+`/projectstore:codemap` command (`codemap set`) and a story's close write
+them, each behind its approval: the close adds the files of the story's pull
+request (the `close-refs` verb reads them through `gh`; the reviewer's last
+`code_refs:` line, then the commits since the story started, are the
+fallbacks) and widens its epic's footprint (`status-change.mjs epic-refs`).
+The `planner` agent reads them to keep new epics consistent with how old ones
+landed, and `code-map.md` is the generated overview. Doctor checks refs status-aware:
 `planned` work may point at code that doesn't exist yet; `in-progress`/`done`
 refs must resolve.

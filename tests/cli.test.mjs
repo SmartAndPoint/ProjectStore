@@ -1149,7 +1149,7 @@ const SCRIPT_ONLY = [
   },
   {
     script: "status-change.mjs",
-    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, and its create step adds the new story's row (--add), through the same read-again writer move uses",
+    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, and its create step adds the new story's row (--add), through the same read-again writer move uses; and PS-SPECTREE's epic-refs entry, the close's widening of the epic's code_refs right after the Yes, through the same writer",
   },
   {
     script: "epic-rule.mjs",
@@ -2882,6 +2882,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     reviewed: ["reviewed <path> [options]"], // new in PS-BACKLOG (the create spec, contract 6)
     rank: ["rank story <EPIC-ID>/<story-id> [options]", "rank epic <EPIC-ID> [options]"], // new in PS-BACKLOG (the rank spec, contract 3)
     follow: ["follow [options]"], // new in PS-FLOW (the follow spec, contract 1)
+    "close-refs": ["close-refs <story> [options]"], // new in PS-SPECTREE (the close-refs spec, contract 1)
     next: ["next [options]"], // new in PS-FLOW (the next verb's spec, contract 1)
     handover: ["handover [options]"], // new in PS-FLOW (the handover spec, contract 1)
     groom: ["groom [options]"], // new in PS-FLOW (the groom spec, contract 1)

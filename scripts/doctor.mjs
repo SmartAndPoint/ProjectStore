@@ -156,6 +156,7 @@ import { checkFlowView } from "./flow-view.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
 import { checkSpecCode } from "./spec-code.mjs";
+import { prefixCovers } from "./code-refs.mjs";
 import { checkSpecStale, checkParentStale } from "./spec-stale.mjs";
 import { buildSpecTreeView, checkSpecTreeView } from "./spec-tree-view.mjs";
 import { parseSpecMarkers } from "./grammar.mjs";
@@ -3933,9 +3934,8 @@ export function checkCodeRefs(artifacts, proj) {
           ),
         );
       } else {
-        const norm = (r) => r.replace(/\/+$/, "");
         for (const ref of refs) {
-          if (!parent.some((p) => norm(ref).startsWith(norm(p)))) {
+          if (!parent.some((p) => prefixCovers(p, ref))) {
             out.push(
               finding(
                 "vault",

@@ -30,11 +30,34 @@
 // `epic-row-unlinkable` (--add only: the link would not read back). It is
 // idempotent: a row that already says the status is left, and a story the
 // add linked has a row the next run finds.
+//
+// A close that writes refs also widens the epic's code_refs (the close-refs
+// ADR, decision 6; SPEC-001 contract 7 as amended by PS-SPECTREE/story-
+// every-close-path-writes-the-storys-coderefs), right after the person's Yes
+// and before the doctor snapshot:
+//
+//   node status-change.mjs epic-refs <story-path> [--code-refs-file <path>] [--write]
+//
+// It prints {path, story, refs, add, changed, written, error}: `add` is each
+// ref (the file's, else the story's own code_refs) that no epic ref covers by
+// doctor's prefix rule, appended as it is. Bare, it writes nothing; --write
+// applies it, recorded as `epic-refs`, `updated` moving only when a ref is
+// added. Exit 1 on an unreadable code_refs, a missing epic.md with refs to
+// add, or a failed write; 2 on any other option.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { writeFileAtomic, parseFrontmatter, nowIso, today, isMain } from "./lib.mjs";
-import { applyStatusChange, applyAssigneeChange, touchStory, epicRowUpdate, epicRowAdd } from "./status-log.mjs";
+import {
+  applyStatusChange,
+  applyAssigneeChange,
+  touchStory,
+  epicRowUpdate,
+  epicRowAdd,
+  refsLineOf,
+  addRefs,
+} from "./status-log.mjs";
+import { prefixCovers } from "./code-refs.mjs";
 import { nodeWriteRecorder } from "./write-record.mjs";
 
 export const CHANGED_MEANWHILE = "story-changed-meanwhile";
@@ -162,6 +185,73 @@ export function syncEpicRow(storyPath, { add = false, afterCompute = null, onWri
   };
 }
 
+// The epic's footprint widened by a story's refs (the close-refs ADR,
+// decision 6): each ref no epic ref covers by doctor's prefix rule
+// (code-refs.mjs prefixCovers) is appended to the epic's code_refs as it is,
+// in order, through the same read-again loop; `updated` and the footer move
+// only when a ref is added. `refs` are the close's; null reads the story's
+// own code_refs. Idempotent, and blind to the epic's Stories row. With
+// `write` false it computes and writes nothing. Returns {path, story, refs,
+// add, changed, written, error}; `error` is set for an unreadable code_refs
+// (CODE_REFS_UNREADABLE, the story's or the epic's), a missing epic.md with
+// refs to add, or a failed write.
+export const CODE_REFS_UNREADABLE = "code-refs-unreadable";
+export function epicAdditions(epicText, refs) {
+  const have = refsLineOf(epicText).refs;
+  const add = [];
+  for (const r of refs) if (![...have, ...add].some((p) => prefixCovers(p, r))) add.push(r);
+  return add;
+}
+export function widenEpicRefs(storyPath, { refs = null, write = false, afterCompute = null, onWrite = null } = {}) {
+  const abs = resolve(storyPath);
+  const epic = epicFileOf(abs);
+  const out = { path: epic, story: abs, refs: [], add: [], changed: false, written: false, error: null };
+  const unreadable = (whose) =>
+    `${CODE_REFS_UNREADABLE}: ${whose} code_refs is not a one-line JSON list, such as code_refs: ["src/a.mjs"]; nothing is written.`;
+  let list = refs;
+  if (list === null) {
+    let text;
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch (e) {
+      return { ...out, error: errMsg(e) };
+    }
+    const own = refsLineOf(text);
+    if (!own.readable) return { ...out, error: unreadable("the story's") };
+    list = own.refs;
+  }
+  out.refs = [...list];
+  if (!list.length) return out;
+  if (!existsSync(epic))
+    return { ...out, error: `the story's epic has no epic.md (${epic}), so its code_refs cannot widen` };
+  let first;
+  try {
+    first = readFileSync(epic, "utf8");
+  } catch (e) {
+    return { ...out, error: errMsg(e) };
+  }
+  if (!refsLineOf(first).readable) return { ...out, error: unreadable("the epic's") };
+  if (!write) return { ...out, add: epicAdditions(first, list) };
+  let add = [];
+  const r = replaceWithRetry(
+    epic,
+    (base) => {
+      if (!refsLineOf(base).readable) return { refused: unreadable("the epic's") };
+      add = epicAdditions(base, list);
+      if (!add.length) return { content: base };
+      return { content: touchStory(addRefs(base, add).text, today()) };
+    },
+    { afterCompute, onWrite },
+  );
+  return {
+    ...out,
+    add,
+    changed: r.changed,
+    written: r.written,
+    error: r.refused ?? r.error ?? null,
+  };
+}
+
 // A change of status written to a story file. `allow(fm, text)` returns a
 // refusal or null; it runs on the fresh bytes of every attempt (the
 // frontmatter and the whole text, which the groom verb's stale test reads),
@@ -247,8 +337,63 @@ export function changeAssignee(
   };
 }
 
+const EPIC_REFS_USAGE =
+  "projectstore/status-change: usage: status-change.mjs epic-refs <story-path> [--code-refs-file <path>] [--write]\n";
+
+// epic-refs: the close's widening of the epic's code_refs (the close-refs
+// ADR, decision 6). Bare, it prints what it would add; --write applies it.
+function mainEpicRefs(args) {
+  const usage = () => {
+    process.stderr.write(EPIC_REFS_USAGE);
+    process.exit(2);
+  };
+  let write = false;
+  let file = null;
+  const paths = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--write") write = true;
+    else if (a === "--code-refs-file") file = args[++i] ?? "";
+    else if (a.startsWith("--code-refs-file=")) file = a.slice("--code-refs-file=".length);
+    else if (a.startsWith("-")) usage();
+    else paths.push(a);
+  }
+  if (paths.length !== 1 || file === "") usage();
+  const abs = resolve(paths[0]);
+  if (!existsSync(abs)) {
+    process.stderr.write(`projectstore/status-change: story not found: ${abs}\n`);
+    process.exit(1);
+  }
+  let refs = null;
+  if (file !== null) {
+    try {
+      refs = JSON.parse(readFileSync(resolve(file), "utf8"));
+    } catch (e) {
+      process.stderr.write(
+        `projectstore/status-change: --code-refs-file ${file} is not readable as JSON: ${errMsg(e)}\n`,
+      );
+      process.exit(1);
+    }
+    if (!Array.isArray(refs) || !refs.every((x) => typeof x === "string" && x.trim())) {
+      process.stderr.write(
+        `projectstore/status-change: --code-refs-file ${file} is not a JSON list of paths, such as ["src/a.mjs"]\n`,
+      );
+      process.exit(1);
+    }
+    refs = refs.map((x) => x.trim());
+  }
+  const r = widenEpicRefs(abs, {
+    refs,
+    write,
+    onWrite: nodeWriteRecorder({ env: process.env, project: null, tool: "epic-refs" }),
+  });
+  process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+  if (r.error) process.exitCode = 1;
+}
+
 function main() {
   const [mode, ...args] = process.argv.slice(2);
+  if (mode === "epic-refs") return mainEpicRefs(args);
   const add = args.includes("--add");
   const paths = args.filter((a) => a !== "--add");
   const storyPath = paths[0];

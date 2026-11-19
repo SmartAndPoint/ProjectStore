@@ -79,6 +79,7 @@
   "node_modules/projectstore/scripts/binding.mjs",
   "node_modules/projectstore/scripts/build-adapters.mjs",
   "node_modules/projectstore/scripts/cli.mjs",
+  "node_modules/projectstore/scripts/close-refs.mjs",
   "node_modules/projectstore/scripts/code-refs.mjs",
   "node_modules/projectstore/scripts/codemap.mjs",
   "node_modules/projectstore/scripts/configure-menu.mjs",

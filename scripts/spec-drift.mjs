@@ -246,7 +246,9 @@ function contractHeadings(spec) {
 
 const byPath = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-function vaultInside(proj, vault) {
+// The vault's path relative to the project, links resolved, when the vault
+// sits inside it; null otherwise. Also the close-refs normaliser's vault rule.
+export function vaultInside(proj, vault) {
   try {
     const rel = relative(realpathSync.native(proj), realpathSync.native(vault));
     return rel && !rel.startsWith("..") && !rel.startsWith("/") ? rel : null;

@@ -76,6 +76,48 @@ export function unsetFm(text, key) {
   return text.slice(0, m.index) + `---\n${kept.join("\n")}\n---` + text.slice(m.index + m[0].length);
 }
 
+// ─── A `code_refs` line (the close-refs ADR, decisions 1 and 6) ────────
+
+// The refs a frontmatter line holds, read from the raw lines, since
+// parseFrontmatter cannot see a block list: {readable, refs}. No line, an
+// empty value with no item under it, `null` and `[]` are readable and
+// empty; a one-line JSON list of strings is readable; anything else (a
+// block list, YAML's `[a, b]`, a scalar, a list with a non-string) is not.
+export function refsLineOf(text, key = "code_refs") {
+  const m = String(text).match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return { readable: true, refs: [] };
+  const lines = m[1].split("\n");
+  const i = lines.findIndex((l) => l.startsWith(`${key}:`));
+  if (i === -1) return { readable: true, refs: [] };
+  const v = lines[i].slice(key.length + 1).trim();
+  if (v === "") return { readable: !/^\s+\S/.test(lines[i + 1] ?? ""), refs: [] };
+  if (v === "null" || v === "[]") return { readable: true, refs: [] };
+  try {
+    const list = JSON.parse(v);
+    if (Array.isArray(list) && list.every((x) => typeof x === "string")) return { readable: true, refs: list };
+  } catch {}
+  return { readable: false, refs: [] };
+}
+
+// A list as the one-line JSON form listOf reads: `["a", "b"]`, `[]` empty.
+export const refsLine = (refs) => `[${refs.map((r) => JSON.stringify(r)).join(", ")}]`;
+
+// The text with each of `refs` it does not hold appended to its `key` line,
+// in the given order; the text unchanged when none is new. The caller has
+// checked the line is readable. Returns {text, added}.
+export function addRefs(text, refs, key = "code_refs") {
+  const have = refsLineOf(text, key).refs;
+  const seen = new Set(have);
+  const added = [];
+  for (const r of refs)
+    if (!seen.has(r)) {
+      seen.add(r);
+      added.push(r);
+    }
+  if (!added.length) return { text, added };
+  return { text: setFm(text, key, refsLine([...have, ...added])), added };
+}
+
 // End index of section `id` (position right before the next `## ` heading
 // after it), or null when the section is absent.
 export function sectionEnd(text, id) {
