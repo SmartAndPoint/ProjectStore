@@ -215,6 +215,14 @@ To pick the next task, `next` lists your started work first, and offers stories 
 npx projectstore next
 ```
 
+Once a week, `groom` tidies the board. A story that has sat in ToDo longer than the vault allows (`flow.age_days.todo`) goes back to the backlog, with the reason written in its Status log. The pass also lists the epics that hold only one story, counts the active epics against their cap (`flow.active_epics_max`), and records its date in `flow.groomed_at`, so doctor knows when the next one is due. Bare, it only prints the plan; `--write` asks once at a terminal, then writes:
+
+```
+npx projectstore groom --write
+```
+
+In a Claude Code session, `/projectstore:groom` does the same and then hands the one-story epics to the librarian agent. It suggests which epic each one could join and changes nothing.
+
 Beside `move` and `handover`, two verbs write an initiative. `initiative` records a decision on one, accepted, rejected or deferred, with a dated reason in its Outcome section, or edits its title, owner and priority. `epic` sets or clears the initiative an epic belongs to. Bare, each prints the plan; `--write` asks at a terminal:
 
 ```
@@ -498,7 +506,7 @@ And they are the exit door. The vault is plain markdown in git — no server, no
 
 ## Fact sheet
 
-**24 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
+**25 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies
 
 The deep dive — real session files, measured payloads, how every mechanism works and where its limits are: [docs/how-it-works.md](./docs/how-it-works.md).
 

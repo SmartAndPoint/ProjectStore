@@ -256,7 +256,8 @@ each key activates.
   otherwise its age in status is read from `updated` (`statusStamp` in
   `scripts/status-log.mjs`), else `created`. Both instants are read through
   `stampMs`, so a stamp with no zone is UTC on every machine.
-  `move <story> todo|planned --reason "<why>"` is the one change no gate makes.
+  `move <story> todo|planned --reason "<why>"` is the one change no gate makes
+  for a named story.
   `handover --from <name> --to <name> --reason "<why>"` changes only the
   assignee of a person's open stories (`openStoriesOf` in
   `scripts/flow-counts.mjs`), through `changeAssignee` in
@@ -264,7 +265,14 @@ each key activates.
   or a control character is refused. `flow.people[<name>].left` marks a
   person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
   `assignee-left` then lists their open work, and the verb refuses them as
-  `--to`.
+  `--to`. `groom` moves every ToDo story past `age_days.todo` (`agedIn` in
+  `scripts/flow-counts.mjs`, the set doctor calls `todo-aged`) back to
+  `planned` through `changeStatus`, with the actor `groom`, and then stamps
+  `flow.groomed_at` through `writeVaultConfig`. A `flow` block that holds only
+  that stamp declares no policy (`flowDeclared` in `scripts/flow-policy.mjs`).
+  The epic counts (`epicCounts` in `scripts/flow-counts.mjs`, over
+  `readFlowEpics` in `scripts/flow-stories.mjs`) give the active epics, open
+  by `storyState` and holding an open story, and the one-story epics.
 - An initiative's `status` and Outcome, its `title`, `owner` and `priority`,
   and an epic's `initiative:` are written by the `initiative` and `epic` verbs
   (`scripts/initiative-verbs.mjs`). They find the header rows by the registry's

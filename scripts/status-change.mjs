@@ -162,9 +162,10 @@ export function syncEpicRow(storyPath, { add = false, afterCompute = null, onWri
   };
 }
 
-// A change of status written to a story file. `allow(fm)` returns a refusal
-// or null; it runs on the fresh bytes of every attempt, so a status changed
-// meanwhile is judged as it is now. Returns {path, from, to, changed,
+// A change of status written to a story file. `allow(fm, text)` returns a
+// refusal or null; it runs on the fresh bytes of every attempt (the
+// frontmatter and the whole text, which the groom verb's stale test reads),
+// so a status changed meanwhile is judged as it is now. Returns {path, from, to, changed,
 // written, attempts, line, error, refused, epic}.
 export function changeStatus(
   path,
@@ -186,7 +187,7 @@ export function changeStatus(
     path,
     (base) => {
       const fm = parseFrontmatter(base).data;
-      const refused = allow ? allow(fm) : null;
+      const refused = allow ? allow(fm, base) : null;
       if (refused) return { refused };
       const c = applyStatusChange(base, { to, reason, actor, at, lang });
       from = c.from;
