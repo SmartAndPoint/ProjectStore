@@ -236,7 +236,10 @@ test("follow: in a project that is no git repository, a merged pull request clos
   assert.deepEqual(refsOf(story), []);
   assert.match(lastLine(story), /; code_refs not written: prefix-unknown \(follow\)$/);
   const note = r.r.notes.find((n) => n.code === "prefix-unknown");
-  assert.match(note.message, /None are written\. To set them by hand: .*codemap.* set PS-X\/story-a\.$/);
+  assert.match(
+    note.message,
+    /^PS-X\/story-a: git could not say where this project sits in its repository \(.+\), so the files of https:\/\/github\.com\/acme\/app\/pull\/7 cannot be turned into code_refs\. None are written\. To set them by hand: .*codemap.* set PS-X\/story-a\.$/,
+  );
 });
 
 // [close-refs#7] [follow#5]
@@ -265,7 +268,7 @@ test("follow: a merged pull request in another repository closes its story with 
 
 // ─── The read that blocks, the epic, a second run ─────────────────────
 
-// [close-refs#7] [follow#1]
+// [close-refs#7] [follow#1] [follow#5]
 test("follow: a failed files read is the finding files-unknown, exit 1, the story byte-identical; the next run reads again and closes it (failure)", async () => {
   const fx = gitVault({ "PS-X/story-a": linked(reviewOf(readyStory()), 7) });
   const files = Array.from({ length: 120 }, (_, i) => `src/f${i}.mjs`);
@@ -386,7 +389,7 @@ test("follow: bare, the plan names the refs' count and the epic's additions, and
   assert.deepEqual(snapshot(fx), before);
 });
 
-// [close-refs#7]
+// [follow#5]
 test("follow: a story whose code_refs is a block list is the finding code-refs-unreadable and is left as it is (failure)", async () => {
   const text = linked(reviewOf(readyStory()), 7).replace(/^code_refs: .*$/m, "code_refs:\n  - src/a.mjs");
   const fx = gitVault({ "PS-X/story-a": text });
@@ -394,4 +397,112 @@ test("follow: a story whose code_refs is a block list is the finding code-refs-u
   assert.equal(r.code, 1);
   assert.ok(codes(r.r.findings).includes("code-refs-unreadable"), JSON.stringify(r.r.findings));
   assert.equal(read(pathOf(fx, "story-a")), text);
+});
+
+// ─── One read per run; what an unwritten close says ───────────────────
+
+// The files views of the run: `pr view <url> --json files,changedFiles,state,mergeCommit`.
+const filesViews = (stub) =>
+  stub
+    .calls("pr view")
+    .filter((a) => a.includes("files,changedFiles,state,mergeCommit"))
+    .map((a) => a[2]);
+
+// follow through runFollow, for the seams the bin never passes.
+async function followDirect(fx, stub, values, seams = {}) {
+  const { runFollow } = await import("../scripts/follow.mjs");
+  return runFollow({ values, cfg: fx.cfg, project: fx.proj, env: stub.env(), confirm: null, ...seams });
+}
+
+// [close-refs#7] [follow#1] [follow#8]
+test("follow: re-plans read no files again: a story edited once is written with its refs, one edited before every replace gives story-changed-meanwhile with no refs in its item or its text; one files view per pull request, one bare repo view (failure)", async () => {
+  const fx = gitVault({
+    "PS-X/story-a": linked(reviewOf(readyStory()), 7),
+    "PS-X/story-b": linked(reviewOf(readyStory("story-b")), 8),
+  });
+  const a = pathOf(fx, "story-a");
+  const b = pathOf(fx, "story-b");
+  const stub = stubOf({ prs: [mergedPr(7, ["scripts/a.mjs"]), mergedPr(8, ["scripts/b.mjs"])] });
+  const afterCompute = (i, s) => {
+    if (s.ref === "PS-X/story-a" && i === 0)
+      writeFileSync(a, read(a).replace("## Dependencies", "A hand note.\n\n## Dependencies"));
+    if (s.ref === "PS-X/story-b") writeFileSync(b, read(b).replace("## Dependencies", `edit ${i}\n\n## Dependencies`));
+  };
+  const r = await followDirect(fx, stub, { write: true }, { afterCompute });
+  assert.equal(r.code, 1);
+  assert.deepEqual(refsOf(read(a)), ["scripts/a.mjs"]);
+  assert.deepEqual(refsOf(read(b)), []);
+  assert.deepEqual(filesViews(stub).sort(), [prUrl(7), prUrl(8)], "one files view per pull request");
+  assert.equal(bareRepoViews(stub).length, 1);
+  const itemB = r.result.items.find((i) => i.story === "PS-X/story-b" && i.to === "done");
+  assert.ok(itemB && itemB.written === false, JSON.stringify(r.result.items));
+  assert.deepEqual([itemB.refs, itemB.epic_refs], [[], []]);
+  const itemA = r.result.items.find((i) => i.story === "PS-X/story-a" && i.to === "done");
+  assert.deepEqual([itemA.refs, itemA.epic_refs], [["scripts/a.mjs"], ["scripts/a.mjs"]]);
+  const lines = r.text.split("\n");
+  const at = lines.findIndex((l) => l.startsWith("  PS-X/story-b: "));
+  assert.ok(at > 0, r.text);
+  assert.ok(!/code_refs:/.test(lines[at + 1] ?? ""), "no refs sentence under an unwritten close");
+  assert.match(
+    r.text,
+    /code_refs: 1 file of the pull request added to the story, and 1 to its epic's: scripts\/a\.mjs\./,
+  );
+});
+
+// [close-refs#7] [follow#2]
+test("follow: two stories one merged pull request closes read its files once, and both get them", async () => {
+  const fx = gitVault({ "PS-X/story-a": readyStory(), "PS-X/story-b": readyStory("story-b") });
+  const stub = stubOf({
+    prs: [mergedPr(7, ["scripts/a.mjs"], { body: "Closes-story: PS-X/story-a\nCloses-story: PS-X/story-b" })],
+  });
+  const r = await follow(fx, stub, ["--write"]);
+  assert.equal(r.code, 0, JSON.stringify(r.r.findings));
+  for (const slug of ["story-a", "story-b"]) assert.deepEqual(refsOf(read(pathOf(fx, slug))), ["scripts/a.mjs"]);
+  assert.deepEqual(filesViews(stub), [prUrl(7)]);
+  assert.equal(bareRepoViews(stub).length, 1);
+});
+
+// [close-refs#7] [follow#1] [follow#2]
+test("follow: --story reads only its story's pull request's files", async () => {
+  const fx = gitVault({
+    "PS-X/story-a": linked(reviewOf(readyStory()), 7),
+    "PS-X/story-b": linked(reviewOf(readyStory("story-b")), 8),
+  });
+  const stub = stubOf({ prs: [mergedPr(7, ["scripts/a.mjs"]), mergedPr(8, ["scripts/b.mjs"])] });
+  const r = await follow(fx, stub, ["--story", "PS-X/story-a", "--write"]);
+  assert.equal(r.code, 0, JSON.stringify(r.r.findings));
+  assert.deepEqual(filesViews(stub), [prUrl(7)]);
+  assert.deepEqual(refsOf(read(pathOf(fx, "story-b"))), []);
+});
+
+// [close-refs#7] [follow#2]
+test("follow: gh logged out at the files read, or at the bare repo view, is gh-unavailable: exit 1 and nothing on disk changes (failure)", async () => {
+  for (const fail of [{ view: { [prUrl(7)]: 4 } }, { ownRepo: 4 }]) {
+    const fx = gitVault({ "PS-X/story-a": readyStory() });
+    const stub = stubOf({ prs: [mergedPr(7, ["scripts/a.mjs"], { body: "Closes-story: PS-X/story-a" })], fail });
+    const before = snapshot(fx);
+    const r = await follow(fx, stub, ["--write"]);
+    assert.equal(r.code, 1, JSON.stringify(fail));
+    assert.deepEqual(codes(r.r.findings), ["gh-unavailable"], JSON.stringify(fail));
+    assert.deepEqual(snapshot(fx), before, JSON.stringify(fail));
+  }
+});
+
+// [close-refs#7] [follow#1]
+test("follow: bare, with an epic.md that cannot be read, the plan names the story's refs and says nothing about the epic; epic_refs is null (edge)", async (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip("root reads a file of mode 000");
+  const fx = gitVault({ "PS-X/story-a": linked(reviewOf(readyStory()), 7) });
+  const stub = stubOf({ prs: [mergedPr(7, ["scripts/a.mjs"])] });
+  chmodSync(epicOf(fx), 0o000);
+  let j, txt;
+  try {
+    j = await follow(fx, stub);
+    txt = await follow(fx, stub, [], { json: false });
+  } finally {
+    chmodSync(epicOf(fx), 0o644);
+  }
+  const item = j.r.items.find((i) => i.to === "done");
+  assert.deepEqual([item.refs, item.epic_refs], [["scripts/a.mjs"], null]);
+  assert.match(txt.out + txt.err, /^ {4}code_refs: 1 file of the pull request to add to the story\.$/m);
+  assert.doesNotMatch(txt.out + txt.err, /already cover/);
 });

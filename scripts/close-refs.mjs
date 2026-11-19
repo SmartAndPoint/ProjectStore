@@ -70,11 +70,9 @@ export function noteMessage(code, f = {}, { who = "verb", set = "" } = {}) {
     case "repo-unknown":
       return `gh could not name this project's repository (${f.reason}), so the files of ${f.url} are not used. To set this story's code_refs by hand: ${set}.`;
     case "prefix-unknown":
-      return `git could not say where this project sits in its repository (${f.reason}), so paths from the pull request and the commits cannot be turned into code_refs. ${
-        who === "follow"
-          ? `None are written. To set them by hand: ${set}.`
-          : `The reviewer's line is still read. To set them by hand: ${set}.`
-      }`;
+      return who === "follow"
+        ? `git could not say where this project sits in its repository (${f.reason}), so the files of ${f.url} cannot be turned into code_refs. None are written. To set them by hand: ${set}.`
+        : `git could not say where this project sits in its repository (${f.reason}), so paths from the pull request and the commits cannot be turned into code_refs. The reviewer's line is still read. To set them by hand: ${set}.`;
     case "files-foreign":
       return `${f.url} is in ${f.repo}, not in this project's repository ${f.own}, so its files are not used. If the story's code is in this project: ${set}.`;
     case "files-unknown":
@@ -289,7 +287,7 @@ export function followRefs({ gh, url, files = (u) => gh.files(u), prefix, vault 
   if (!f.files.length) return out();
   const pre = prefix();
   if (!pre.ok) {
-    note("prefix-unknown", { reason: pre.reason });
+    note("prefix-unknown", { url, reason: pre.reason });
     return out({ unwritten: "prefix-unknown" });
   }
   const n = normaliseRefs(f.files, { prefix: pre.prefix, vault, person: false });

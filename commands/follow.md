@@ -13,7 +13,7 @@ You are bringing stories in line with their pull requests through the core's `fo
 
    Exit 3: the project is not bound; tell the person to run `/projectstore:bind <vault-path>` and stop. Exit 2: a flag is wrong; say which and stop.
 
-2. **Relay it.** List `result.items` (each `story` and its `line`; for a close, how many files `refs` holds and the paths in `epic_refs`, the epic's additions), then `result.findings` and `result.notes` by `code` and `message` (a `verb-mark` note names a story a verb wrote and no review has read; it is changed all the same), then the epics in `result.epics.epics` (each `line`) and `result.epics.notes`.
+2. **Relay it.** List `result.items` (each `story` and its `line`; for a close, how many files `refs` holds and the paths in `epic_refs`, the epic's additions, `null` when its `epic.md` cannot be read), then `result.findings` and `result.notes` by `code` and `message` (a `verb-mark` note names a story a verb wrote and no review has read; it is changed all the same), then the epics in `result.epics.epics` (each `line`) and `result.epics.notes`.
    - A `gh-unavailable` finding: `gh` is missing or logged out. Say so and stop; ask nothing.
    - A `files-unknown` finding: the pull request's files could not be read, so that story is left as it is and the next run reads them again. A `code-refs-unreadable` finding: the story's or its epic's `code_refs` is not a one-line JSON list; that story is left as it is until it is.
    - The notes `repo-unknown`, `files-foreign`, `prefix-unknown` and `refs-over-cap` mean the close goes on with no new `code_refs`, and its Status log line says which; `files-truncated` means some files were not listed. Each message names the `codemap set` command that sets them by hand.

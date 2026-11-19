@@ -681,8 +681,12 @@ test("notes: every code of the table has its message, follow's two sentences inc
   const s = "/projectstore:codemap set PS-X/story-a";
   const u = URL7;
   assert.equal(
-    noteMessage("prefix-unknown", { reason: "r" }, { who: "follow", set: s }),
-    `git could not say where this project sits in its repository (r), so paths from the pull request and the commits cannot be turned into code_refs. None are written. To set them by hand: ${s}.`,
+    noteMessage("prefix-unknown", { url: u, reason: "r" }, { who: "follow", set: s }),
+    `git could not say where this project sits in its repository (r), so the files of ${u} cannot be turned into code_refs. None are written. To set them by hand: ${s}.`,
+  );
+  assert.equal(
+    noteMessage("prefix-unknown", { reason: "r" }, { set: s }),
+    `git could not say where this project sits in its repository (r), so paths from the pull request and the commits cannot be turned into code_refs. The reviewer's line is still read. To set them by hand: ${s}.`,
   );
   assert.equal(
     noteMessage("files-unknown", { url: u, reason: "r" }, { who: "follow", set: s }),

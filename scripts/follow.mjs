@@ -301,6 +301,7 @@ function refsSentence(i, { wrote = false, epicFailed = false } = {}) {
   const n = i.refs.length;
   const story = `code_refs: ${n} ${n === 1 ? "file" : "files"} of the pull request ${wrote ? "added" : "to add"} to the story`;
   if (epicFailed) return `${story}; its epic's code_refs were not widened (epic-refs-error below).`;
+  if (i.epic_refs === null) return `${story}.`;
   const m = i.epic_refs.length;
   if (!m) return `${story}; its epic's code_refs already cover them.`;
   const named = i.epic_refs.slice(0, SHOWN_REFS).join(", ");
@@ -496,7 +497,8 @@ export async function runFollow(ctx) {
     plans.push({ s, p });
   }
   // What each close adds to its epic's code_refs, in plan order: a later
-  // story of the same epic sees the earlier one's additions.
+  // story of the same epic sees the earlier one's additions. An epic.md that
+  // cannot be read, or whose code_refs does not read, gives null: unknown.
   const epicNow = new Map();
   for (const { s, p } of plans) {
     p.epicRefs = [];
@@ -504,22 +506,29 @@ export async function runFollow(ctx) {
     const e = epicFileOf(s.abs);
     if (!epicNow.has(e)) epicNow.set(e, epicTextOf(s));
     const text = epicNow.get(e);
-    if (text === null || !refsLineOf(text).readable) continue;
+    if (text === null || !refsLineOf(text).readable) {
+      p.epicRefs = null;
+      continue;
+    }
     p.epicRefs = epicAdditions(text, p.refs);
     epicNow.set(e, addRefs(text, p.epicRefs).text);
   }
 
-  // One story's plan into `into` ({checked, items, findings, notes}).
-  const report = (into, s, p, { written = false, error = null } = {}) => {
+  // One story's plan into `into` ({checked, items, findings, notes}). A plan
+  // names the refs a close would add; after a write, only a written close
+  // names them (an unwritten one added none). `epic_refs` is null when the
+  // epic could not be read.
+  const report = (into, s, p, { written = false, error = null, plan = false } = {}) => {
     if (p.judged) into.checked++;
     const err = error ?? p.error ?? null;
+    const closed = (l) => l.to === "done" && (plan || written);
     const item = (l) => ({
       story: s.ref,
       path: s.abs,
       pr: p.pr,
       ...l,
-      refs: l.to === "done" ? (p.refs ?? []) : [],
-      epic_refs: l.to === "done" ? (p.epicRefs ?? []) : [],
+      refs: closed(l) ? (p.refs ?? []) : [],
+      epic_refs: closed(l) ? (p.epicRefs === undefined ? [] : p.epicRefs) : [],
       written,
       error: err,
     });
@@ -534,13 +543,13 @@ export async function runFollow(ctx) {
 
   const epicsDir = join(vault, epics.path);
   if (!write) {
-    for (const { s, p } of plans) report(result, s, p);
+    for (const { s, p } of plans) report(result, s, p, { plan: true });
     result.epics = applyEpicRule({ epicsDir, write: false, assume: closesOf(plans), at: now });
     return finish(result, { project, args });
   }
 
   const shown = { ...result, checked: 0, items: [], findings: [...result.findings], notes: [...result.notes] };
-  for (const { s, p } of plans) report(shown, s, p);
+  for (const { s, p } of plans) report(shown, s, p, { plan: true });
   // The question shows the epics the run would move: the rule as a plan, the closes assumed done.
   shown.epics = applyEpicRule({ epicsDir, write: false, assume: closesOf(plans), at: now });
   if (confirm && !(await confirm(renderFollow(shown, { project, args, asking: true }))))

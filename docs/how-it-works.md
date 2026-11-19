@@ -264,7 +264,10 @@ resistance. v0.13 makes that safe instead of forbidden:
   (with your own `gh` login; ProjectStore reads no token) and plans each
   change: a merge closes the story through the close gate's own computation,
   stamped at the merge, unless doctor's story checks on the closed text find
-  something, and then the story waits in review, awaiting close; a review
+  something, and then the story waits in review, awaiting close. That close
+  writes the merged pull request's files into the story's `code_refs` and
+  widens its epic's to cover them (300 refs at most without a person; a
+  failed read of the files leaves the story for the next run); a review
   whose pull request was closed, put back to draft or left past
   `flow.age_days.review` goes back to in-progress. Bare, it prints the plan;
   with `--write` it reads the pull requests and the vault again and writes
@@ -435,7 +438,8 @@ no MCP tool.
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature
 actually owns in the codebase (`["src/auth/", "adapters/csv/"]`). The
 `/projectstore:codemap` command (`codemap set`) and a story's close write
-them, each behind its approval: the close adds the files of the story's pull
+them, each behind its approval or, for `follow`, behind the pull request's
+merge and `--write`: the close adds the files of the story's pull
 request (the `close-refs` verb reads them through `gh`; the reviewer's last
 `code_refs:` line, then the commits since the story started, are the
 fallbacks) and widens its epic's footprint (`status-change.mjs epic-refs`).
