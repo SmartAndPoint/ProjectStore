@@ -1,0 +1,36 @@
+# Projectstore vault: <vault>
+# Layout: engineering · language: en · spec_policy: optional · lifecycle_gates: on
+
+## How to work with this vault
+
+Descend on demand. Nothing below is a copy of the vault; it is the order to read it in.
+
+1. **What is in flight** — the list below, or `kanban.md` for the whole board.
+2. **The epic** — `epics/<EPIC>/epic.md` names its stories and how they map to code.
+3. **A folder's index** — its `README.md` lists every artifact with title, status and date. One read, complete.
+4. **Before authoring an ADR or spec, or making an architectural choice — read `adr/README.md`.** This step fires on *deciding*, not on searching: it is the one moment the decision index is load-bearing, and skipping it is how a settled question gets re-decided.
+5. **An artifact's neighbourhood** — `grep '<vault-relative-path>' graph.md` returns its typed links in both directions, in one call.
+
+## Where things live
+
+| Folder | Kind | Count | Purpose |
+|---|---|---|---|
+| `adr/` | adr | 0 | adr |
+| `specs/` | spec | 10 | spec |
+| `initiatives/` | initiative | 0 | initiative |
+| `epics/` | epic | 1 epics · 1 stories | epic |
+| `research/` | research | 0 | research |
+| `concepts/` | concept | 0 | concept |
+| `meetings/` | meeting | 0 | meeting |
+| `ops/` | runbook | 0 | runbook |
+| `diagrams/` | diagram | 0 | diagram |
+
+## In flight now
+
+- PS-X · T
+
+## Derived views
+
+`kanban.md`, `code-map.md` and `graph.md` are **regenerated** from artifact frontmatter. They can lag a very recent edit, they are never hand-edited, and the artifact is the source of truth when they disagree.
+
+`graph.md` is queried, **never read whole** — it is far larger than this payload's whole budget. Grep it by **vault-relative path**, which is its node key; a bare slug is not a key and returns a flood (on one real vault, 22 lines by path against 101 by slug). `code-map.md` answers where code for an epic already lives — read it before deciding where new code goes.
