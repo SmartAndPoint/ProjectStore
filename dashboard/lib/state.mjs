@@ -72,10 +72,6 @@ export function insideVault(ctx, rel) {
 
 // ── small readers ──
 const stem = (rel) => rel.split("/").pop().replace(/\.md$/, "");
-const num = (v) => {
-  const n = Number(v);
-  return v !== null && v !== undefined && v !== "" && Number.isFinite(n) ? n : null;
-};
 export const epicsPathOf = (ctx) => ctx.lib.folderByKind(ctx.layout, "epic")?.path ?? null;
 const fmOf = (ctx, text) => ctx.lib.parseFrontmatter(text).data;
 
@@ -136,7 +132,10 @@ function readStories(ctx, now) {
       status: f.status || "planned",
       column: f.column, // the board's column, as kanban.md shows it; null: set aside, on no column
       priority: /^p[0-3]$/.test(f.fm.priority || "") ? f.fm.priority : "p2",
-      rank: num(f.fm.rank),
+      // The order of its epic's open stories (the spec dashboard-rank, contract 1):
+      // filled by readState through the core's siblingOrder.
+      ranked: ctx.rank.rankOf(f.fm) !== null,
+      place: null,
       assignee: f.assignee,
       variant: f.fm.variant || null,
       initiative: f.fm.initiative || null,
@@ -168,6 +167,7 @@ function readEpics(ctx) {
       priority: fm.priority || "p2",
       initiative: fm.initiative || null,
       standing: String(fm.standing) === "true",
+      fm, // for the order only; readState drops it
     });
   }
   return out;
@@ -190,6 +190,7 @@ function readInitiatives(ctx) {
       priority: fm.priority || "p2",
       owner: fm.owner || "",
       elaboration: fm.elaboration || null,
+      fm, // for the order only; readState drops it
     });
   }
   return out;
@@ -233,15 +234,35 @@ function initiativeStage(i, counts, epics, work) {
   return "accepted";
 }
 
+// Each group's order, by the core (the spec dashboard-rank, contract 1): a
+// story's place among its epic's open stories, by its path; an epic's group
+// (the initiative id the core resolves, or null) and its place in it, by id.
+function groupOrder(ctx, facts, epics, initiatives) {
+  const stories = new Map();
+  for (const members of ctx.rank.storyGroups(facts).values()) ctx.rank.siblingOrder(members).forEach((m, k) => stories.set(m.rel, k));
+  const byEpic = new Map();
+  const groups = ctx.rank.epicGroups(
+    epics.map((e) => ({ id: e.id, rel: e.rel, fm: e.fm })),
+    initiatives.map((i) => ({ rel: i.rel, fm: i.fm })),
+  );
+  for (const [group, members] of groups) ctx.rank.siblingOrder(members).forEach((m, k) => byEpic.set(m.id, { group, place: k, ranked: m.rank !== null }));
+  return { stories, epics: byEpic };
+}
+
 export function readState(ctx) {
   const now = Date.now();
   const policy = ctx.lib.readVaultConfig(ctx.vault);
   const { list: stories, facts, unread } = readStories(ctx, now);
-  const epics = readEpics(ctx).map((e) => {
+  const readEpicList = readEpics(ctx);
+  const readInitiativeList = readInitiatives(ctx);
+  const order = groupOrder(ctx, facts, readEpicList, readInitiativeList);
+  for (const s of stories) s.place = order.stories.get(s.rel) ?? null;
+  const epics = readEpicList.map(({ fm, ...e }) => {
     const mine = stories.filter((s) => s.epic === e.id);
-    return { ...e, counts: ctx.stages.foldStages(mine.map((s) => s.status)), stories: mine.length };
+    const at = order.epics.get(e.id) || { group: null, place: null, ranked: false };
+    return { ...e, ...at, counts: ctx.stages.foldStages(mine.map((s) => s.status)), stories: mine.length };
   });
-  const initiatives = readInitiatives(ctx).map((i) => {
+  const initiatives = readInitiativeList.map(({ fm, ...i }) => {
     const mine = epics.filter((e) => e.initiative === i.id);
     const counts = { done: 0, active: 0, backlog: 0 };
     for (const e of mine) for (const k of Object.keys(counts)) counts[k] += e.counts[k];

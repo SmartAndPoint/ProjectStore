@@ -95,7 +95,7 @@ Edits made through the shell are not seen; a Read of the story sets the pointer.
 ### Before a vault commit: whose edits are in a file
 
 Outside the dashboard's page, ProjectStore never commits. (The page commits a
-story's move or handover in a clone of the vault of its own, on a branch of its own, and
+story's move, handover or reorder in a clone of the vault of its own, on a branch of its own, and
 the change reaches the vault only through a pull request a person merges.) Each
 session commits its own vault work, a whole
 file at a time, so when two sessions edit one file, the first to commit takes

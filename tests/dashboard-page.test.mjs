@@ -308,6 +308,7 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "flow-counts.mjs",
     "graph.mjs",
     "binding.mjs",
+    "rank.mjs",
   ]);
   const seen = new Set();
   let size = 0;

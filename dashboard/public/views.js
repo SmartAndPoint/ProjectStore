@@ -11,7 +11,7 @@ ui.me = store.get("me", "");
 ui.work = {}; // the filter being tried in each view
 
 const GROUPS = { none: "No grouping", status: "Status", epic: "Epic", initiative: "Initiative", assignee: "Assignee", priority: "Priority" };
-const SORTS = { order: "Backlog order", age: "Longest in its status", updated: "Recently updated", title: "Title" };
+const SORTS = { order: "Priority", age: "Longest in its status", updated: "Recently updated", title: "Title" };
 const WORK_FIRST = ["In Progress", "Review", "ToDo", "Backlog", "Done"];
 const blankFilter = () => ({ q: "", initiative: "", epic: "", assignee: "", priority: [], columns: [], kind: "", ready: "", hideDone: false });
 const BUILTIN = {

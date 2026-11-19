@@ -496,3 +496,9 @@ a.chip.pr:hover { color: var(--text); background: var(--accent-bg); }
 .card.can-move { cursor: grab; }
 .col.drop-ok { border-style: dashed; border-color: var(--accent); }
 .col.drop-over { background: var(--accent-bg); border-style: solid; }
+/* The backlog tree's reorder (the spec dashboard-rank): a grip, the drop line, the mark of a row placed by hand. */
+tr.can-rank .grip { color: var(--faint); margin-right: 4px; cursor: grab; user-select: none; }
+tr:not(.can-rank) .grip { display: none; }
+tr.drop-line-before > td { box-shadow: inset 0 2px 0 var(--accent); }
+tr.drop-line-after > td { box-shadow: inset 0 -2px 0 var(--accent); }
+.rank-mark { margin-left: 6px; font-size: 11px; color: var(--accent); cursor: help; }
