@@ -345,16 +345,19 @@ test("check: a forked session checking a file its live parent edited names the p
   assert.ok(x.reasons.includes("no-record"), "the fork has an empty record");
 });
 
-// [precommit#5]
-test("views: kanban.md rewritten while every other changed file is the session's own is consistent, exit 0", () => {
+// [precommit#5] [flow-view#11]
+test("views: kanban.md and the flow page rewritten while every other changed file is the session's own are consistent, exit 0", () => {
   const f = fixture();
   edit(f, "s1", "epics/PS-A/stories/story-a.md", "mine\n");
   writeFileSync(join(f.vault, "kanban.md"), "# Board\n\n- story a\n"); // reconcile, not recorded
+  writeFileSync(join(f.vault, "flow.md"), "# Flow\n\n- story a\n"); // reconcile, not recorded
   const r = check(f, "s1");
-  const k = fileOf(r, "kanban.md");
-  assert.equal(k.verdict, "consistent");
-  assert.equal(k.rule, "sources");
-  assert.deepEqual(k.fed_by, ["epics/PS-A/stories/story-a.md"]);
+  for (const view of ["kanban.md", "flow.md"]) {
+    const k = fileOf(r, view);
+    assert.equal(k.verdict, "consistent", view);
+    assert.equal(k.rule, "sources", view);
+    assert.deepEqual(k.fed_by, ["epics/PS-A/stories/story-a.md"], view);
+  }
   assert.equal(r.exit, 0);
 });
 

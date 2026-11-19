@@ -1892,6 +1892,22 @@ test("dashboard writes: a move that succeeds is one commit of the story and its 
   });
 });
 
+// [flow-view#11] [dashboard-writes#7]
+test("dashboard writes: in a clone whose vault has flow.md, a move's refresh rewrites the page, and the commit holds the story and its epic.md and no flow.md", async () => {
+  await withWorld({ flowPage: true }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.result.reconcile.written > 0, "move regenerated the derived views");
+    assert.deepEqual(committedFiles(w, clone), [EPIC_REL, STORY_REL]);
+    const views = derivedViewPaths(loadLayout("engineering"));
+    assert.equal(views.flow, "flow.md");
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+    assert.equal(readFileSync(join(clone, "flow.md"), "utf8"), "stub flow\n");
+  });
+});
+
 // [dashboard-writes#7]
 test("dashboard writes: a move that refuses leaves the clone's HEAD and working tree as they were and no batch branch, and the answer holds move's refusal with the project's paths", async () => {
   await withWorld({}, async (w) => {

@@ -304,6 +304,14 @@ each key activates.
   `git log` per run (`commitsSince` in `scripts/diff-refs.mjs`), by author and
   committer name only. Every flow finding is a warn or an info, never an
   issue. The group runs in `doctor --vault` and never at session start.
+- The flow page, `flow.md` (`scripts/flow-view.mjs`), is a derived view of the
+  same counts, given to a layout by its `flow` view block (`"flow": {"file":
+  "flow.md"}`). It is dated by the newest stamp a story carries and passes
+  that instant to every count, so it reads no clock; `weeklyCounts` and
+  `cumulativeFlow` in `scripts/flow-counts.mjs` give its throughput and its
+  cumulative flow. Reconcile makes it only on request (`--only flow`) and
+  keeps an existing one fresh; doctor's `flow-view` check, beside the graph's,
+  calls it stale exactly when reconcile would rewrite it.
 - An epic becomes done by the epic rule (`applyEpicRule` in
   `scripts/epic-rule.mjs`), which the story command's close runs after the
   epic row: its own status is neither done nor set aside, at least one story

@@ -55,12 +55,15 @@ export function findStories(vault, epicsPath) {
       // A story with no status has no column. Defaulting it to "planned" would
       // invent a claim about work nobody made — legacy stories written before
       // frontmatter existed would show up as queued. They return to the board
-      // the moment they get a status.
-      if (!data.status) {
+      // the moment they get a status. The status is read trimmed, as the flow
+      // counts read it, so a blank one is none (the flow-view spec, contract 6).
+      const status = String(data.status ?? "")
+        .trim()
+        .toLowerCase();
+      if (!status) {
         skipped.no_status.push(relPath);
         continue;
       }
-      const status = String(data.status).toLowerCase();
       if (NOT_ACTIONABLE.has(status)) {
         skipped.not_actionable.push(relPath);
         continue;

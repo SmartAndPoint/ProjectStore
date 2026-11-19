@@ -331,7 +331,8 @@ function judgeCopy({ root, real, selected, git, layout, project, sid, recorded, 
     return b === null ? undefined : b;
   };
   const views = derivedViewPaths(layout);
-  const globals = new Set([views.board, views.codeMap, views.graph].filter(Boolean));
+  // Every view by name: the board, the code map, the graph and the flow page.
+  const globals = new Set(Object.values(views).filter((v) => typeof v === "string"));
   const indexes = new Map(views.indexes.map((x) => [x.path, x.folder]));
   const underLayout = (rel) => layout.folders.some((f) => rel.startsWith(`${f.path}/`));
 

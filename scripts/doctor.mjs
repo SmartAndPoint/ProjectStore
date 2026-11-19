@@ -152,6 +152,7 @@ import {
   trunkHistory,
 } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { checkFlowView } from "./flow-view.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
 import { checkSpecCode } from "./spec-code.mjs";
@@ -4363,6 +4364,7 @@ export function runVaultChecks(
     ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
+    ...checkFlowView(cfg, layout, proj),
     // The dashboard's kept branches: git reads, so never in runStartupChecks.
     ...checkDashboardKept(cfg, proj),
   );

@@ -90,10 +90,14 @@ export function vaultOf(cfg) {
   return String(cfg?.vault_path || "").replace(/\/+$/, "");
 }
 
-// The derived views by name: the board's file is a layout value, the other
-// two are fixed by their generators.
+// The derived views by name: the board's file is a layout value, the code
+// map and the graph are fixed by their generators, and the flow page, when
+// the layout has its view block, is a fourth that no freshness row reads (the
+// flow-view spec, contract 11).
 export function derivedViews(layout) {
-  return [(layout && layout.kanban && layout.kanban.file) || "kanban.md", "code-map.md", "graph.md"];
+  const views = [(layout && layout.kanban && layout.kanban.file) || "kanban.md", "code-map.md", "graph.md"];
+  if (layout && layout.flow) views.push(layout.flow.file || "flow.md");
+  return views;
 }
 
 // A path argument as the vault knows it: absolute paths are normalised first
