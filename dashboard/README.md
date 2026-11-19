@@ -68,6 +68,11 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   header, so no page of another site can make a request that runs a process; a GET or HEAD of a
   write route gets 404. Once at its start, before it answers, the server runs
   the refresh itself, inside a 10-second budget.
+- `POST /api/code` (`{ rel, fresh? }`) reads a story's or a spec's Code block, under the same
+  token and `Origin` check, whether or not the page can write, with no lock. It answers 404 for
+  a path that names no story or spec, and a GET or HEAD of it gets 404. `lib/code.mjs` reads the
+  project's repository as last fetched and one `gh pr list` of its pull requests, kept for 10
+  minutes; the spec "The dashboard's Code block…" (alias `dashboard-code`) holds the rules.
 - A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
   `move`, with `story`, `to` as `todo` or `planned`, and `reason`; `handover`, with `story`, `from`
   as the story's assignee, `to` and `reason`) and gives every field of it as a value. Each entry
@@ -81,9 +86,12 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   'none'` and `x-content-type-options: nosniff`.
 - The page's own answers carry a content policy that loads scripts, styles and pictures from the
   page itself only (`img-src 'self' data:`): a picture from another site is not shown.
-- One file, `lib/write.mjs`, starts every process and writes every file. No other file here
-  imports `node:child_process`, and from `node:fs` the others take only `readFileSync`,
-  `readdirSync`, `statSync`, `lstatSync`, `existsSync`, `realpathSync` and `createReadStream`.
+- One file, `lib/write.mjs`, starts every process and writes every file. `lib/code.mjs` names the
+  Code block's calls and hands each to it, marked as the read's, and the module refuses any so
+  marked that is not `git log`, `rev-list`, `rev-parse`, `show` or `diff` in the project, or
+  `gh pr list`. No other file here imports `node:child_process`, and from `node:fs` the others
+  take only `readFileSync`, `readdirSync`, `statSync`, `lstatSync`, `existsSync`, `realpathSync`
+  and `createReadStream`.
 - `lib/write.mjs` starts git, gh and the core's CLI through this Node, and nothing else. Each call
   is an argv with no shell, `--` before its positional arguments, stdin ignored, spawned detached
   (no controlling terminal), with `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and
@@ -93,8 +101,10 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   process group when it runs past it, or when the server stops. A call in the clone carries
   `-c core.hooksPath=/dev/null`, so no git hook runs there.
 - In the vault's repository it changes nothing: it runs `rev-parse`, `remote get-url`,
-  `config --get`, `config --get-regexp` and `var` there. In the project's repository it runs only
-  `rev-parse`. Everything else makes the clone at
+  `config --get`, `config --get-regexp` and `var` there. In the project's repository it runs
+  `rev-parse` to find the main checkout, and for the Code block `rev-parse`, `rev-list`, `log`,
+  `show` and `diff`, which read and fetch nothing, with `GIT_NO_LAZY_FETCH=1`, and `gh pr list`.
+  Everything else makes the clone at
   `<main checkout>/.projectstore/state/dashboard/<person>/clone/` or runs in it: `clone`, `config`, `fetch`, `ls-remote`, `remote`, `symbolic-ref`, `for-each-ref`, `rev-list`,
   `rev-parse`, `status`, `ls-files`, `diff`, `switch`, `add`, `commit`, `merge`, `cherry-pick`,
   `branch --delete`, `reset --hard`, `clean` and `push`. The README's row **The dashboard and your
@@ -188,6 +198,7 @@ lib/core.mjs      openCore({ core, project }): the version check, the core's mod
 lib/state.mjs     readState, readItem, readArtifacts and the path rule, each taking openCore's result
 lib/related.mjs   related(ctx, rel): an item's specs, ADRs and documents, and the contracts it touched
 lib/write.mjs     the write module: the page's clone, the lock, the refresh, preview, action, Send, Discard
+lib/code.mjs      openCode({ reader }): the Code block's read, a story's pull requests and a spec's files
 public/           the page: index.html, styles.css and classic scripts that share one global scope
   icons.js        the icons: kinds of artifacts, git objects, host marks
   md.js           Markdown to DOM nodes, never through innerHTML
@@ -196,6 +207,7 @@ public/           the page: index.html, styles.css and classic scripts that shar
   write.js        writeUi: a move with its preview, the batch strip, Send, Discard, kept branches
   item.js         the item pane: the document, its fields, the address bar
   related.js      Related: short in the side panel, in full beside the text
+  code.js         codeUi: the Code block in the side panel, links apart from leads
   keys.js         the command palette (⌘K), the selection and the keys
 ```
 
@@ -210,7 +222,11 @@ The core's readers it uses: the binding (`readConfigAt`, `normaliseVaultPath`), 
 (`checklistItems`), the stories and their facts (`readFlowStories`, `storyFacts`: status,
 board column, assignee, age in status, awaiting close), WIP (`wipByPerson`, `flowPeople`,
 `wipLimitOf`), an epic's stages (`foldStages`), the link graph (`buildGraph`) and a spec's
-amendment marks (`parseAmendmentMarkers`).
+amendment marks (`parseAmendmentMarkers`). For the Code block: the follow verb's link rules
+(`closesStoryRefs`, `prUrlOf`, `normUrl`, `isCounted`, `prState`), code paths (`refCovers`,
+`isGlobRef`, `normalRef`), and a spec's bundle (`buildSpecDrift`, with its git and grep seams
+replaced so that it starts nothing). The move verb's story lookup and the diff-refs module's
+`sinceWindow` are repeated in `lib/code.mjs`, and a test holds each to the core's.
 
 ### Readers of its own
 

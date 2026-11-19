@@ -19,7 +19,10 @@
 // names this server in its Host header: GET and HEAD read, and the five write
 // routes take POST only from the page's own requests, those that carry the
 // run's token (the meta tag of `/`) and the page's own Origin (contract 8).
-// Only lib/write.mjs starts a process or writes a file.
+// `POST /api/code`, the Code block's read (the spec "The dashboard's Code
+// block…", alias `dashboard-code`, contract 1), takes the same guard, writes
+// nothing and takes no lock. Only lib/write.mjs starts a process or writes a
+// file; lib/code.mjs names the read's calls and hands them to it.
 
 import { createServer } from "node:http";
 import { createReadStream, readFileSync, realpathSync, statSync } from "node:fs";
@@ -30,6 +33,7 @@ import { openCore } from "./lib/core.mjs";
 import { readState, readItem, readArtifacts, readableRel, MEDIA_TYPES } from "./lib/state.mjs";
 import { related } from "./lib/related.mjs";
 import { openWriter } from "./lib/write.mjs";
+import { openCode } from "./lib/code.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC = join(HERE, "public");
@@ -44,6 +48,9 @@ const STOP_GRACE_MS = 4000;
 // The write routes (contract 8). Only the preview and the action read a body.
 export const WRITE_ROUTES = Object.freeze(["/api/refresh", "/api/preview", "/api/action", "/api/send", "/api/discard"]);
 const BODY_ROUTES = new Set(["/api/preview", "/api/action"]);
+// The Code block's read (dashboard-code, contract 1): a POST of the page's own,
+// answered whether or not the page can write.
+export const CODE_ROUTE = "/api/code";
 const BODY_LIMIT = 64 * 1024;
 const TOKEN_META = /<meta name="projectstore-token" content="[^"]*"/;
 
@@ -174,7 +181,7 @@ function readBody(req) {
 // is openCore's context while the page cannot write. `token` is the run's;
 // `started` settles when the start's refresh has ended, and nothing past the
 // Host check is answered before it.
-export function handler({ writer, token, port, started = Promise.resolve() }) {
+export function handler({ writer, token, port, started = Promise.resolve(), code = null }) {
   const ownHost = (host) => host === `127.0.0.1:${port()}` || host === `localhost:${port()}`;
   const ownOrigin = (origin) => origin === `http://127.0.0.1:${port()}` || origin === `http://localhost:${port()}`;
   const ownToken = (given) => {
@@ -191,6 +198,28 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
     }
   };
 
+  // The guard of every POST (contract 8): the run's token and the page's own Origin.
+  const ownRequest = (req) => ownToken(req.headers["x-projectstore-token"]) && ownOrigin(req.headers.origin);
+
+  // The Code block's read (dashboard-code, contract 1): the guard (403), the
+  // body (400), then the read (404 for no story or spec, 200, or 500 for an
+  // error it did not expect). No lock and no place: it runs no step.
+  async function codeRoute(req, res) {
+    const shape = (status, fields) => send(req, res, status, { ...fields, write: writer.view() });
+    try {
+      if (!ownRequest(req)) {
+        req.resume();
+        return shape(403, { ok: false, error: "this route runs only for the page's own requests: the run's token and the page's own Origin" });
+      }
+      const got = await readBody(req);
+      if (!got.ok) return shape(400, { ok: false, error: got.error });
+      const r = await code.read(writer.readCtx(), { rel: got.value.rel, fresh: got.value.fresh === true });
+      return r.status === 200 ? shape(200, { ok: true, result: r.result }) : shape(r.status, { ok: false, error: r.error });
+    } catch (e) {
+      return shape(500, { ok: false, error: String(e?.message || e) });
+    }
+  }
+
   // A write route (contract 8): the guard, then whether the page can write
   // (409), then the body of the preview and the action (400: no JSON object,
   // over 64 KiB, or a verb or field outside write.verbs), then the step.
@@ -198,7 +227,7 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
   async function writeRoute(req, res, p) {
     const shape = (status, fields) => send(req, res, status, { ...fields, write: writer.view() });
     try {
-      if (!ownToken(req.headers["x-projectstore-token"]) || !ownOrigin(req.headers.origin)) {
+      if (!ownRequest(req)) {
         req.resume();
         return shape(403, { ok: false, error: "this route runs only for the page's own requests: the run's token and the page's own Origin" });
       }
@@ -233,16 +262,18 @@ export function handler({ writer, token, port, started = Promise.resolve() }) {
       const raw = String(req.url || "");
       const p = pathOf(raw);
       const writing = WRITE_ROUTES.includes(p);
+      const posting = writing || p === CODE_ROUTE;
       if (req.method === "POST" && writing) return await writeRoute(req, res, p);
+      if (req.method === "POST" && p === CODE_ROUTE && code) return await codeRoute(req, res);
       // OPTIONS too: no preflight is answered, so no Access-Control-Allow-* header is sent.
       if (req.method !== "GET" && req.method !== "HEAD") {
         req.resume();
-        return send(req, res, 405, { error: writing ? "this route takes POST from the page itself" : "this path answers GET and HEAD" }, { allow: writing ? "POST" : "GET, HEAD" });
+        return send(req, res, 405, { error: posting ? "this route takes POST from the page itself" : "this path answers GET and HEAD" }, { allow: posting ? "POST" : "GET, HEAD" });
       }
       // A `.` or `..` segment names no route, written plain or encoded (`%2e%2e`): refused
       // before the URL parser folds it away. A segment that does not decode names nothing.
       // No GET or HEAD reaches a write route, and none starts a process.
-      if (p === null || writing) throw new NotFound();
+      if (p === null || posting) throw new NotFound();
       const url = new URL(raw, `http://${HOST}`);
       // While the page can write, the readers read its clone; the state still
       // names the real project and the bound vault (lib/state.mjs).
@@ -318,6 +349,7 @@ export async function startServer({ core, project, port = null, ports = null, bu
   const ctx = await openCore({ core, project });
   const { start: startBudget = START_BUDGET_MS, ...callBudgets } = budgets || {};
   const writer = await openWriter({ ctx, budgets: callBudgets, record, env, now, platform });
+  const code = openCode({ reader: writer.reader, ...(now ? { now } : {}) });
   const onAbort = () => {
     writer.stop();
   };
@@ -326,7 +358,7 @@ export async function startServer({ core, project, port = null, ports = null, bu
   let startEnded;
   const started = new Promise((r) => (startEnded = r));
   let bound = 0;
-  const server = createServer(handler({ writer, token, port: () => bound, started }));
+  const server = createServer(handler({ writer, token, port: () => bound, started, code }));
   let closing = null;
   const close = () =>
     (closing ??= (async () => {
