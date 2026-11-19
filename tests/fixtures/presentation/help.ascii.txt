@@ -25,8 +25,8 @@ CHECK AND REPAIR
 
 ADVANCED
   plan . install . orientation . guide . agents . band . session . move .
-  initiative . epic . rank . create . reviewed . handover . dashboard . bind .
-  init . scaffold . mcp . version
+  initiative . epic . rank . create . reviewed . handover . groom . dashboard .
+  bind . init . scaffold . mcp . version
 
 Options
   --project <dir>  the project (default: the session's, else this directory)

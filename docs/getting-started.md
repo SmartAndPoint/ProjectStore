@@ -122,6 +122,7 @@ The README's [Configure](../README.md#configure) section lists what each setting
 /projectstore:bar status                                  # the band above the prompt: on/off, a pinned epic, why it is not drawing
 /projectstore:precommit                                   # before a vault commit: which changed files are this session's own
 /projectstore:follow                                      # move stories as their pull requests merge, close or go stale
+/projectstore:groom                                       # weekly pass: stale ToDo back to the backlog, one-story epics to the librarian
 ```
 
 ## How approval works
