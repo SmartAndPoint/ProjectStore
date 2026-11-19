@@ -671,6 +671,29 @@ test("verb: bare, a review story whose pull request merged and whose criteria ca
   assert.equal(lines[at + 2], "  npx projectstore follow --write");
 });
 
+// [create#11] [follow#1]
+test("verb: a marked review story whose pull request merged is closed with the note verb-mark, exit 0, under lifecycle_gates: off; a marked story with no pull request gets no note", async () => {
+  const mark = (t) => t.replace(/^---\n/, '---\nwritten_by_verb: "create 2026-11-19T06:00:00Z"\n');
+  const fx = flowVault({
+    vaultCfg: { ...POLICY, lifecycle_gates: "off" },
+    stories: {
+      "PS-X/story-a": mark(linked(reviewOf(readyStory()), 7)),
+      "PS-X/story-b": mark(byHand("story-b", "in-progress")),
+    },
+  });
+  spec(fx.vault);
+  const stub = stubOf({ prs: [mergedPr(7)] });
+  const r = await follow(fx, stub, ["--write"]);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.equal(fm(read(pathOf(fx, "story-a"))).status, "done");
+  const notes = r.r.notes.filter((n) => n.code === "verb-mark");
+  assert.deepEqual(
+    notes.map((n) => [n.story, n.pr]),
+    [["PS-X/story-a", URL]],
+  );
+  for (const k of ["code", "story", "pr", "message"]) assert.ok(k in notes[0], k);
+});
+
 // [follow#1]
 test("verb: a plan printed while the pull request was open, and the merge made after it: --write closes the story from the facts it read (edge)", async () => {
   const fx = flowVault({ stories: { "PS-X/story-a": linked(toReview(readyStory(), "2026-11-01T12:00:00.000Z"), 7) } });

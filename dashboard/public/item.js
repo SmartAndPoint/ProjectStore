@@ -222,7 +222,8 @@ function sideStory(d) {
 function sideEpic(d) {
   const e = epic(d.id);
   if (!e) return null;
-  const mine = S.stories.filter((s) => s.epic === e.id).sort((a, b) => cmp(S.coreColumns.indexOf(a.column), S.coreColumns.indexOf(b.column)) || byOrder(a, b));
+  // In the tree's order (the spec dashboard-rank, contract 3), done stories included.
+  const mine = epicStories(e.id);
   const ini = e.initiative && S.initiatives.find((i) => i.id === e.initiative);
   return {
     kind: e.standing ? "epic · standing" : "epic",

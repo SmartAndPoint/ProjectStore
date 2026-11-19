@@ -68,16 +68,23 @@ function setSection(text, id, body) {
 }
 
 // An epic rendered from the bundled template: its status (frontmatter and
-// header row), its Expected Results body, and its Stories table's data rows
-// in place of the template's (null keeps the template's row).
+// header row), its Expected Results body, and its Stories table's data rows,
+// put after the template's separator (its table has no row since 2026-11-12;
+// null keeps it empty).
 function epicText({ id = "PS-X", status = "planned", lang = "en", rows = null, results = "- [x] it works" } = {}) {
   let t = renderTemplate(loadTemplate(lang, "epic"), { id, title: id, date: "2026-10-01", tags: "[]" });
   if (status !== "planned") {
     t = setFm(t, "status", status);
     t = setHeaderField(t, "status", status).text;
   }
-  if (rows !== null)
-    t = t.replace("| [story-001](./stories/story-001.md) | planned |  |\n", rows.map((r) => `${r}\n`).join(""));
+  if (rows !== null) {
+    const lines = t.split("\n");
+    const h = lines.findIndex((l) => headingLineRe("stories").test(l));
+    const sep = lines.findIndex((l, k) => k > h && /^\|[-| ]+\|$/.test(l));
+    assert.ok(h !== -1 && sep !== -1, "the template's Stories table");
+    lines.splice(sep + 1, 0, ...rows);
+    t = lines.join("\n");
+  }
   if (results !== null) t = setSection(t, "expected_results", results);
   return t;
 }

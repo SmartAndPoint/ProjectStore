@@ -1316,7 +1316,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
       fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(70000) },
     });
     const bodies = [
-      [JSON.stringify({ verb: "rank" }), /not a verb the page may run \(write\.verbs: move, handover\)/],
+      [JSON.stringify({ verb: "groom" }), /not a verb the page may run \(write\.verbs: move, handover, rank\)/],
       [JSON.stringify({}), /not a verb the page may run/],
       [
         JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "done", reason: "r" } }),
@@ -1650,8 +1650,8 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
   );
   assert.deepEqual(
     WRITE_VERBS.map((v) => v.verb),
-    ["move", "handover"],
-    "the page offers move and handover",
+    ["move", "handover", "rank"],
+    "the page offers move, handover and rank",
   );
   for (const entry of WRITE_VERBS) {
     const row = VERBS.find((r) => r.verb === entry.verb);
@@ -1664,18 +1664,30 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
       `${entry.verb} answers --json`,
     );
     const call = VERB_ARGV[entry.verb];
-    assert.deepEqual([...call.positionals, ...call.options].sort(), Object.keys(entry.fields).sort());
+    assert.deepEqual(
+      [...(call.word || []), ...call.positionals, ...call.options].sort(),
+      Object.keys(entry.fields).sort(),
+    );
     for (const name of call.options) {
       const o = row.options.find((x) => x.name === name);
       assert.ok(o && typeof o.arg === "string", `--${name} is an option of ${entry.verb} that takes a value`);
     }
     // A verb with no form takes no positional; one with a form takes each of its words.
+    // A literal word of the form (rank's story or epic) is a field, and the
+    // value after it is that field's: each form starts with one such word.
     const form = row.usage.length ? row.usage[0].split(" ").length : 0;
-    assert.equal(form, call.positionals.length, `${entry.verb}'s positionals`);
+    assert.equal(form, call.positionals.length + (call.word ? 2 : 0), `${entry.verb}'s positionals`);
+    if (call.word)
+      assert.deepEqual(
+        row.usage.map((u) => u.split(" ")[0]),
+        [...call.word],
+        `${entry.verb}'s forms start with its literal words`,
+      );
     // What the page draws a dialog from (contract 10).
     assert.ok(typeof entry.label === "string" && entry.label, `${entry.verb} has a label`);
-    for (const name of entry.subject.match(/\{([a-z_]+)\}/g).map((x) => x.slice(1, -1)))
-      assert.ok(Object.hasOwn(entry.fields, name), `${entry.verb}'s subject names its field ${name}`);
+    for (const subject of [entry.subject].flat())
+      for (const name of subject.match(/\{([a-z_]+)\}/g).map((x) => x.slice(1, -1)))
+        assert.ok(Object.hasOwn(entry.fields, name), `${entry.verb}'s subject names its field ${name}`);
     for (const [name, f] of Object.entries(entry.fields)) {
       assert.ok(typeof f.label === "string" && f.label, `${entry.verb}.${name} has a label`);
       if (f.kind === "choice")
@@ -1892,6 +1904,22 @@ test("dashboard writes: a move that succeeds is one commit of the story and its 
   });
 });
 
+// [flow-view#11] [dashboard-writes#7]
+test("dashboard writes: in a clone whose vault has flow.md, a move's refresh rewrites the page, and the commit holds the story and its epic.md and no flow.md", async () => {
+  await withWorld({ flowPage: true }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const r = await writer.action(move());
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.result.reconcile.written > 0, "move regenerated the derived views");
+    assert.deepEqual(committedFiles(w, clone), [EPIC_REL, STORY_REL]);
+    const views = derivedViewPaths(loadLayout("engineering"));
+    assert.equal(views.flow, "flow.md");
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+    assert.equal(readFileSync(join(clone, "flow.md"), "utf8"), "stub flow\n");
+  });
+});
+
 // [dashboard-writes#7]
 test("dashboard writes: a move that refuses leaves the clone's HEAD and working tree as they were and no batch branch, and the answer holds move's refusal with the project's paths", async () => {
   await withWorld({}, async (w) => {
@@ -1987,6 +2015,97 @@ test("dashboard writes: with every manifest's session id and project variable an
     const h = await writer.action(handover());
     assert.equal(h.status, 200, JSON.stringify(h.body));
     assert.equal(h.body.write.batch.commits, 2, "the handover is the batch's second commit");
+    assert.equal(treeHash(w.repo), bound, "the bound checkout is byte-identical");
+    for (const dir of [w.project, writer.paths.binding]) {
+      const sessions = stateDir(dir);
+      const found = existsSync(sessions) ? readdirSync(sessions).filter((n) => n.endsWith(".writes")) : [];
+      assert.deepEqual(found, [], `no record of writes under ${sessions}`);
+    }
+  });
+});
+
+// ─── The rank entry (the spec dashboard-rank, contract 10) ───────────
+
+const RANK_STORY = (slug, title) =>
+  `---\ntype: story\nid: "${slug}"\nepic: "PS-X"\ntitle: "${title}"\nstatus: planned\npriority: p2\ncreated: 2026-11-01\nupdated: 2026-11-01\n---\n\n# ${title}\n`;
+const RANK_EPIC = (id) =>
+  `---\ntype: epic\nid: "${id}"\ntitle: "${id}"\nstatus: planned\npriority: p2\ncreated: 2026-11-01\nupdated: 2026-11-01\n---\n\n# ${id}\n`;
+const RANK_FILES = {
+  "epics/PS-X/stories/story-b.md": RANK_STORY("story-b", "B"),
+  "epics/PS-A/epic.md": RANK_EPIC("PS-A"),
+  "epics/PS-B/epic.md": RANK_EPIC("PS-B"),
+  "epics/PS-C/epic.md": RANK_EPIC("PS-C"),
+};
+
+// [dashboard-rank#10] [dashboard-writes#6]
+test("dashboard writes: a rank preview of a story before its sibling runs `rank --before=… --json -- story <EPIC>/<id>` and answers the plan's changes, with the clone unchanged", async () => {
+  await withWorld({ files: RANK_FILES }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const before = cloneState(w, clone);
+    const from = w.record.length;
+    const r = await writer.preview({ verb: "rank", fields: { story: "PS-X/story-b", before: "PS-X/story-a" } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ok, true);
+    const [call] = cliCalls(w, from, "rank");
+    assert.ok(call, "rank ran");
+    const at = call.argv.indexOf("--");
+    assert.deepEqual(call.argv.slice(at), ["--", "story", "PS-X/story-b"]);
+    assert.ok(call.argv.includes("--before=PS-X/story-a") && call.argv.includes("--json"), call.argv.join(" "));
+    assert.ok(!call.argv.includes("--write"));
+    assert.ok(Array.isArray(r.body.result.changes) && r.body.result.changes.length >= 1, JSON.stringify(r.body.result));
+    assert.deepEqual(cloneState(w, clone), before);
+  });
+});
+
+// [dashboard-rank#10] [dashboard-writes#7]
+test("dashboard writes: a rank action of epic PS-C after PS-A is one commit of epic.md files only, with the subject rank PS-C after PS-A", async () => {
+  await withWorld({ files: RANK_FILES }, async (w) => {
+    const writer = await writable(w);
+    const clone = writer.paths.clone;
+    const base = headOf(w, clone);
+    const r = await writer.action({ verb: "rank", fields: { epic: "PS-C", after: "PS-A" } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ok, true);
+    assert.equal(w.git(clone, "rev-parse", "HEAD^"), base, "one new commit");
+    const files = committedFiles(w, clone);
+    assert.ok(files.length >= 1 && files.every((f) => /^epics\/PS-[A-Z]\/epic\.md$/.test(f)), files.join(", "));
+    assert.ok(files.includes("epics/PS-C/epic.md"));
+    assert.equal(w.git(clone, "log", "-1", "--format=%s"), "rank PS-C after PS-A");
+    assert.equal(porcelain(w, clone), "", "the derived views are back at the branch head");
+  });
+});
+
+// [dashboard-rank#10] [dashboard-writes#6]
+test("dashboard writes: a rank request with both story and epic, with neither before nor after, an epic of ../x, or a story's sibling named as an epic gets 400 and starts no process", async () => {
+  await withWorld({ files: RANK_FILES }, async (w) => {
+    const writer = await writable(w);
+    for (const fields of [
+      { story: "PS-X/story-b", epic: "PS-C", before: "PS-X/story-a" },
+      { story: "PS-X/story-b" },
+      { epic: "../x", before: "PS-A" },
+      { story: "PS-X/story-b", before: "PS-A" },
+    ]) {
+      const from = w.record.length;
+      const r = await writer.preview({ verb: "rank", fields });
+      assert.equal(r.status, 400, JSON.stringify(fields));
+      assert.equal(cliCalls(w, from, "rank").length, 0, "no process started");
+    }
+  });
+});
+
+// [dashboard-rank#10]
+test("dashboard writes: with the session and project variables set, a rank action leaves the bound checkout byte-identical and no *.writes folder", async () => {
+  await withWorld({ files: RANK_FILES }, async (w) => {
+    const manifests = [...loadHarnesses().values()];
+    const env = { ...w.env, PROJECTSTORE_PROJECT_DIR: w.project };
+    for (const k of manifests.map((m) => m.runtime?.session_id_env).filter(Boolean)) env[k] = "dash-session-rank";
+    for (const k of manifests.map((m) => m.runtime?.project_dir_env).filter(Boolean)) env[k] = w.project;
+    const writer = await writable(w, { env });
+    const bound = treeHash(w.repo);
+    const r = await writer.action({ verb: "rank", fields: { story: "PS-X/story-b", before: "PS-X/story-a" } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.write.batch.commits, 1);
     assert.equal(treeHash(w.repo), bound, "the bound checkout is byte-identical");
     for (const dir of [w.project, writer.paths.binding]) {
       const sessions = stateDir(dir);

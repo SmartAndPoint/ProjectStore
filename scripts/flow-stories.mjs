@@ -9,9 +9,12 @@
 // The counts (flow-counts.mjs) take its result and stay pure.
 //
 // Spec: "Flow counts: whole days, week windows, age in status, awaiting
-// close, WIP and capacity" (alias `flow-counts`), contract 2.
+// close, WIP and capacity" (alias `flow-counts`), contract 2, and its
+// contract 9 (readFlowEpics), added 2026-11-15 by PS-FLOW/story-a-weekly-
+// grooming-pass-sends-stale-todo-stories-back-to-the-backlog-and-the-
+// librarian-proposes-epic-merges.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { listEpicStories, parseFrontmatter } from "./lib.mjs";
 
@@ -53,4 +56,36 @@ export function readFlowStories(vault, epicsPath, { read = (p) => readFileSync(p
     }
   }
   return { stories, unread };
+}
+
+// Every epic of the vault's epics folder, as {rel, epic, text, fm}, in
+// sorted order (Flow counts, contract 9): a folder holding `epic.md`, except
+// one whose name starts with `_` or `.`; a folder with stories and no
+// `epic.md` is not an epic. `unread` counts the `epic.md` files that could
+// not be read; an epics folder that cannot be read is readFlowStories' to
+// count, so a reader of both counts it once. `read` is a test's seam. It
+// never throws.
+export function readFlowEpics(vault, epicsPath, { read = (p) => readFileSync(p, "utf8") } = {}) {
+  const epics = [];
+  let unread = 0;
+  let names;
+  try {
+    names = readdirSync(join(vault, epicsPath)).sort();
+  } catch {
+    return { epics, unread };
+  }
+  for (const epic of names) {
+    if (epic.startsWith("_") || epic.startsWith(".")) continue;
+    const abs = join(vault, epicsPath, epic, "epic.md");
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = String(read(abs));
+    } catch {
+      unread++;
+      continue;
+    }
+    epics.push({ rel: `${epicsPath}/${epic}/epic.md`, epic, text, fm: parseFrontmatter(text).data });
+  }
+  return { epics, unread };
 }

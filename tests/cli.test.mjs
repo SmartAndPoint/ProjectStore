@@ -1140,12 +1140,16 @@ const SCRIPT_ONLY = [
   },
   { script: "diff-refs.mjs", why: "PS-SPEC's story 'code-refs from diff' owns turning it into a verb" },
   {
+    script: "spec-code.mjs",
+    why: "a planner helper like spec-drift.mjs: `owners` prints which specs own a file, from the vault only, with no verb and no MCP tool (the spec-owned-code spec, contract 7)",
+  },
+  {
     script: "spec-drift.mjs",
     why: "a standalone reviewer helper like diff-refs.mjs: the spec-drift mode's read-only fact bundle, with no verb and no MCP tool by the plan gate's decision",
   },
   {
     script: "status-change.mjs",
-    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, through the same read-again writer move uses",
+    why: "PS-FLOW's epic-row entry: the gates are pure and write no file, so the story command's plan and close ceremonies update the epic's Stories row after their own write, and its create step adds the new story's row (--add), through the same read-again writer move uses",
   },
   {
     script: "epic-rule.mjs",
@@ -2870,9 +2874,17 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     move: ["move <story> <status> [options]"], // new in PS-FLOW (SPEC-001 contract 7, the ready step)
     initiative: ["initiative <id> [<decision>] [options]"], // new in PS-BACKLOG (the initiative spec, contracts 9 and 10)
     epic: ["epic <EPIC-ID> [options]"], // new in PS-BACKLOG (the initiative spec, contract 11)
+    create: [
+      "create initiative <title> [options]",
+      "create epic <EPIC-ID> <title> [options]",
+      "create story <EPIC-ID> <title> [options]",
+    ], // new in PS-BACKLOG (the create spec, contract 1)
+    reviewed: ["reviewed <path> [options]"], // new in PS-BACKLOG (the create spec, contract 6)
+    rank: ["rank story <EPIC-ID>/<story-id> [options]", "rank epic <EPIC-ID> [options]"], // new in PS-BACKLOG (the rank spec, contract 3)
     follow: ["follow [options]"], // new in PS-FLOW (the follow spec, contract 1)
     next: ["next [options]"], // new in PS-FLOW (the next verb's spec, contract 1)
     handover: ["handover [options]"], // new in PS-FLOW (the handover spec, contract 1)
+    groom: ["groom [options]"], // new in PS-FLOW (the groom spec, contract 1)
     dashboard: ["dashboard [<dir>] [options]"], // new in PS-DASHBOARD (the dashboard spec, contract 3)
   };
   assert.deepEqual(VERBS.map((v) => v.verb).sort(), Object.keys(GOLDEN).sort(), "every verb has its 0.29.2 forms here");

@@ -59,6 +59,7 @@ import {
   hostRegistry,
   autoUpdateDefault,
 } from "./harness.mjs";
+import { escapeRe, INLINE_CODE_SPAN_RE } from "./grammar.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -1744,14 +1745,16 @@ export function folderByKind(layout, kind) {
 
 // The derived views a layout's reconcile writes, vault-relative: the board
 // (the layout's kanban file, when it declares one), the code map, the graph,
-// and each layout folder's README.md, which is a view where it holds a managed
-// index table. One list, read by reconcile and by the pre-commit check (the
-// check spec, contract 5), so the two cannot name different views.
+// the flow page (its view block's file, else null), and each layout folder's
+// README.md, which is a view where it holds a managed index table. One list,
+// read by reconcile and by the pre-commit check (the check spec, contract 5),
+// so the two cannot name different views.
 export function derivedViewPaths(layout) {
   return {
     board: layout.kanban ? layout.kanban.file || "kanban.md" : null,
     codeMap: "code-map.md",
     graph: "graph.md",
+    flow: layout.flow ? layout.flow.file || "flow.md" : null,
     indexes: layout.folders.map((f) => ({ folder: f, path: `${f.path}/README.md` })),
   };
 }
@@ -1805,236 +1808,29 @@ export function renderTemplate(template, vars) {
 
 // ─── Heading / keyword registry (PS-SPEC story-002) ────────────────────
 //
-// scaffold/headings.json is the language-independent registry of the section
-// headings, inline keywords and index-table column names the deterministic
-// scripts (doctor / reconcile / story-section) must recognize. Per id, per
-// language, an ARRAY of accepted forms; the FIRST form of the configured
-// language is the canonical form used when WRITING. Matching always accepts
-// every registered form of every language — a ru-headed file in an en-bound
-// vault must still lint. This is deliberately separate from
-// templates/<lang>/strings.json, a render-only map: the status line's strings
-// and the folder names and descriptions scaffold writes into READMEs, which
-// nothing ever matches against.
-
-let _headingsCache = null;
-
-export function loadHeadingsRegistry() {
-  if (_headingsCache) return _headingsCache;
-  const p = join(pluginRoot(), "scaffold", "headings.json");
-  try {
-    _headingsCache = JSON.parse(readFileSync(p, "utf8"));
-  } catch (e) {
-    throw new Error(`heading registry missing or unreadable (${p}): ${e.message}`, { cause: e });
-  }
-  return _headingsCache;
-}
-
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function allForms(section, id) {
-  const entry = loadHeadingsRegistry()[section]?.[id];
-  if (!entry) throw new Error(`headings.json has no ${section} entry "${id}"`);
-  return Object.values(entry).flat();
-}
-
-// Canonical write form for the configured language (en fallback).
-export function heading(id, lang = "en") {
-  const entry = loadHeadingsRegistry().headings?.[id];
-  if (!entry) throw new Error(`headings.json has no headings entry "${id}"`);
-  return (entry[lang] || entry.en)[0];
-}
-
-// Matches a `## <heading>` line in any registered language, case-insensitively
-// (hand-typed `## критерии приёмки` still matches). Anchored to the full line
-// so "Acceptance" never matches "Acceptance Criteria".
-export function headingLineRe(id) {
-  const forms = allForms("headings", id).map(escapeRe);
-  return new RegExp(`^##\\s+(?:${forms.join("|")})\\s*$`, "mi");
-}
-
-// Extract the body of section `id`: text between its heading line and the
-// next `## ` heading (or end of file). Returns null when the section is absent.
-export function sectionOf(body, id) {
-  const m = body.match(headingLineRe(id));
-  if (!m) return null;
-  const rest = body.slice(m.index + m[0].length);
-  const next = rest.search(/^## /m);
-  return next === -1 ? rest : rest.slice(0, next);
-}
-
-export function keywordRe(id) {
-  const forms = allForms("keywords", id).map(escapeRe);
-  return new RegExp(`(?:${forms.join("|")})`, "i");
-}
-
-// The two inline grammars built from a keyword plus a colon: the evidence suffix
-// on a checked acceptance criterion, and the story attribution on a spec
-// acceptance item. Both live here rather than inline at their call sites so the
-// gate and its tests cannot drift, and both accept the CJK-width colon — a zh
-// vault writes `— 证据：<test>` and `— stories：PS-X/story-foo`, and a full-width
-// colon must not read as the marker being absent.
-export function evidenceSuffixRe() {
-  return new RegExp(`[—–-]\\s*${keywordRe("evidence").source}\\s*[:：]`, "i");
-}
-
-export function storiesAttributionRe() {
-  return new RegExp(`[—–-]\\s*${keywordRe("stories").source}\\s*[:：]\\s*(.+)$`, "i");
-}
-
-// A test cites a spec contract with `[<key>#<n>]` (the spec policy ADR,
-// Decisions 4 and 8): <key> is the spec's id or alias, <n> the contract
-// number in ASCII — `4'` for 4′, `4''` for 4″, `4/1''` for a step nested
-// under contract 4. The closing bracket ends the token, so #4 never matches
-// #4' or #40. The lookarounds drop a Markdown link `[x#1](…)` and a
-// wikilink `[[x#1]]`. These tokens are machine tokens: English in every
-// locale, never in the heading registry.
-export const CITATION_EXAMPLE_KEY = "example";
-export function citationTokenRe() {
-  return /(?<!\[)\[([A-Za-z0-9][A-Za-z0-9._-]*)#(\d+'*(?:\/\d+'*)?)\](?![(\]])/g;
-}
-// A loose ERE for git's side of the scan; citationTokenRe decides.
-export const CITATION_PREFILTER = "\\[[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]";
-// A contract number as a spec writes it (`4′`, `1″`), in the token's ASCII.
-export function contractNumberAscii(n) {
-  return String(n).replace(/″/g, "''").replace(/′/g, "'");
-}
-
-// Amendment markers (the ADR "An active spec is amended by a marked block
-// under the contract…", decisions 1 to 3; SPEC-001 contract 5). A marker is a
-// blockquote in the Behavioral contracts section, after a top-level contract
-// and before the next one, whose first paragraph (wrapped lines joined) reads
-//   amended YYYY-MM-DD by <ref>: <KIND> — <why>
-// `amended`, `by`, the kinds and the tombstone body are machine tokens:
-// English in every locale. The colon is `:` or `：`, the separator `—`, `–` or
-// `-`. A first paragraph that starts `amended <date> by` in any case is a
-// candidate; one that is not the grammar is an `amendment-form` warn, and so
-// is a marker before the first contract or after a REMOVED marker under the
-// same contract. A ref whose epic part is the reserved example key is
-// documentation and is skipped whole. Fences and HTML comments do not count.
-export const AMENDMENT_KINDS = Object.freeze(["ADDED", "MODIFIED", "REMOVED"]);
-export const TOMBSTONE_BODY = "Removed, see below.";
-export const AMENDMENT_GRAMMAR = "amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>";
-const AMENDMENT_CANDIDATE_RE = /^amended\s+\S+\s+by(?:\s|$)/i;
-const AMENDMENT_REF_RE = /^amended\s+\S+\s+by\s+([^\s:：]+)/i;
-const AMENDMENT_RE = /^amended (\d{4}-\d{2}-\d{2}) by ([^\s:：]+)\s*[:：]\s*(ADDED|MODIFIED|REMOVED)\s*[—–-]\s*(\S.*)$/;
-
-// The markers of one spec body, in file order. Each is
-//   { contract: "<n>" | null, index: <contract's position> | -1, line,
-//     date, ref, kind, why, form: null | "<what is wrong>", valid }
-// where `line` is 1-based in the body, and `valid` means no form warn (a date
-// or link finding does not make a marker invalid).
-export function parseAmendmentMarkers(body) {
-  const text = String(body || "");
-  const m = text.match(headingLineRe("spec_contracts"));
-  if (!m) return [];
-  const start = m.index + m[0].length;
-  const rest = text.slice(start);
-  const next = rest.search(/^## /m);
-  const sec = next === -1 ? rest : rest.slice(0, next);
-  const lineBase = text.slice(0, start).split("\n").length; // 1-based line of sec's first line
-  // Comments are blanked to their newlines, so line numbers survive.
-  const lines = sec.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, "")).split("\n");
-  const out = [];
-  let index = -1;
-  let contract = null;
-  let fenced = false;
-  let run = null;
-  const flush = () => {
-    if (!run) return;
-    const quoted = run.lines.map((l) => l.replace(/^\s*>\s?/, ""));
-    const firstPara = [];
-    for (const q of quoted) {
-      if (/^\s*$/.test(q)) break;
-      firstPara.push(q.trim());
-    }
-    const para = firstPara.join(" ").trim();
-    const at = run.line;
-    run = null;
-    if (!AMENDMENT_CANDIDATE_RE.test(para)) return;
-    const refHit = para.match(AMENDMENT_REF_RE);
-    if (refHit && refHit[1].split("/")[0] === CITATION_EXAMPLE_KEY) return;
-    const g = para.match(AMENDMENT_RE);
-    const entry = {
-      contract,
-      index,
-      line: lineBase + at,
-      date: g ? g[1] : null,
-      ref: g ? g[2] : refHit ? refHit[1] : null,
-      kind: g ? g[3] : null,
-      why: g ? g[4].trim() : null,
-      form: null,
-      valid: false,
-    };
-    if (!g) entry.form = `the first paragraph is not \`${AMENDMENT_GRAMMAR}\``;
-    else if (contract === null) entry.form = "it comes before the first contract";
-    else if (out.some((x) => x.index === index && x.valid && x.kind === "REMOVED"))
-      entry.form = `it follows a REMOVED marker under contract ${contract} (a restored rule is ADDED under a new number)`;
-    entry.valid = entry.form === null;
-    out.push(entry);
-  };
-  lines.forEach((line, i) => {
-    if (/^\s*```/.test(line)) {
-      flush();
-      fenced = !fenced;
-      return;
-    }
-    if (fenced) return;
-    const top = line.match(/^(\d+[′″']*)\.(\s|$)/);
-    if (top) {
-      flush();
-      index++;
-      contract = contractNumberAscii(top[1]);
-      return;
-    }
-    if (/^\s*>/.test(line)) {
-      if (!run) run = { line: i, lines: [] };
-      run.lines.push(line);
-      return;
-    }
-    flush();
-  });
-  flush();
-  return out;
-}
-
-// A date the calendar has (2026-02-30 is not one).
-export function isCalendarDate(s) {
-  const m = String(s || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return false;
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-  return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
-}
-
-// The body footer (`*Last updated: 2026-01-01*`) is content rather than a heading,
-// but the lifecycle gates keep it in step with frontmatter `updated:`. Matching
-// accepts every registered language; the rewrite preserves the file's OWN prefix
-// verbatim through capture group 1, so a locale's punctuation convention — fr
-// writes `… : `, zh writes `…：` — survives without the writer needing to know
-// which locale it is looking at, and a hand-mixed vault keeps each file's form.
-export function footerDateRe() {
-  const forms = allForms("footers", "last_updated").map(escapeRe);
-  return new RegExp(`^(\\*(?:${forms.join("|")})\\s*[:：]\\s*).*(\\*)$`, "mi");
-}
-
-// Matches a folder-README index header row in any registered language,
-// in the standard 4-column form: | File | Title | Status | Date |
-//
-// End-anchored on purpose: a header carrying extra hand-added columns
-// (`| File | Title | Status | Date | Notes |`) is NOT this table. Without the
-// anchor it prefix-matched, and rebuildIndexRows then rewrote every managed
-// row to the registered four columns — silently destroying the extra cells,
-// which are human-owned content no regeneration can recompute. Unanchored,
-// doctor's index-header check could not fire either (the header "matched"),
-// so the loss had no detector at all. Anchored, both halves behave as
-// documented: reconcile reports the index unusable and doctor warns.
-export function indexHeaderRe() {
-  const cols = ["file", "title", "status", "date"].map((c) => allForms("index_columns", c).map(escapeRe).join("|"));
-  return new RegExp(
-    `^\\|\\s*(?:${cols[0]})\\s*\\|\\s*(?:${cols[1]})\\s*\\|\\s*(?:${cols[2]})\\s*\\|\\s*(?:${cols[3]})\\s*\\|\\s*$`,
-  );
-}
+// Moved to grammar.mjs, a leaf, so the grammar can change without growing this
+// file; re-exported here for every existing caller.
+export {
+  loadHeadingsRegistry,
+  heading,
+  headingLineRe,
+  sectionOf,
+  keywordRe,
+  evidenceSuffixRe,
+  storiesAttributionRe,
+  storyIdsOf,
+  CITATION_EXAMPLE_KEY,
+  citationTokenRe,
+  CITATION_PREFILTER,
+  contractNumberAscii,
+  AMENDMENT_KINDS,
+  TOMBSTONE_BODY,
+  AMENDMENT_GRAMMAR,
+  parseAmendmentMarkers,
+  isCalendarDate,
+  footerDateRe,
+  indexHeaderRe,
+} from "./grammar.mjs";
 
 // ─── Frontmatter list fields (code_refs / specs / stories / adr) ───────
 //
@@ -2562,7 +2358,7 @@ export function listEpicStories(epicDir) {
 // which carried two byte-identical copies (checkbox counting and
 // checkWikilinks); one definition, shared by doctor and the graph.
 export function stripCodeSpans(s) {
-  return s.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]*`/g, "");
+  return s.replace(/```[\s\S]*?```/g, "").replace(INLINE_CODE_SPAN_RE, "");
 }
 
 // Every link in one file's text: wikilinks and relative markdown links.
@@ -2789,85 +2585,24 @@ export function resolveLinkTarget(rawTarget, linkType, ctx) {
 // ─── Vault navigation skeleton ────────────────────────────────────────
 // (spec: the-sessionstart-navigation-skeleton-bounded-layout-derived-vault-localized)
 //
-// renderVaultSkeleton(facts) is pure — no filesystem, no clock. Every read it
-// depends on was already made, under one deadline, by gatherVaultFacts. The
-// split is what makes the bounds unit-testable without a slow filesystem, and
-// what stops a second convenience being paid for out of the same budget later.
-
-export const PURPOSE_CELL = 160; // contract 1
-export const TITLE_CELL = 80; // contract 1
-export const PATH_CELL = 200; // contracts 1, 19 — measured: longest path here is 123
-export const INFLIGHT_CAP = 5; // contracts 1, 19
-export const ERROR_CELL = 500; // contract 3
-
-// A truncation marks itself, and the mark counts toward the budget (contract 1).
-export function truncEnd(s, max) {
-  const t = String(s ?? "");
-  if (t.length <= max) return t;
-  let cut = t.slice(0, max - 1);
-  // Never orphan a table-cell escape: a `\|` sliced in half leaves a stray
-  // backslash AND un-escapes the pipe that follows it, breaking the row.
-  const tail = cut.match(/\\+$/);
-  if (tail && tail[0].length % 2 === 1) cut = cut.slice(0, -1);
-  return cut + "…";
-}
-
-// Front-truncation keeps the tail. For a path that is the discriminating half —
-// siblings share their folder prefix and differ only in slug — and it keeps the
-// filename, so the line still names the artifact to a reader (contract 19).
-export function truncFront(s, max) {
-  const t = String(s ?? "");
-  if (t.length <= max) return t;
-  return "…" + t.slice(t.length - (max - 1));
-}
-
-// Contract 6: a folder's purpose is its README's own prose — the slice above the
-// first `## ` heading. A README that opens with `## ` at byte 0 has no preamble.
-// Missing, empty or unreadable yields the folder's KIND, never an empty cell.
-export function folderPurpose(readmeText, kind) {
-  const text = readmeText == null ? "" : String(readmeText);
-  const m = text.match(/(^|\n)## /);
-  const head = m ? text.slice(0, m.index) : text;
-  const prose = head
-    .split("\n")
-    .filter((l) => !l.startsWith("#"))
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\|/g, "\\|");
-  return prose ? truncEnd(prose, PURPOSE_CELL) : String(kind);
-}
-
-// Contract 19 — a path cell, with the truncation mark OUTSIDE the copyable
-// token, so what a reader copies out of the backticks is a clean substring of
-// the real path. `graph.md` contains zero `…` characters, so a pasted cell
-// carrying one matches nothing and grep exits 1 — which reads as "this artifact
-// has no graph entries", a silently false answer. Decided by equality against
-// the untruncated string rather than by a leading "…", which is a character a
-// path is entitled to contain.
-export function pathCell(p) {
-  const s = String(p ?? "");
-  const t = truncFront(s, PATH_CELL);
-  return t === s ? `\`${s}\`` : `…\`${t.slice(1)}\``;
-}
-
-function renderCount(counts) {
-  if (!counts) return "0";
-  if (counts.epics != null) {
-    return `${counts.epics} epics · ${counts.stories ?? 0} stories`;
-  }
-  return String(counts.artifacts ?? 0);
-}
-
-function descentOrder({ kanbanFile, adrIndex, epicFile }) {
-  return [
-    `1. **What is in flight** — the list below, or \`${kanbanFile}\` for the whole board.`,
-    `2. **The epic** — \`${epicFile}\` names its stories and how they map to code.`,
-    "3. **A folder's index** — its `README.md` lists every artifact with title, status and date. One read, complete.",
-    `4. **Before authoring an ADR or spec, or making an architectural choice — read \`${adrIndex}\`.** This step fires on *deciding*, not on searching: it is the one moment the decision index is load-bearing, and skipping it is how a settled question gets re-decided.`,
-    "5. **An artifact's neighbourhood** — `grep '<vault-relative-path>' graph.md` returns its typed links in both directions, in one call.",
-  ];
-}
+// renderVaultSkeleton(facts) is pure — no filesystem, no clock — and lives in
+// skeleton.mjs with the cells and the truncation it draws by; they are
+// re-exported here for every existing caller. Every read it depends on was
+// already made, under one deadline, by gatherVaultFacts below. The split is
+// what makes the bounds unit-testable without a slow filesystem, and what
+// stops a second convenience being paid for out of the same budget later.
+export {
+  PURPOSE_CELL,
+  TITLE_CELL,
+  PATH_CELL,
+  INFLIGHT_CAP,
+  ERROR_CELL,
+  truncEnd,
+  truncFront,
+  folderPurpose,
+  pathCell,
+  renderVaultSkeleton,
+} from "./skeleton.mjs";
 
 // Contract 5 — per folder, non-recursive, `README.md` excluded. The epic folder
 // counts epics and stories separately, through the shared story lister so that
@@ -3049,127 +2784,6 @@ export async function gatherVaultFacts(cfg, opts = {}) {
     inFlight,
     continuity,
   };
-}
-
-export function renderVaultSkeleton(facts) {
-  const f = facts || {};
-  const L = [];
-
-  if (f.vaultMissing) {
-    return `# projectstore: vault not found at ${truncFront(String(f.vaultPath ?? ""), PATH_CELL)}\n`;
-  }
-
-  // Contract 10 — the header carries the session-relevant policy. Absent vault
-  // config renders the documented defaults rather than blanks.
-  // Contract 3 — the vault path is bounded only by PATH_MAX, so it is a term of
-  // the composed cap like any other. Front-truncated for contract 19's second
-  // reason: the tail is the discriminating half of a path.
-  L.push(`# Projectstore vault: ${truncFront(String(f.vaultPath ?? ""), PATH_CELL)}`);
-  // Contract 3 — these four are user-supplied config, and config is free text.
-  // The previous revision interpolated them raw, which put the 10,000-character
-  // breach back into the very line this change added: a 3,000-character
-  // `language` composed a 12,049-character payload. A structural bound is
-  // exactly as good as its enumeration, and this was the third miss.
-  const cell = (v, dflt) => truncEnd(String(v || dflt), TITLE_CELL);
-  L.push(
-    `# Layout: ${cell(f.layoutName, "unknown")} · language: ${cell(f.language, "en")}` +
-      ` · spec_policy: ${cell(f.specPolicy, "optional")}` +
-      ` · lifecycle_gates: ${cell(f.lifecycleGates, "on")}`,
-  );
-  L.push("");
-
-  // Contract 9 — all five steps, resolved through the layout, never typed.
-  L.push("## How to work with this vault");
-  L.push("");
-  L.push("Descend on demand. Nothing below is a copy of the vault; it is the order to read it in.");
-  L.push("");
-  for (const step of descentOrder(f)) L.push(step);
-  L.push("");
-
-  // Contract 4 — one row per layout folder, iterated, never listed literally.
-  L.push("## Where things live");
-  L.push("");
-  L.push("| Folder | Kind | Count | Purpose |");
-  L.push("|---|---|---|---|");
-  for (const folder of f.folders || []) {
-    L.push(
-      `| \`${folder.path}/\` | ${folder.kind} | ${renderCount(folder.counts)} | ` +
-        `${folderPurpose(folder.readme, folder.kind)} |`,
-    );
-  }
-  L.push("");
-
-  // Contracts 15, 21 — ordered most-recently-started first, capped, and the
-  // expired case says so rather than rendering an empty list, which would be a
-  // different and possibly false claim.
-  L.push("## In flight now");
-  L.push("");
-  const inf = f.inFlight || {};
-  if (inf.status === "timeout") {
-    L.push(`- in-flight work not resolved within budget — see \`${f.kanbanFile}\` § In Progress`);
-  } else {
-    const entries = inf.entries || [];
-    if (entries.length === 0) {
-      L.push("- nothing in progress");
-    } else {
-      for (const e of entries.slice(0, INFLIGHT_CAP)) {
-        // `epic` is a directory name — bounded only by NAME_MAX, five times over.
-        L.push(`- ${truncEnd(e.epic, TITLE_CELL)} · ${truncEnd(e.title, TITLE_CELL)}`);
-      }
-      const more = (inf.total ?? entries.length) - Math.min(entries.length, INFLIGHT_CAP);
-      if (more > 0) L.push(`- …and ${more} more; see \`${f.kanbanFile}\``);
-    }
-  }
-  L.push("");
-
-  // Contracts 19, 21 — the continuity section. Present only when the gather was
-  // asked for it, which is only on `source === "compact"`: a positive test, in
-  // one place. Absence here asserts nothing at all, which is why empty and
-  // unreadable may share it while an empty in-flight list may not.
-  const cont = f.continuity;
-  if (cont) {
-    if (cont.status === "timeout") {
-      L.push("## Where this session left off");
-      L.push("");
-      L.push(`- recent activity not resolved within budget — run \`${commandForm("status")}\``);
-      L.push("");
-    } else if (cont.paths && cont.paths.length > 0) {
-      L.push("## Where this session left off");
-      L.push("");
-      L.push("Vault files this conversation touched before it was compacted, newest first.");
-      L.push("");
-      for (const p of cont.paths.slice(0, INFLIGHT_CAP)) L.push(`- ${pathCell(p)}`);
-      const more = (cont.total ?? cont.paths.length) - Math.min(cont.paths.length, INFLIGHT_CAP);
-      if (more > 0) L.push(`- …and ${more} more; see \`${commandForm("status")}\``);
-      if (cont.artifact) {
-        L.push("");
-        L.push(
-          `**In flight**: ${pathCell(cont.artifact)} was the newest structured write before` +
-            " compaction. If we were drafting it, continue from there.",
-        );
-      }
-      L.push("");
-    }
-  }
-
-  // Contracts 8, 11 — the recipe, the prohibition, and the staleness clause.
-  L.push("## Derived views");
-  L.push("");
-  L.push(
-    `\`${f.kanbanFile}\`, \`code-map.md\` and \`graph.md\` are **regenerated** from artifact` +
-      " frontmatter. They can lag a very recent edit, they are never hand-edited, and the" +
-      " artifact is the source of truth when they disagree.",
-  );
-  L.push("");
-  L.push(
-    "`graph.md` is queried, **never read whole** — it is far larger than this payload's" +
-      " whole budget. Grep it by **vault-relative path**, which is its node key; a bare slug" +
-      " is not a key and returns a flood (on one real vault, 22 lines by path against 101 by" +
-      " slug). `code-map.md` answers where code for an epic already lives — read it before" +
-      " deciding where new code goes.",
-  );
-
-  return L.join("\n") + "\n";
 }
 
 // ─── Session awareness (layer 2 — multi-Claude coordination) ──────────

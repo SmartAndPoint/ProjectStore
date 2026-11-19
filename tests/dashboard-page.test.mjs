@@ -313,6 +313,7 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "flow-counts.mjs",
     "graph.mjs",
     "binding.mjs",
+    "rank.mjs",
     // The Code block's read (dashboard-code): the core's link rules, code paths and spec bundle.
     "follow-plan.mjs",
     "code-refs.mjs",

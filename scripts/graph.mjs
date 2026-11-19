@@ -30,6 +30,7 @@ import {
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 import { initiativeIndex, referenceOf, resolveInitiative } from "./initiative.mjs";
+import { resolveSpecParents } from "./spec-tree.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/graph: ${msg}\n`);
@@ -73,6 +74,7 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
   const index = buildNodeIndex(cfg, layout);
   const vaultFiles = files ?? walkVaultFiles(cfg.vault_path);
   const epicsPath = folderByKind(layout, "epic")?.path ?? null;
+  const parents = resolveSpecParents(index, vaultFiles);
 
   // Dedup on the (from, kind, to) triple (spec contract 4). The To cell for
   // dead targets is the raw text as written; ambiguous additionally lists
@@ -131,6 +133,15 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
         if (r.outcome === "node") addEdge(r.node.path, "amends", n.path);
         else addResolved(n.path, r, m.ref);
       }
+      // A spec's parent (the spec tree spec, contract 2): one `spec-part-of`
+      // edge child → parent; a value that resolves to no spec, or is a list,
+      // is a `dead` edge with the value as written; a spec naming itself
+      // draws nothing (doctor's spec-parent says why).
+      const link = parents.get(n.path);
+      if (link?.kind === "node") addEdge(n.path, "spec-part-of", link.path);
+      else if (link?.kind === "ambiguous")
+        addEdge(n.path, "ambiguous", `${link.raw} (matches: ${link.candidates.join(", ")})`);
+      else if (link?.kind === "dead" || link?.kind === "list") addEdge(n.path, "dead", link.raw);
     }
     if (n.type === "story") {
       for (const entry of refsOf(n.fm, "specs")) {

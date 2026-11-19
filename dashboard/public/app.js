@@ -50,10 +50,13 @@ function h(tag, attrs, ...kids) {
 }
 const PRI = ["p0", "p1", "p2", "p3"];
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const byOrder = (a, b) =>
-  cmp(PRI.indexOf(a.priority), PRI.indexOf(b.priority)) ||
-  cmp(a.rank === null ? Infinity : a.rank, b.rank === null ? Infinity : b.rank) ||
-  cmp(a.title, b.title);
+// Priority, then title: the board, the list, My work and the initiatives. The
+// backlog tree's groups stand by their place instead (the spec dashboard-rank).
+const byOrder = (a, b) => cmp(PRI.indexOf(a.priority), PRI.indexOf(b.priority)) || cmp(a.title, b.title);
+// A group's members by the place the core's siblingOrder gave them.
+const byPlace = (a, b) => cmp(a.place ?? Infinity, b.place ?? Infinity) || cmp(a.ref || a.id, b.ref || b.id);
+// A small mark on a row whose place is set by hand (contract 9).
+const rankMark = () => h("span", { class: "rank-mark", title: "Placed by hand: its rank sets where it stands in its group" }, "⇅");
 const initials = (name) =>
   name
     .replace(/^agent:/, "")
@@ -88,6 +91,17 @@ const opens = (fn, name) => ({
 });
 const story = (ref) => S.stories.find((s) => s.ref === ref);
 const epic = (id) => S.epics.find((e) => e.id === id);
+// An epic's stories as the tree and its panel draw them: done first (priority,
+// title), the open ones by their place, then the set-aside ones (priority, title).
+function epicStories(id) {
+  const all = S.stories.filter((s) => s.epic === id);
+  const open = (s) => s.place !== null && s.place !== undefined;
+  return [
+    ...all.filter((s) => s.column === "Done").sort(byOrder),
+    ...all.filter(open).sort(byPlace),
+    ...all.filter((s) => s.column !== "Done" && !open(s)).sort(byOrder),
+  ];
+}
 
 // ── server ──
 // The people are the flow policy's, and every assignee the policy does not
@@ -201,10 +215,12 @@ function viewBacklog() {
   const q = ui.filter.trim().toLowerCase();
   const hit = (t) => !q || t.toLowerCase().includes(q);
   const rows = [];
-  const row = (cls, depth, key, kids, glyph, label, onOpen, cells, tags) =>
+  // Rows can be reordered only while the page can write and no search narrows the tree.
+  const ranking = !q && writeUi.canRank();
+  const row = (cls, depth, key, kids, glyph, label, onOpen, cells, tags, data = {}) =>
     h(
       "tr",
-      { class: cls, "data-key": key },
+      { class: cls, "data-key": key, ...data },
       h(
         "td",
         null,
@@ -219,23 +235,35 @@ function viewBacklog() {
       ),
       cells,
     );
+  // An epic's stories: the done ones first, then the open ones by their place,
+  // then the set-aside ones (the spec dashboard-rank, contract 2).
   const storyRows = (e, depth) => {
-    const list = S.stories
-      .filter((s) => s.epic === e.id && (!ui.hideDone || s.column !== "Done") && hit(`${s.title} ${e.title} ${e.id}`))
-      .sort((a, b) => cmp(S.coreColumns.indexOf(b.column), S.coreColumns.indexOf(a.column)) || byOrder(a, b));
+    const list = epicStories(e.id).filter((s) => (!ui.hideDone || s.column !== "Done") && hit(`${s.title} ${e.title} ${e.id}`));
+    const block = { "data-epic": e.id, "data-group": e.group ?? "" };
     for (const s of list) {
       const done = s.subtasks.filter((t) => t.done).length;
-      rows.push(
-        row("story", depth, `s:${s.ref}`, s.subtasks.length, ico("story"), s.title, () => openDrawer("story", s.ref), [
+      const member = s.place !== null && s.place !== undefined;
+      const tr = row(
+        "story",
+        depth,
+        `s:${s.ref}`,
+        s.subtasks.length,
+        ico("story"),
+        s.title,
+        () => openDrawer("story", s.ref),
+        [
           h("td", { class: "num" }, pill(s)),
           h("td", { class: "num" }, chipP(s.priority)),
           h("td", { class: "num dim" }, s.assignee || "—"),
           h("td", { class: "num" }, s.subtasks.length ? h("span", { class: "prog" }, `${done}/${s.subtasks.length} subtasks`) : ""),
-        ]),
+        ],
+        member && s.ranked ? rankMark() : null,
+        { ...block, "data-story": s.ref, "data-part": member ? "open" : s.column === "Done" ? "done" : "aside" },
       );
+      rows.push(ranking && member ? writeUi.dragTreeRow(tr, { kind: "story", ref: s.ref, title: s.title, epic: e.id }) : tr);
       if (ui.open.has(`s:${s.ref}`) && !q)
         for (const t of s.subtasks)
-          rows.push(h("tr", { class: "subtask" }, h("td", null, h("div", { class: "t", style: `padding-left:${(depth + 1) * 20 + 23}px` }, t.done ? "☑" : "☐", h("span", null, t.text))), h("td"), h("td"), h("td"), h("td")));
+          rows.push(h("tr", { class: "subtask", ...block, "data-story": s.ref }, h("td", null, h("div", { class: "t", style: `padding-left:${(depth + 1) * 20 + 23}px` }, t.done ? "☑" : "☐", h("span", null, t.text))), h("td"), h("td"), h("td"), h("td")));
     }
     return list.length;
   };
@@ -262,13 +290,15 @@ function viewBacklog() {
             h("td", { class: "num dim" }, ""),
             h("td", { class: "num" }, progress(e.counts)),
           ],
-          e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"),
+          [e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"), e.ranked && rankMark()],
+          { "data-epic": e.id, "data-group": e.group ?? "" },
         ),
       );
+      if (ranking && e.place !== null && e.place !== undefined) writeUi.dragTreeRow(rows[mark], { kind: "epic", ref: e.id, title: e.title, group: e.group ?? "" });
     }
   };
   for (const i of [...S.initiatives].sort(byOrder)) {
-    const mine = S.epics.filter((e) => e.initiative === i.id);
+    const mine = S.epics.filter((e) => e.group === i.id).sort(byPlace);
     rows.push(
       row(
         "initiative",
@@ -288,7 +318,7 @@ function viewBacklog() {
     );
     if (ui.open.has(`i:${i.id}`) || q) epicRows(mine, 1);
   }
-  const loose = S.epics.filter((e) => !e.initiative || !S.initiatives.some((i) => i.id === e.initiative));
+  const loose = S.epics.filter((e) => e.group === null || e.group === undefined).sort(byPlace);
   if (loose.length) {
     rows.push(row("initiative none", 0, "i:", loose.length, ico("initiative"), `No initiative (${loose.length} epics)`, () => toggle("i:"), [h("td"), h("td"), h("td"), h("td")]));
     if (ui.open.has("i:") || q) epicRows(loose, 1);

@@ -19,9 +19,14 @@ import {
   windowCounts,
   weekStart,
   openStoriesOf,
+  epicCounts,
+  weeklyCounts,
+  columnPath,
+  cumulativeFlow,
   DAY_MS,
+  WEEK_MS,
 } from "../scripts/flow-counts.mjs";
-import { stampMs, statusStamp, isAwaitingClose, AWAITING_REASON } from "../scripts/status-log.mjs";
+import { stampMs, statusStamp, isAwaitingClose, AWAITING_REASON, setFm } from "../scripts/status-log.mjs";
 import { parseFrontmatter } from "../scripts/lib.mjs";
 import { storyText, withLine, NOW_MS, daysAgo } from "./fixtures/flow.mjs";
 
@@ -192,7 +197,7 @@ test("WIP: In Progress stories with no assignee and with an empty one count for 
 });
 
 // [flow-counts#6]
-test("windows: W of 2 on Wednesday 2026-11-11 runs from 2026-10-26 to 2026-11-09 (edge)", () => {
+test("windows: W of 2 on Wednesday 2026-11-11 runs from 2026-10-26 to 2026-11-09 in two weeks starting 2026-10-26 and 2026-11-02; a story created 2026-10-26 is in it and its first week, one created 2026-11-09 in neither (edge)", () => {
   const win = windowOf(Date.parse("2026-11-11T12:00:00Z"), 2);
   assert.equal(new Date(win.from).toISOString(), "2026-10-26T00:00:00.000Z");
   assert.equal(new Date(win.to).toISOString(), "2026-11-09T00:00:00.000Z");
@@ -202,12 +207,24 @@ test("windows: W of 2 on Wednesday 2026-11-11 runs from 2026-10-26 to 2026-11-09
     windowCounts([a, b], win).created.map((f) => f.slug),
     ["story-a"],
   );
+  const weeks = weeklyCounts([a, b], win);
+  assert.deepEqual(
+    weeks.map((w) => [new Date(w.from).toISOString().slice(0, 10), new Date(w.to).toISOString().slice(0, 10)]),
+    [
+      ["2026-10-26", "2026-11-02"],
+      ["2026-11-02", "2026-11-09"],
+    ],
+  );
+  assert.deepEqual(
+    weeks.map((w) => w.created.map((f) => f.slug)),
+    [["story-a"], []],
+  );
   assert.equal(weekStart(Date.parse("2026-11-09T00:00:00Z")), Date.parse("2026-11-09T00:00:00Z"));
   assert.equal(weekStart(Date.parse("2026-11-15T23:59:59Z")), Date.parse("2026-11-09T00:00:00Z"));
 });
 
 // [flow-counts#6]
-test("windows: at Monday 00:00Z exactly, a close at 23:59:59.999Z the day before is in and one at 00:00Z is not (edge)", () => {
+test("windows: at Monday 00:00Z exactly, a close at 23:59:59.999Z the day before is in the window and its last week, and one at 00:00Z in neither (edge)", () => {
   const win = windowOf(Date.parse("2026-11-09T00:00:00.000Z"), 2);
   const done = (id, at) => facts(id, { status: "done", fm: { closed_at: JSON.stringify(at) } });
   const counts = windowCounts(
@@ -218,6 +235,15 @@ test("windows: at Monday 00:00Z exactly, a close at 23:59:59.999Z the day before
   assert.deepEqual(
     counts.closed.map((f) => f.slug),
     ["story-in"],
+  );
+  const weeks = weeklyCounts(
+    [done("story-in", "2026-11-08T23:59:59.999Z"), done("story-out", "2026-11-09T00:00:00.000Z")],
+    win,
+  );
+  assert.deepEqual(
+    weeks.map((w) => w.closed.map((f) => f.slug)),
+    [[], ["story-in"]],
+    "the first is in the window's last week, the second in no week",
   );
 });
 
@@ -313,4 +339,227 @@ test("source guard: flow-counts.mjs reads no clock, no file and no process", () 
     ["the clock", /Date\.now|new Date\(\s*\)|performance\.now/],
   ])
     assert.doesNotMatch(code, re, `flow-counts.mjs reads ${what}`);
+});
+
+// ─── Contract 9: epics, active and one-story ───────────────────────────
+
+const epicFact = (epic, status = "in-progress") => ({
+  rel: `epics/${epic}/epic.md`,
+  epic,
+  text: "",
+  fm: { type: "epic", status },
+});
+const storyIn = (epic, id, status) =>
+  storyFacts({
+    rel: `epics/${epic}/stories/${id}.md`,
+    epic,
+    slug: id,
+    text: storyText({ id, epic, status }),
+    fm: parseFrontmatter(storyText({ id, epic, status })).data,
+  });
+const counted = (epics, fs) => {
+  const c = epicCounts(epics, fs);
+  return { active: c.active.map((e) => e.epic), single: c.singleStory.map((e) => [e.epic, e.story.slug]) };
+};
+
+// [flow-counts#9]
+test("epic counts: an epic with status active and one planned story is active and a one-story epic", () => {
+  assert.deepEqual(counted([epicFact("PS-A", "active")], [storyIn("PS-A", "story-a", "planned")]), {
+    active: ["PS-A"],
+    single: [["PS-A", "story-a"]],
+  });
+});
+
+// [flow-counts#9]
+test("epic counts: one done and one todo story is active and not one-story; one todo and one parked is active and one-story (edge)", () => {
+  const fs = [
+    storyIn("PS-A", "story-d", "done"),
+    storyIn("PS-A", "story-t", "todo"),
+    storyIn("PS-B", "story-t", "todo"),
+    storyIn("PS-B", "story-p", "parked"),
+  ];
+  assert.deepEqual(counted([epicFact("PS-A"), epicFact("PS-B")], fs), {
+    active: ["PS-A", "PS-B"],
+    single: [["PS-B", "story-t"]],
+  });
+});
+
+// [flow-counts#9]
+test("epic counts: a deferred and a done epic with one open story each, an epic of done stories and an epic with no story are neither active nor one-story (edge)", () => {
+  const epics = [epicFact("PS-F", "deferred"), epicFact("PS-D", "done"), epicFact("PS-E"), epicFact("PS-N")];
+  const fs = [
+    storyIn("PS-F", "story-f", "planned"),
+    storyIn("PS-D", "story-d", "todo"),
+    storyIn("PS-E", "story-e1", "done"),
+    storyIn("PS-E", "story-e2", "closed"),
+  ];
+  assert.deepEqual(counted(epics, fs), { active: [], single: [] });
+  // A story under an epic named constructor counts like any other.
+  assert.deepEqual(counted([epicFact("constructor")], [storyIn("constructor", "story-c", "planned")]).single, [
+    ["constructor", "story-c"],
+  ]);
+});
+
+// ─── Contract 10: the cumulative flow ──────────────────────────────────
+
+// W of 4 at the as-of instant 2026-11-11T12:00Z: weeks of 2026-10-12,
+// 2026-10-19, 2026-10-26 and 2026-11-02.
+const WIN4 = windowOf(NOW_MS, 4);
+const BOARD = ["Backlog", "ToDo", "In Progress", "Review", "Done"];
+const wk = (k, day = 1, time = "10:00:00.000Z") =>
+  `${new Date(WIN4.from + k * WEEK_MS + day * DAY_MS).toISOString().slice(0, 10)}T${time}`;
+// One story's column at each week's end of WIN4, from cumulativeFlow.
+function where(fact) {
+  const cf = cumulativeFlow([fact], WIN4, NOW_MS, BOARD);
+  return cf.rows.slice(0, -1).map((r) => [...r.counts].find(([, n]) => n === 1)?.[0] ?? null);
+}
+const approx = (...fs) =>
+  cumulativeFlow(fs, WIN4, NOW_MS, BOARD)
+    .approximate.map((f) => f.slug)
+    .sort();
+
+// [flow-counts#10]
+test("cumulative flow: a story moved planned → todo → in-progress → review → done, one move a week, is in ToDo, In Progress, Review and Done at those weeks' ends, and is exact", () => {
+  const f = facts("story-a", {
+    created: "2026-10-01",
+    log: [
+      { to: "todo", at: wk(0) },
+      { to: "in-progress", at: wk(1) },
+      { to: "review", at: wk(2) },
+      { to: "done", at: wk(3) },
+    ],
+  });
+  assert.deepEqual(where(f), ["ToDo", "In Progress", "Review", "Done"]);
+  assert.equal(columnPath(f).exact, true);
+  assert.deepEqual(approx(f), []);
+});
+
+// [flow-counts#10]
+test("cumulative flow: a story with no log placed from created, started_at and closed_at, and one whose review status is placed after its started_at, are both approximate (edge)", () => {
+  const first = facts("story-n", {
+    created: wk(0).slice(0, 10),
+    status: "done",
+    fm: { started_at: JSON.stringify(wk(1)), closed_at: JSON.stringify(wk(2)) },
+  });
+  assert.deepEqual(where(first).slice(0, 3), ["Backlog", "In Progress", "Done"]);
+  const second = facts("story-r", {
+    created: wk(0).slice(0, 10),
+    updated: wk(0, 2).slice(0, 10),
+    status: "review",
+    fm: { started_at: JSON.stringify(wk(1)) },
+  });
+  assert.deepEqual(where(second).slice(0, 2), ["Backlog", "Review"]);
+  assert.deepEqual(approx(first, second), ["story-n", "story-r"]);
+});
+
+// [flow-counts#10]
+test("cumulative flow: a status edited by hand to review after a last line into in-progress, and a log whose chain breaks (planned → todo, then in-progress → review), are approximate (edge)", () => {
+  const hand = fromText(
+    "story-h",
+    setFm(
+      setFm(
+        storyText({
+          id: "story-h",
+          log: [{ to: "in-progress", at: wk(0) }],
+          fm: { started_at: JSON.stringify(wk(0)) },
+        }),
+        "status",
+        "review",
+      ),
+      "updated",
+      wk(1).slice(0, 10),
+    ),
+  );
+  assert.deepEqual(where(hand).slice(0, 2), ["In Progress", "Review"]);
+  const broken = fromText(
+    "story-b",
+    setFm(
+      withLine(storyText({ id: "story-b", log: [{ to: "todo", at: wk(0) }] }), {
+        at: wk(1),
+        from: "in-progress",
+        to: "review",
+        reason: "r",
+        actor: "move",
+      }),
+      "status",
+      "review",
+    ),
+  );
+  assert.equal(statusStamp(broken.text).trusted, true, "its stamp is trusted; only the chain is broken");
+  assert.equal(columnPath(broken).exact, false);
+  assert.deepEqual(approx(hand, broken), ["story-b", "story-h"]);
+});
+
+// [flow-counts#10]
+test("cumulative flow: a story moved to parked in the second week and back to todo in the third is in no column at the second week's end, and in ToDo at the third's (edge)", () => {
+  const f = facts("story-p", {
+    created: "2026-10-01",
+    log: [
+      { to: "todo", at: wk(0) },
+      { to: "parked", at: wk(1) },
+      { to: "todo", at: wk(2) },
+    ],
+  });
+  assert.deepEqual(where(f), ["ToDo", null, "ToDo", "ToDo"]);
+  assert.equal(columnPath(f).exact, true);
+});
+
+// [flow-counts#10]
+test("cumulative flow: a story created at exactly Monday 00:00:00.000Z of the second week is in no column at the first week's end, and in Backlog at the second's (edge)", () => {
+  const monday = new Date(WIN4.from + WEEK_MS).toISOString();
+  const f = facts("story-m", { created: monday });
+  assert.equal(f.created, WIN4.from + WEEK_MS);
+  assert.deepEqual(where(f).slice(0, 2), [null, "Backlog"]);
+});
+
+// [flow-counts#10]
+test("cumulative flow: with stories closed through the close gate and none reopened, each week's Done count less the previous one's equals its closes, and the last row is each story's column now", () => {
+  const gate = (id, created, start, close) =>
+    facts(id, {
+      created,
+      log: [
+        { to: "in-progress", at: start, actor: "plan gate" },
+        ...(close ? [{ to: "done", at: close, actor: "close gate" }] : []),
+      ],
+      fm: {
+        started_at: JSON.stringify(start),
+        ...(close ? { closed_at: JSON.stringify(close) } : {}),
+      },
+    });
+  const fs = [
+    gate("story-1", "2026-09-20", wk(0), wk(0, 3)),
+    gate("story-2", "2026-09-21", wk(0), wk(1, 2)),
+    gate("story-3", "2026-09-22", wk(1), wk(1, 4)),
+    gate("story-4", "2026-10-13", wk(1), wk(3, 1)),
+    gate("story-5", "2026-10-14", wk(2), null),
+    gate("story-6", "2026-09-01", "2026-09-02T10:00:00.000Z", "2026-09-03T10:00:00.000Z"),
+  ];
+  const cf = cumulativeFlow(fs, WIN4, NOW_MS, BOARD);
+  const weeks = weeklyCounts(fs, WIN4);
+  for (let k = 1; k < weeks.length; k++)
+    assert.equal(
+      cf.rows[k].counts.get("Done") - cf.rows[k - 1].counts.get("Done"),
+      weeks[k].closed.length,
+      `week ${k}`,
+    );
+  const now = cf.rows.at(-1).counts;
+  for (const c of BOARD) assert.equal(now.get(c), fs.filter((f) => f.column === c).length, c);
+  assert.deepEqual(cf.approximate, []);
+});
+
+// [flow-counts#10]
+test("cumulative flow: a garbled line in the middle of a Status log makes the path approximate, though the last line is trusted (edge)", () => {
+  const text = storyText({
+    id: "story-g",
+    created: "2026-10-01",
+    log: [
+      { to: "todo", at: wk(0) },
+      { to: "in-progress", at: wk(1) },
+      { to: "review", at: wk(2) },
+    ],
+  }).replace(/^(- \S+ status: todo → in-progress — r \(move\))$/m, "- garbled line the grammar cannot read");
+  const f = fromText("story-g", text);
+  assert.equal(statusStamp(text).trusted, true, "the last line still reads and matches the stamp");
+  assert.equal(columnPath(f).exact, false);
+  assert.deepEqual(approx(f), ["story-g"]);
 });

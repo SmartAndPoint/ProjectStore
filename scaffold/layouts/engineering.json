@@ -87,5 +87,8 @@
       "Done"
     ],
     "source": "epics/*/stories/*.md"
+  },
+  "flow": {
+    "file": "flow.md"
   }
 }

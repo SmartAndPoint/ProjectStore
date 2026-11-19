@@ -78,9 +78,14 @@ cannot collide).
    placeholder as it is and invent nothing: it is a hint, not a gate. Quote
    the line in the preview.
 
-4. **Preview**: path + first ~25 lines.
+4. **Preview**: path + first ~25 lines. Say also that, once the story is
+   written, it is linked into its epic's Stories table when the epic has a
+   table with a Status column there: a row that names it by its title gets
+   the link, else one row is added. An epic whose stories are a list is left
+   as it is.
 
-5. **Approval** via the harness's user-input mechanism: Yes / Edit / No.
+5. **Approval** via the harness's user-input mechanism: Yes / Edit / No. A Yes also covers the
+   story's row in its epic's Stories table (step 7a).
 
    When prompting "Edit", note that the story template has a `Decomposition` checklist — if the user wants to seed it with concrete tasks from the current conversation, regenerate with those tasks pre-filled in place of the empty checkboxes.
 
@@ -89,6 +94,28 @@ cannot collide).
 7. **On Yes** (path free): Write the file you previewed, with the step-2,
    step-3a and step-3b edits (`specs:`, `variant: test`, the Independent test
    line), not the re-run's raw draft.
+
+7a. **The epic's Stories row.** After the write, under the one approval of
+   step 5:
+
+   ```bash
+   node "${PROJECTSTORE_CORE_ROOT}/scripts/status-change.mjs" epic-row "<story-path>" --add
+   ```
+
+   `<story-path>` is the `path` of the draft you wrote. It links the story
+   into its epic's Stories table, re-reading `epic.md` before it replaces it,
+   and prints the result as JSON: report its `row` (`added` or `linked`).
+   The note `epic-row-missing`, exit 0, means the epic has no Stories table
+   with a Status column: say so; the epic is not written and no table is
+   invented. The note `epic-row-unlinkable`, exit 0, means the new row
+   would not read back as the story's (a `#` or `?` in its file name, or an
+   unclosed fence above the Stories heading): say so, and the epic is not
+   written. On `added`, look at the table once: a row that names the story
+   with other wording (a typo, a word left out) is still there without a
+   link; point at it, and do not edit it yourself. A non-zero exit is a
+   write error, such as
+   `story-changed-meanwhile`: report it. It never undoes the create, and a
+   second run of the same command finishes it.
 
 8. **Suggest next**: "Now decompose the work in the `Decomposition` section, or run `$projectstore-kanban` to refresh the board. Before implementation: `$projectstore-story plan <story>`."
 
@@ -138,6 +165,22 @@ cannot collide).
    added: it appends `; started over WIP limit <after>/<limit>` to the
    reason of the run's lines, and its `content` is the one you fill and
    preview. `--over-wip` is for `plan` only; `close` refuses it.
+
+   **Files a verb wrote.** Both gates' JSON carries `marked`: the
+   vault-relative paths of the files that hold `written_by_verb` (written by
+   a create or an edit verb, and read by no review since): on a plan the
+   story, its epic and the epic's initiative, on a close the story; `[]` when
+   the vault's gates are off. When `marked` is not empty and `outside` is
+   `true` (the story is in a worktree of the vault), stop the gate before
+   any review: name the files, say that a mark is cleared in the bound
+   vault, and write nothing. Otherwise run the steps of `$projectstore-review`
+   for each path in turn (a marked story gets the critic although the story
+   guide does not ask for one), then run this step again: on a plan, step
+   2a and its round follow, the WIP question first; on a close, step 3
+   follows, and the clerk's baseline in step 5a is that second run's
+   `content`. A Skip, or a dismissed question, stops the gate, names the
+   file, and writes nothing. A non-empty `marked` from the second run stops
+   the gate too.
 
 2a. **(plan only) Open questions, one round.** Before writing the plan,
    collect the open questions: the planner's "Open questions" when it ran,
@@ -226,6 +269,10 @@ cannot collide).
    `--over-wip`, and a No, a skipped question or a dismissed one ends the
    gate with nothing written. Nothing is written before the new answer.
 
+   On both gates, compare `marked` as you compare `wip.over`: when the
+   re-run's `marked` is not empty (a file was marked again since step 2),
+   stop the gate and write nothing.
+
 5a. **Delegate the ceremony — enumerated case: story close** (ADR "Artifact
    content is authored by the context-holder, the write ceremony by a clerk").
    After the approval in step 4 and the re-check in step 5, on a `close`:
@@ -255,7 +302,8 @@ cannot collide).
      continue) with: the scratch path, the target path, the exact re-check
      invocation (`story-section.mjs close "<story-path>" --check
      <baseline-path>`), the derived targets (`kanban`, plus `indexes=<epic
-     folder>` when status changed), and the doctor pre-state line. On a clean
+     folder>` when status changed, plus `flow` when flow.md exists at the
+     vault root), and the doctor pre-state line. On a clean
      report (`verbatim: true`, `stopped_at: null`, doctor no worse than the
      pre-state) skip steps 6-6b and run step 6c, then step 6d, then step 6e — the clerk's report is the write evidence. After
      any report with `written: true`, clean or stopped, first record the copy,
@@ -272,13 +320,17 @@ cannot collide).
    - No clerk available → perform steps 6-6c yourself, then 6d, then 6e. There is no fallback
      agent: a general-purpose writer is an unpinned procedure.
 
-6. **On Yes** (undelegated path): Write the full file. On a `plan`, finish by
-   suggesting `$projectstore-kanban` (the status changed), after step 6d —
-   6a/6b below are the close's ceremony, not the plan's.
+6. **On Yes** (undelegated path): Write the full file. On a `plan`, after
+   step 6d, when flow.md exists at the vault root, refresh the flow page:
+   `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile --write --only flow`
+   — never when it does not exist, since `--only flow` creates it. Then finish
+   by suggesting `$projectstore-kanban` (the status changed) — 6a/6b below
+   are the close's ceremony, not the plan's.
 
 6a. **(close only) Reconcile** the touched derived targets through the core:
    `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
-   `indexes=<epic folder>` when the status changed).
+   `indexes=<epic folder>` when the status changed, and `flow` when flow.md exists,
+   never otherwise: `--only flow` creates the page).
 
 6b. **(close only) Verify**: `node "${PROJECTSTORE_CORE_ROOT}/bin/projectstore.mjs" doctor --vault` (exit 1 = findings, not failure)
    — a close is not done while doctor got worse. Then suggest the reviewer's

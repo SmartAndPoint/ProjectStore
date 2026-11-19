@@ -194,6 +194,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   gates that have no date, `review-by` names an ADR due for review, and
   `dry-run` heads a `--policy` report. None of them is repairable by `--fix`:
   each is a judgement, or a `configure` step its message names.
+- `verb-mark` runs under every policy and whatever `lifecycle_gates` says:
+  a note for each file a create or an edit verb wrote that no review has
+  read since (it holds `written_by_verb`), naming the review that clears it,
+  and an issue for a file that holds the mark beside `review_status:
+  reviewed`. `--fix` does not repair it: the review does.
 - The amendment checks read the markers under a spec's contracts
   (`> amended YYYY-MM-DD by <ref>: ADDED|MODIFIED|REMOVED — <why>`) in every
   spec, under every policy: `amendment-form` (a marker that is not the grammar,
@@ -214,6 +219,12 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   no line `- YYYY-MM-DD <status>: <reason>` for its status; and, as a note,
   an accepted one with an empty Success criterion). None of them is
   repairable by `--fix`: the link and the decision are the author's text.
+- `rank-tie` (info) names two or more members of one group that hold the same
+  `rank` value: the open stories of one epic, the epics of one initiative, or
+  the epics of none. One finding per group and value; the order of those
+  members falls back to the column, priority and title of a story, or the id
+  of an epic. Moving one past the other with `rank`, or editing a value by hand,
+  sets them apart (a move to its own place writes nothing); `--fix` does not.
 - The guide checks read the vault's `guides/` folder, the per-kind overrides
   of the authoring guides: `guide-shape` (an override that does not parse, so
   readers fall back to the package default), `guide-unknown` (a guide for a
@@ -225,10 +236,14 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   and run only for the keys it sets: `wip-over-limit`, `review-aged`,
   `todo-aged`, `in-progress-idle`, `assignee-idle`, `assignee-left` (a
   person marked left in `flow.people` who still holds open stories),
-  `intake-over-close`, `todo-over-capacity` and `todo-under-capacity`, with the infos that explain
+  `intake-over-close`, `todo-over-capacity`, `todo-under-capacity` and
+  `active-epics-over-cap` (more active epics than `flow.active_epics_max`), with the infos that explain
   them (`status-unstamped`, `closed-unstamped`, `flow-window-young`,
   `todo-capacity-unknown`, `flow-activity-unknown`, `flow-person-unknown`,
-  `flow-stories-unread`). `flow-policy-unset` says the vault has no flow
+  `flow-stories-unread`), `grooming-due` (the last grooming pass is older
+  than `flow.grooming_days`, or none is stamped) and `epic-single-story` (an
+  active epic with one story, under `flow.active_epics_max`). A `flow` block
+  that holds only the stamp `flow.groomed_at` is no policy. `flow-policy-unset` says the vault has no flow
   policy, and `flow-policy-invalid` names a key whose value the checks
   ignore, never the value. The idle checks read the project's local commits,
   never the code host, and doctor does not fetch. Flow findings are advice: a
@@ -236,7 +251,9 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   `todo-aged` finding's command as it is, alone on its line, and so the
   `handover` command of an `assignee-left` or `assignee-idle` finding: it
   leaves `--to <name>` and `--reason '<why>'` for the user to fill in, so
-  never run it yourself and never choose the receiver.
+  never run it yourself and never choose the receiver. A `grooming-due`
+  finding's `groom` command, too, is relayed alone on its line and never run
+  here: the grooming pass is `/projectstore:groom`, which asks first.
 - `dashboard-kept-branch` (info) names a batch branch the dashboard keeps in
   its clone under `.projectstore/state/dashboard/`, with its count of commits
   the fetched default branch lacks: they may be work that was never sent.

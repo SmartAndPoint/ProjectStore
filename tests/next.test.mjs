@@ -445,7 +445,7 @@ test("next: a story awaiting close is not held, so three started with one awaiti
   assert.deepEqual(refs(r.result.new_work), ["PS-X/story-t"]);
 });
 
-// [next#3]
+// [next#1] [next#3]
 test("next: no flow block, a person not listed, and a time with no flow.wip have no limit, say why, and list started work first (edge)", async () => {
   const stories = {
     "PS-X/story-i": inProgress("story-i", "Ada", 2),
@@ -455,6 +455,11 @@ test("next: no flow block, a person not listed, and a time with no flow.wip have
     [null, "the vault has no flow block, so the person has no WIP limit"],
     [{ flow: null }, "the vault has no flow block, so the person has no WIP limit"],
     [{ flow: {} }, "the vault has no flow block, so the person has no WIP limit"],
+    // The groom verb's stamp alone declares no policy (amended 2026-11-15).
+    [
+      { flow: { groomed_at: "2026-11-01T00:00:00.000Z" } },
+      "the vault has no flow block, so the person has no WIP limit",
+    ],
     [limit({ Grace: { wip: 2 } }), "Ada is not in the vault's flow.people, so the person has no WIP limit"],
     [
       { flow: { wip: { part: 1 }, people: { Ada: { time: "full" } } } },

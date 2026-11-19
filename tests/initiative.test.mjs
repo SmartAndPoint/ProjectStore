@@ -429,7 +429,7 @@ test("an initiative: that names nothing, or a list, is a dead edge from the epic
 
 // [initiative#7]
 test("lineage does not walk initiative-contains: asking for it is a usage error that lists the lineage kinds", () => {
-  assert.deepEqual(LINEAGE_KINDS, ["supersedes", "spec-covers", "spec-implements-adr", "epic-contains", "amends"]);
+  assert.ok(!LINEAGE_KINDS.includes("initiative-contains"));
   const { vault } = seedInitiativeFixture();
   assert.throws(
     () => lineage(cfgOf(vault), "epics/PS-A/epic.md", { kinds: ["initiative-contains"] }),

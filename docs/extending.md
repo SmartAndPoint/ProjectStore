@@ -193,7 +193,7 @@ Constraints the deterministic scripts impose on the translation:
 - **Inline grammars carry a keyword and a colon**: the evidence suffix on a
   checked criterion and the `stories:` attribution on a spec acceptance item.
   Both accept the CJK-width colon (`evidenceSuffixRe` / `storiesAttributionRe`
-  in `lib.mjs`); if your language punctuates differently, widen them there
+  in `scripts/grammar.mjs`); if your language punctuates differently, widen them there
   rather than working around it in the template.
 
 Where two spellings are realistic (Russian `ё`/`е`, a French typographic vs
@@ -204,9 +204,13 @@ Domain terms follow the language's practitioners, not the dictionary. `epic`
 and `story` are localized where the field localizes them (`ru` "Эпик", `es`
 "Épica") and left in English where teams say the English word (`de`, `fr`,
 `zh`). Nothing reads most table labels, so the only cost of getting one wrong
-is that the document reads like a translation. Two are read: the story
-header's **Status** and **Assignee** rows, and the Status column of an epic's
-Stories table. Scripts find them through `fields` in the registry, so the
+is that the document reads like a translation. These are read: the story
+header's **Status** and **Assignee** rows, the epic header's **Status** and
+**Updated** rows, the **Priority**, **Owner** and **Initiative** rows the
+initiative and epic verbs write, and the Status, Story and Description columns
+of an epic's Stories table (creating a story writes its row there by those
+three).
+Scripts find them through `fields` in the registry, so the
 template must spell them in the first registered form;
 `tests/locales.test.mjs` checks it for every bundled locale.
 
@@ -256,7 +260,8 @@ each key activates.
   otherwise its age in status is read from `updated` (`statusStamp` in
   `scripts/status-log.mjs`), else `created`. Both instants are read through
   `stampMs`, so a stamp with no zone is UTC on every machine.
-  `move <story> todo|planned --reason "<why>"` is the one change no gate makes.
+  `move <story> todo|planned --reason "<why>"` is the one change no gate makes
+  for a named story.
   `handover --from <name> --to <name> --reason "<why>"` changes only the
   assignee of a person's open stories (`openStoriesOf` in
   `scripts/flow-counts.mjs`), through `changeAssignee` in
@@ -264,12 +269,32 @@ each key activates.
   or a control character is refused. `flow.people[<name>].left` marks a
   person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
   `assignee-left` then lists their open work, and the verb refuses them as
-  `--to`.
+  `--to`. `groom` moves every ToDo story past `age_days.todo` (`agedIn` in
+  `scripts/flow-counts.mjs`, the set doctor calls `todo-aged`) back to
+  `planned` through `changeStatus`, with the actor `groom`, and then stamps
+  `flow.groomed_at` through `writeVaultConfig`. A `flow` block that holds only
+  that stamp declares no policy (`flowDeclared` in `scripts/flow-policy.mjs`).
+  The epic counts (`epicCounts` in `scripts/flow-counts.mjs`, over
+  `readFlowEpics` in `scripts/flow-stories.mjs`) give the active epics, open
+  by `storyState` and holding an open story, and the one-story epics.
 - An initiative's `status` and Outcome, its `title`, `owner` and `priority`,
   and an epic's `initiative:` are written by the `initiative` and `epic` verbs
   (`scripts/initiative-verbs.mjs`). They find the header rows by the registry's
   `fields` (`priority`, `owner`, `initiative`, any bundled language) and add
   an epic's Initiative row with the bound language's first form.
+- `create` (`scripts/item-verbs.mjs`) renders through `renderDraft` in
+  `scripts/draft.mjs`, so a new kind's template reaches the verb and the agent
+  command alike. The mark's key and the one predicate every reader asks,
+  `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
+  the key, and only its `reviewed` removes it.
+- `rank` is ranked only as a string the frontmatter parser returns that
+  matches `^-?[0-9]{1,15}$`; any other value is unranked, never an error.
+  `siblingOrder` in `scripts/rank.mjs` is the one comparator of a group: the
+  verb, doctor's `rank-tie` and any page that draws the backlog tree sort
+  through it, so the verb's renumber gives the order a reader sees. The
+  groups (an epic's open stories, an initiative's epics, the epics of no
+  initiative) come from the same module; only `scripts/rank-verb.mjs` writes
+  the key.
 - Doctor's flow checks (`scripts/doctor-flow.mjs`) read the `flow` block. A
   check whose key is absent, or outside its key's set, does not run. They count
   through `scripts/flow-counts.mjs`, which is pure and takes the as-of instant
@@ -279,6 +304,14 @@ each key activates.
   `git log` per run (`commitsSince` in `scripts/diff-refs.mjs`), by author and
   committer name only. Every flow finding is a warn or an info, never an
   issue. The group runs in `doctor --vault` and never at session start.
+- The flow page, `flow.md` (`scripts/flow-view.mjs`), is a derived view of the
+  same counts, given to a layout by its `flow` view block (`"flow": {"file":
+  "flow.md"}`). It is dated by the newest stamp a story carries and passes
+  that instant to every count, so it reads no clock; `weeklyCounts` and
+  `cumulativeFlow` in `scripts/flow-counts.mjs` give its throughput and its
+  cumulative flow. Reconcile makes it only on request (`--only flow`) and
+  keeps an existing one fresh; doctor's `flow-view` check, beside the graph's,
+  calls it stale exactly when reconcile would rewrite it.
 - An epic becomes done by the epic rule (`applyEpicRule` in
   `scripts/epic-rule.mjs`), which the story command's close runs after the
   epic row: its own status is neither done nor set aside, at least one story
