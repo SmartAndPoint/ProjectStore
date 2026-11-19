@@ -7,6 +7,11 @@
 // plan|close. Pure compute, models reconcile.mjs rebuildIndex: reads the
 // original, splices the managed pieces, returns {path, changed, content,
 // notes} on stdout — the COMMAND writes after approval, never this script.
+// Both gates also print `marked` (the files a create or an edit verb wrote
+// that no review has cleared: on a plan the story, its epic and the epic's
+// initiative, on a close the story; [] with the gates off) and `outside`
+// (the story is not inside the bound vault's folder): the create spec,
+// contract 8.
 //
 //   node story-section.mjs plan  <story-path> [--reason "<why>"] [--actor <actor>] [--over-wip]
 //   node story-section.mjs close <story-path> [--reason "<why>"] [--actor <actor>] [--at <instant>]

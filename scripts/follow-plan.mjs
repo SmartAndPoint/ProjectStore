@@ -450,12 +450,12 @@ export function planStory(
   }
   // A story a verb wrote and no review has cleared (the create spec,
   // contract 11): named, and changed as it would be with no mark.
-  if (out.lines.some((l) => l.field === "status") && isMarked(fm))
+  if (out.lines.length && isMarked(fm))
     say(
       out.notes,
       "verb-mark",
       out.pr,
-      `${out.from} → ${out.to}: it holds ${MARK_KEY}, so no review has read it since a verb wrote it`,
+      `${out.from === out.to ? out.from : `${out.from} → ${out.to}`}: it holds ${MARK_KEY}, so no review has read it since a verb wrote it`,
     );
   if (t !== text) t = touchStory(t, day);
   out.content = t;

@@ -17,6 +17,7 @@ import {
   statSync,
   symlinkSync,
   existsSync,
+  realpathSync,
 } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { tmpdir } from "node:os";
@@ -653,4 +654,50 @@ test("no hook entry and no MCP module reaches item-verbs.mjs, both rows write wi
   assert.ok(closure("scripts/cli.mjs", { root: REPO, dispatch }).includes("scripts/item-verbs.mjs"));
   const src = read(join(REPO, "scripts", "item-verbs.mjs")).replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(src, /child_process|spawn|fetch\(|node:https?|\bgit\b/, "the verbs start nothing of their own");
+});
+
+// [create#3]
+test("create: a story's epic id naming no folder, or a folder with no epic.md, is refused, exit 1, and the vault is byte-identical (failure)", async () => {
+  const fx = vault();
+  mkdirSync(join(fx.vault, "epics", "EMPTY", "stories"), { recursive: true });
+  const before = snapshot(fx.proj);
+  for (const id of ["NOPE", "EMPTY"]) {
+    const r = await cli(fx.proj, ["create", "story", id, "T", "--write"]);
+    assert.equal(r.code, 1, `${id}: ${r.out}`);
+  }
+  assert.deepEqual(snapshot(fx.proj), before);
+});
+
+// [create#3]
+test("create: an epic id of 256 bytes is refused, exit 1, and the vault is byte-identical (failure)", async () => {
+  const fx = vault();
+  const before = snapshot(fx.proj);
+  const r = await cli(fx.proj, ["create", "epic", "a".repeat(256), "T", "--write"]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.err, /256 bytes; one name holds at most 255/);
+  assert.deepEqual(snapshot(fx.proj), before);
+});
+
+// [create#6]
+test("reviewed: with the vault bound through a link, the file's real path is inside it and its mark is cleared (edge)", async () => {
+  const fx = vault();
+  await cli(fx.proj, ["create", "story", "PS-X", "T", "--write"]);
+  const link = join(fx.proj, "vaultlink");
+  symlinkSync(fx.vault, link);
+  writeBinding(fx.proj, { vault_path: link, layout: "engineering", language: "en", default_author: "Test" });
+  const real = join(realpathSync(fx.vault), "epics", "PS-X", "stories", "story-t.md");
+  const r = await cli(fx.proj, ["reviewed", real, "--write"], { json: true });
+  assert.equal(r.code, 0, JSON.stringify(r.json));
+  assert.equal(r.json.result.rel, "epics/PS-X/stories/story-t.md");
+  assert.equal(fm(real).review_status, "reviewed");
+});
+
+// [create#2]
+test("create: in each bundled locale, a created epic's Stories table links no story (edge)", async () => {
+  for (const lang of LOCALES) {
+    const fx = vault({ lang });
+    const r = await cli(fx.proj, ["create", "epic", "PS-Z", "T", "--write"]);
+    assert.equal(r.code, 0, `${lang}: ${r.err}`);
+    assert.ok(!/\]\(\.\/stories\//.test(read(join(fx.vault, "epics", "PS-Z", "epic.md"))), lang);
+  }
 });

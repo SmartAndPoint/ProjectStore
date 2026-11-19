@@ -271,7 +271,10 @@ function createPlan(p, { project, args, asking = false, done = false }) {
   for (const [k, val] of Object.entries(p.fields)) lines.push(`  ${k}: ${val}`);
   lines.push(`  mark: ${MARK_KEY} "create <the write's instant>", review_status pending`);
   if (p.index) lines.push(`  index row: ${p.index}`);
-  if (p.kind === "story") lines.push(p.row ? `  Stories row: ${p.row}` : `  Stories row: none (${p.note})`);
+  if (p.kind === "story")
+    lines.push(
+      p.row ? `  Stories row: ${p.row}` : p.note ? `  Stories row: none (${p.note})` : "  Stories row: already there",
+    );
   if (done && p.reconcile) lines.push(`  derived views: ${p.reconcile.written ?? 0} regenerated`);
   for (const n of p.notes) lines.push(`  note: ${n}`);
   if (!done && !asking) {
@@ -463,9 +466,9 @@ export async function runReviewed(ctx) {
   if (!isDirectory(vault)) return fail(`the binding names no vault directory that is there (${cfg.vault_path})`);
   const abs = isAbsolute(arg) ? resolve(arg) : resolve(vault, arg);
   const realVault = realOf(vault);
-  if (!inside(realOf(abs), realVault) || !inside(abs, vault) || !/\.md$/i.test(abs))
+  if (!inside(realOf(abs), realVault) || !/\.md$/i.test(abs))
     return fail(`${arg} is not a markdown file inside the bound vault`);
-  const rel = relative(vault, abs).split(sep).join("/");
+  const rel = relative(realVault, realOf(abs)).split(sep).join("/");
   let text;
   try {
     text = readFileSync(abs, "utf8");
