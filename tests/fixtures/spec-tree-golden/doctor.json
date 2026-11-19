@@ -1,0 +1,74 @@
+[
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/api-auth.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/api-queue.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/api.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/app.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/below-loop.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/lone.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/loop-a.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/loop-b.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/web-cart.md"
+  },
+  {
+    "level": "info",
+    "check": "contract-coverage",
+    "message": "1 contracts, 0 cited (checkout <proj>).",
+    "file": "specs/web.md"
+  },
+  {
+    "level": "info",
+    "check": "spec-policy",
+    "message": "Vault contains specs but declares no spec_policy — consider enabling spec-first: add { \"spec_policy\": \"required\" } to <vault>/.projectstore.json (doctor gates activate; ADR-007).",
+    "file": null
+  },
+  {
+    "level": "info",
+    "check": "flow-policy-unset",
+    "message": "The vault has no flow policy, so no flow check runs. Each check starts once configure sets its key, in the form --set flow.<key>=<value>.",
+    "file": null
+  }
+]

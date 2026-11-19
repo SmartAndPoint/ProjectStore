@@ -130,6 +130,7 @@
   "scripts/setup.mjs",
   "scripts/skeleton.mjs",
   "scripts/spec-drift.mjs",
+  "scripts/spec-tree.mjs",
   "scripts/stages.mjs",
   "scripts/status-change.mjs",
   "scripts/status-log.mjs",

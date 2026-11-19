@@ -132,6 +132,7 @@
   "node_modules/projectstore/scripts/setup.mjs",
   "node_modules/projectstore/scripts/skeleton.mjs",
   "node_modules/projectstore/scripts/spec-drift.mjs",
+  "node_modules/projectstore/scripts/spec-tree.mjs",
   "node_modules/projectstore/scripts/stages.mjs",
   "node_modules/projectstore/scripts/status-change.mjs",
   "node_modules/projectstore/scripts/status-log.mjs",
