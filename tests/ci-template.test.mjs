@@ -156,7 +156,20 @@ const checkRule = problems((text) => {
 
 // Contract 4: where the token is handed.
 const HEADER = "http.$host.extraheader=AUTHORIZATION: basic $auth";
-const tokenRule = problems((text) => {
+// The remote is a secret: read from the text itself, so a planted copy fails
+// here and not only because the reader refuses an expression off its list.
+function remoteSecretProblems(text) {
+  const lines = code(text).split("\n");
+  const out = lines
+    .filter((l) => l.includes("vars.PROJECTSTORE_VAULT_REMOTE"))
+    .map((l) => `the remote read as a vars. variable: ${l.trim()}`);
+  const env = lines.filter((l) => /^ {10}VAULT_REMOTE: /.test(l)).map((l) => l.trim());
+  if (JSON.stringify(env) !== JSON.stringify(Array(3).fill("VAULT_REMOTE: ${{ secrets.PROJECTSTORE_VAULT_REMOTE }}")))
+    out.push(`the remote's env lines are: ${env.join(" | ")}`);
+  return out;
+}
+const tokenRule = (text) => [...remoteSecretProblems(text), ...tokenStepRule(text)];
+const tokenStepRule = problems((text) => {
   const out = [];
   const steps = stepsOf(text);
   const expected = [steps[0], named(steps, /^Clone/), named(steps, /push/i)].map((s) => s && s.name);
@@ -566,7 +579,7 @@ test("head: one concurrency group projectstore-follow with cancel-in-progress fa
 // ═══ Contract 3: the settings, checked first ════════════════════════════
 
 // [ci-template#3]
-test("settings: step 1 holds the three names in ::error:: lines and exit 1, before any uses:, git or npx; a checkout before it fails", () => {
+test("settings: step 1 holds the token and remote secrets and the language variable, each named in an ::error:: line, and exit 1, before any uses:, git or npx; a checkout before it fails", () => {
   assert.deepEqual(checkRule(TEMPLATE), []);
   const steps = stepsOf(TEMPLATE);
   assert.equal(
@@ -599,7 +612,7 @@ test("settings: no PROJECTSTORE_VAULT_TOKEN exits 1 at step 1 naming the secret,
 });
 
 // [ci-template#3]
-test("settings: a remote with a user part, an ssh remote and no remote each exit 1 at step 1 naming PROJECTSTORE_VAULT_REMOTE, and the log does not hold the remote (failure)", () => {
+test("settings: a PROJECTSTORE_VAULT_REMOTE secret with a user part, an ssh remote, and no such secret each exit 1 at step 1 naming the secret, and the log does not hold the remote (failure)", () => {
   const w = jobWorld({ vault: vaultOf({ "PS-X/story-a": reviewStory("story-a", 7) }), table: { prs: [mergedPr(7)] } });
   for (const remote of [
     "https://first.last:hunter2@git.example.com/team/vault.git",
@@ -693,7 +706,7 @@ test("token: the git recorder sees the header on clone and push only, each with 
 });
 
 // [ci-template#4]
-test("token: the secret is in the env of the check, the clone and the push only; no run line holds ${{; the two uses: are checkout@v5 without credentials and setup-node@v5 on 24; git runs only the listed subcommands, clone, commit and push with --quiet; planted copies fail", () => {
+test("token: the token and the remote, both secrets, are in the env of the check, the clone and the push only, and the remote is never a vars. variable; no run line holds ${{; the two uses: are checkout@v5 without credentials and setup-node@v5 on 24; git runs only the listed subcommands, clone, commit and push with --quiet; planted copies fail", () => {
   assert.deepEqual(tokenRule(TEMPLATE), []);
   for (const [what, text] of [
     [
@@ -724,13 +737,6 @@ test("token: the secret is in the env of the check, the clone and the push only;
     ],
     ["git fetch", planted("          git commit --quiet", "          git fetch --quiet\n          git commit --quiet")],
     [
-      "the remote as a variable",
-      planted(
-        "VAULT_REMOTE: ${{ secrets.PROJECTSTORE_VAULT_REMOTE }}",
-        "VAULT_REMOTE: ${{ vars.PROJECTSTORE_VAULT_REMOTE }}",
-      ),
-    ],
-    [
       "the remote in the follow step's env",
       planted(
         "          GH_TOKEN: ${{ github.token }}\n",
@@ -739,6 +745,18 @@ test("token: the secret is in the env of the check, the clone and the push only;
     ],
   ])
     failsOn(tokenRule, text, what);
+  // The remote read as a `vars.` variable fails the rule on its own terms, as
+  // well as the reader, which refuses the expression.
+  const asVariable = planted(
+    "VAULT_REMOTE: ${{ secrets.PROJECTSTORE_VAULT_REMOTE }}",
+    "VAULT_REMOTE: ${{ vars.PROJECTSTORE_VAULT_REMOTE }}",
+  );
+  assert.ok(
+    tokenRule(asVariable).some((p) => p.startsWith("the remote read as a vars. variable")),
+    tokenRule(asVariable).join("\n"),
+  );
+  assert.throws(() => readWorkflow(asVariable), /not on the list/);
+  assert.deepEqual(remoteSecretProblems(TEMPLATE), []);
 });
 
 // ═══ Contract 5: the clone, the pin, the binding ════════════════════════
@@ -912,7 +930,7 @@ test("log: in a private repository with one move, the log holds follow's text wi
 });
 
 // [ci-template#7]
-test("log: in a public repository, and with an empty REPO_PRIVATE, the log holds no story ref, id or title, nor the remote, states follow's exit code and that the text is withheld, and the move is pushed (edge)", () => {
+test("log: in a public repository, and with an empty REPO_PRIVATE, the log holds no story ref, id or title, nor the remote, a masked secret, states follow's exit code and that the text is withheld, and the move is pushed (edge)", () => {
   for (const repoPrivate of [false, ""]) {
     const w = jobWorld({
       vault: vaultOf({ "PS-X/story-a": reviewStory("story-a", 7, TITLE) }),
@@ -1082,7 +1100,7 @@ test("push: the identity is github-actions[bot] in the step's env, the message i
 // ═══ Contract 10: the docs page ═════════════════════════════════════════
 
 // [ci-template#10]
-test("docs: the page names the token's scope, external_refs.pr, the public log, the pinned release, Dependabot, the vault root and how to turn the job off", () => {
+test("docs: the page names the token's scope, the remote as a secret and what its mask does not cover, external_refs.pr, the public log, the pinned release, Dependabot, the vault root and how to turn the job off", () => {
   const page = read(PAGE);
   for (const s of [
     // When, and when not.
@@ -1111,6 +1129,9 @@ test("docs: the page names the token's scope, external_refs.pr, the public log, 
     "`external_refs.pr`",
     "The job log of a public repository is public",
     "The vault's URL is a secret too, so GitHub masks it everywhere in the log, git's own error messages included",
+    "GitHub masks the secret's whole value. A git error can still name the vault's host on its own.",
+    "If the vault repository is renamed, git may print its new address, which the mask does not cover. Update the secret.",
+    "delete the two secrets, `PROJECTSTORE_VAULT_TOKEN` and `PROJECTSTORE_VAULT_REMOTE`",
     "exit code says which",
     "The `bind` step's output ends with a hint to scaffold the layout's missing folders",
     // Forks, Dependabot, other repositories.

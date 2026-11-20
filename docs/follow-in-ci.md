@@ -81,7 +81,7 @@ Two ways to make it harder to misuse:
 If your vault is private and your code repository is public, two places can leak story names.
 
 - A `Closes-story: <EPIC>/<story-id>` line in a public pull request's description puts the story's id, a whole sentence of your backlog, in public. Link the story from the vault side instead: put the pull request's URL in the story's `external_refs.pr`.
-- The job log of a public repository is public, and follow's output names story ids, titles and the text of unchecked criteria. So the workflow prints follow's output only when the repository is private. Anywhere else it prints follow's exit code and one sentence saying that the output is withheld. The commit message names no story either. The vault's URL is a secret too, so GitHub masks it everywhere in the log, git's own error messages included.
+- The job log of a public repository is public, and follow's output names story ids, titles and the text of unchecked criteria. So the workflow prints follow's output only when the repository is private. Anywhere else it prints follow's exit code and one sentence saying that the output is withheld. The commit message names no story either. The vault's URL is a secret too, so GitHub masks it everywhere in the log, git's own error messages included. GitHub masks the secret's whole value. A git error can still name the vault's host on its own. If the vault repository is renamed, git may print its new address, which the mask does not cover. Update the secret.
 
 ## Forks, Dependabot and other repositories
 
@@ -115,4 +115,4 @@ Fix the cause, then re-run the job from the Actions tab. A re-run is safe: follo
 
 ## Turn it off
 
-Disable the workflow in the Actions tab, or delete the file. Then revoke the vault token and delete the secret. The commits the job already pushed stay in the vault's history. Nothing was installed, so there is nothing else to remove.
+Disable the workflow in the Actions tab, or delete the file. Then revoke the vault token and delete the two secrets, `PROJECTSTORE_VAULT_TOKEN` and `PROJECTSTORE_VAULT_REMOTE`. The commits the job already pushed stay in the vault's history. Nothing was installed, so there is nothing else to remove.
