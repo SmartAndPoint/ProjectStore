@@ -39,7 +39,6 @@ import { packageCommand } from "./harness.mjs";
 import { flowValue, flowDeclared, wipLimitOf, isEmailAddress } from "./flow-policy.mjs";
 import { readFlowStories, readFlowEpics } from "./flow-stories.mjs";
 import {
-  WEEK_MS,
   storyFacts,
   oldestFirst,
   wipByPerson,
@@ -47,9 +46,8 @@ import {
   windowCounts,
   weeklyCounts,
   isYoung,
-  columnPath,
+  shownWeeks,
   cumulativeFlow,
-  weekStart,
   cycleTime,
   idleEpics,
 } from "./flow-counts.mjs";
@@ -58,7 +56,6 @@ import { stampMs } from "./status-log.mjs";
 // The board's columns when a layout names none.
 const BOARD = ["Backlog", "ToDo", "In Progress", "Review", "Done"];
 const OPEN = new Set(["ToDo", "In Progress", "Review"]);
-const MAX_WEEKS = 104;
 const EMAIL_SHAPED = "an email-shaped name";
 // The rebuild command, the core's form with no harness in it: a pure value.
 const REBUILD = packageCommand([], "reconcile", { args: "--write --only flow" });
@@ -158,21 +155,9 @@ export function flowModel(facts, vaultCfg, { columns = BOARD, unread = 0, epics 
 
   const win = windowOf(asOf, model.weeks);
   const total = windowCounts(facts, win);
-  // Weeks before the week of the earliest date a counted story carries hold
-  // nothing; at most the last MAX_WEEKS of the rest are shown.
-  let earliest = null;
-  for (const f of facts) {
-    if (f.column === null) continue;
-    const first = columnPath(f).steps[0];
-    for (const ms of [f.created, f.closedAt, first ? first.at : null])
-      if (ms !== null && ms !== undefined && (earliest === null || ms < earliest)) earliest = ms;
-  }
-  let from = earliest === null ? win.to : Math.max(win.from, weekStart(earliest));
-  if (from > win.to) from = win.to;
-  const left = Math.round((win.to - from) / WEEK_MS);
-  const hidden = Math.max(0, left - MAX_WEEKS);
-  from += hidden * WEEK_MS;
-  const shown = { from, to: win.to };
+  // The weeks listed: flow-counts' shownWeeks, shared with the export verb
+  // (the export spec, contract 7), at most MAX_WEEKS of them.
+  const shown = shownWeeks(facts, win);
   model.window = {
     weeks: weeklyCounts(facts, shown).map((w) => ({
       from: w.from,
@@ -184,7 +169,7 @@ export function flowModel(facts, vaultCfg, { columns = BOARD, unread = 0, epics 
     closedUnstamped: total.closedUnstamped.length,
     young: isYoung(facts, win),
     from: win.from,
-    hidden,
+    hidden: shown.hidden,
   };
   // The cycle-time spec, contract 6: over the closes the totals row counts.
   model.window.cycle = model.window.young ? null : cycleTime(total.closed);

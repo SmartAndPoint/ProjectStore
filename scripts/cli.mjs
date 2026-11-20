@@ -5,7 +5,7 @@
 // (distribution ADR decisions 3 and 5). No logic lives here: the verb table,
 // the envelope and the per-verb parse are verbs.mjs's, the read verbs'
 // handlers are read-verbs.mjs's, and this module holds the handlers of the
-// verbs that write (and of mcp, dashboard and next, which no MCP tool or hook
+// verbs that write (and of mcp, dashboard, next and export, which no MCP tool or hook
 // reaches), and run(), which dispatches every verb of the one table through
 // both halves. It re-exports what it exported before
 // the split — the table is a CONTRACT that packaging/shells.mjs and the
@@ -25,7 +25,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, initiative, epic, create, reviewed, rank, follow, handover, groom, next, dashboard, reconcile and the MCP server are
+// The install verbs, setup, configure, move, initiative, epic, create, reviewed, rank, follow, handover, groom, next, export, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -815,6 +815,25 @@ async function runNextVerb(ctx) {
   return r.code;
 }
 
+// export (the export spec, contract 1): its own module, loaded on first use.
+// It always prints the envelope, with or without --json, and writes nothing;
+// a failure also goes to stderr. It is served here, not by the read runner,
+// so no MCP or hook closure reaches it.
+async function runExportVerb(ctx) {
+  const { runExport } = await import("./flow-export.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runExport(ctx);
+  if (r.usage)
+    return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), {
+      verb: row.verb,
+      ...ctx,
+      values: { ...values, json: true },
+    });
+  stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  if (!r.ok) stderr.write(r.text);
+  return r.code;
+}
+
 // close-refs (the close-refs spec, contract 1): its own module, loaded on
 // first use. It writes nothing and asks nothing; it reads the network through
 // gh, so no MCP or hook closure reaches it.
@@ -1048,6 +1067,7 @@ export const HANDLERS = Object.freeze({
   "close-refs": runCloseRefsVerb,
   handover: runHandoverVerb,
   groom: runGroomVerb,
+  export: runExportVerb,
   next: runNextVerb,
   dashboard: runDashboardVerb,
   mcp: runMcp,

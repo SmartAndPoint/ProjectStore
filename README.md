@@ -229,6 +229,14 @@ To see the flow on one page in Obsidian, create `flow.md` once. It shows each pe
 npx projectstore reconcile --write --only flow
 ```
 
+To use the same flow data in another tool, such as a reporting tool or a site, `export` prints it as JSON: every story and epic, each status change from the stories' Status logs, and the counts doctor and `flow.md` show (WIP per person, the weekly intake and closes, the cycle time, the epics without movement). It changes no file. The output is about 1 KB per story, so redirect it to a file:
+
+```
+npx projectstore export > flow-export.json
+```
+
+The counts are as of now. To get flow.md's weekly numbers and cycle time, pass its `as_of` date with `--as-of 2026-11-16`. Email-shaped assignees are masked, but titles, Status log reasons and their actors are printed as the vault has them, and `project` is the project's full path. Review or strip those fields before you publish the file. If the project is not bound or an option is wrong, the file stays empty and the error shows on screen; with `--json` the error goes into the file.
+
 Beside `move` and `handover`, two verbs write an initiative. `initiative` records a decision on one, accepted, rejected or deferred, with a dated reason in its Outcome section, or edits its title, owner and priority. `epic` sets or clears the initiative an epic belongs to. Bare, each prints the plan; `--write` asks at a terminal:
 
 ```

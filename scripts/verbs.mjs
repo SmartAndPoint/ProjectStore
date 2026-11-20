@@ -720,6 +720,26 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // The vault's flow as JSON (the export spec, contract 1): stories, epics,
+  // status transitions and flow counts in one envelope, always printed. It
+  // writes nothing and has no MCP tool; its handler is cli.mjs's, so no MCP
+  // or hook closure reaches it.
+  Object.freeze({
+    verb: "export",
+    summary: "Print stories, epics, status changes and flow counts as JSON.",
+    usage: NO_FORMS,
+    module: "./flow-export.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("as-of", "<date>", "count the window as of this date or instant, UTC (default: now)"),
+      opt("json", false, "the same envelope; it is printed with or without this flag"),
+    ],
+  }),
   // The page over this project's vault (the dashboard spec, contracts 3–8):
   // a launcher that starts the page's own server and serves until an
   // interrupt. The project may also come as a path, the maintainer's form;
@@ -962,6 +982,7 @@ const EXAMPLES = {
     '{cmd} handover --from "First Last" --to "Other Person" --reason "on leave" --story PS-CORE/story-x --write',
   ],
   groom: ["{cmd} groom  # the plan; nothing is written", "{cmd} groom --write", "{cmd} groom --json"],
+  export: ["{cmd} export > flow-export.json", "{cmd} export --as-of 2026-11-16 > flow-export.json"],
   dashboard: ["{cmd} dashboard", "{cmd} dashboard --port 4810 --no-open"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
@@ -1028,6 +1049,8 @@ const NOTES = {
   dashboard:
     "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. A story moved on the page is committed in the page's own clone of the vault, and reaches the vault only when a pull request you send from the page is merged.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
+  export:
+    "It prints one JSON envelope, with or without --json, and writes nothing. It is about 1 KB per story, so redirect it to a file. Titles, Status log reasons and actors are printed as the vault has them, and project is this project's full path: review or strip them before you publish the file.",
 };
 
 // The global options, as every verb takes them.

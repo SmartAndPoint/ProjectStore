@@ -21,6 +21,11 @@
 // `cycle-time`), contracts 1 to 4, added 2026-11-20 by PS-FLOW/story-flowmd-
 // and-doctor-count-cycle-time-and-epics-without-movement-through-new-flow-
 // counts-contracts; flow.md and doctor only call them (its contract 10).
+// MAX_WEEKS and shownWeeks, moved here from flow-view.mjs 2026-11-20 by
+// PS-FLOW/story-a-read-verb-exports-stories-epics-and-their-status-
+// transitions-as-json-through-the-same-readers-doctor-uses: "The export
+// verb…" (alias `export`), contract 7, so flow.md and the export verb list
+// the same weeks.
 
 import { stampMs, statusStamp, isAwaitingClose, parseStatusLog, logBullets, sameStatus } from "./status-log.mjs";
 import { statusToColumn, NOT_ACTIONABLE, storyState } from "./stages.mjs";
@@ -221,6 +226,32 @@ export function weeklyCounts(facts, win) {
 // of `from`, so there are not W weeks to measure.
 export function isYoung(facts, win) {
   return !facts.some((f) => f.column !== null && f.created !== null && f.created < win.from + DAY_MS);
+}
+
+// At most this many weeks of a window are listed week by week (the export
+// spec, contract 7; the flow page spec, contract 5).
+export const MAX_WEEKS = 104;
+
+// The weeks of a window a list shows, [from, to): from the week of the
+// earliest date a counted story carries (`created`, `closed_at` or its
+// path's first step), no earlier than the window, at most the last `max`
+// of them; `hidden` the weeks the cap cut. Weeks before the earliest date
+// hold nothing; the window's totals still cover every week. flow.md and
+// the export verb list the same weeks through it.
+export function shownWeeks(facts, win, max = MAX_WEEKS) {
+  let earliest = null;
+  for (const f of facts) {
+    if (f.column === null) continue;
+    const first = columnPath(f).steps[0];
+    for (const ms of [f.created, f.closedAt, first ? first.at : null])
+      if (ms !== null && ms !== undefined && (earliest === null || ms < earliest)) earliest = ms;
+  }
+  let from = earliest === null ? win.to : Math.max(win.from, weekStart(earliest));
+  if (from > win.to) from = win.to;
+  const left = Math.round((win.to - from) / WEEK_MS);
+  const hidden = Math.max(0, left - max);
+  from += hidden * WEEK_MS;
+  return { from, to: win.to, hidden };
 }
 
 // ─── Contract 7: ToDo against capacity ─────────────────────────────────

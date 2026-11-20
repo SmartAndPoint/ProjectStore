@@ -26,6 +26,8 @@ import {
   cycleStart,
   cycleTime,
   idleEpics,
+  shownWeeks,
+  MAX_WEEKS,
   DAY_MS,
   WEEK_MS,
 } from "../scripts/flow-counts.mjs";
@@ -594,6 +596,39 @@ const startOf = (f) => {
   const s = cycleStart(f);
   return s === null ? null : { at: new Date(s.at).toISOString(), source: s.source };
 };
+
+// ─── The weeks a list shows (the export spec, contract 7) ──────────────
+
+// [export#7]
+// [flow-view#5]
+test("shown weeks: from the week of the earliest date a counted story carries, no earlier than the window; none with no counted story; a set-aside story is not read", () => {
+  const win = windowOf(NOW_MS, 4);
+  assert.equal(MAX_WEEKS, 104);
+  assert.deepEqual(shownWeeks([], win), { from: win.to, to: win.to, hidden: 0 });
+  const recent = facts("story-r", { created: "2026-10-28" });
+  assert.deepEqual(shownWeeks([recent], win), { from: weekStart(Date.parse("2026-10-28")), to: win.to, hidden: 0 });
+  const old = facts("story-o", { created: "2026-01-05" });
+  assert.deepEqual(shownWeeks([recent, old], win), { from: win.from, to: win.to, hidden: 0 });
+  const parked = facts("story-p", { created: "2026-01-05", status: "parked" });
+  assert.deepEqual(shownWeeks([recent, parked], win), shownWeeks([recent], win));
+  const future = facts("story-f", { created: "2026-12-01" });
+  assert.deepEqual(shownWeeks([future], win), { from: win.to, to: win.to, hidden: 0 });
+});
+
+// [export#7]
+// [flow-view#5]
+test("shown weeks: at most the last MAX_WEEKS weeks, hidden counting the cut; a window of 9000000000000000 weeks stays bounded (edge)", () => {
+  const old = facts("story-o", { created: "2020-01-06" });
+  const win = windowOf(NOW_MS, 200);
+  const s = shownWeeks([old], win);
+  assert.equal(s.hidden, 96);
+  assert.equal((s.to - s.from) / WEEK_MS, MAX_WEEKS);
+  const few = shownWeeks([old], win, 3);
+  assert.deepEqual([few.hidden, (few.to - few.from) / WEEK_MS], [197, 3]);
+  const huge = shownWeeks([facts("story-a", { created: "2026-10-01" })], windowOf(NOW_MS, 9000000000000000));
+  assert.deepEqual([huge.from, huge.hidden], [weekStart(Date.parse("2026-10-01")), 0]);
+  assert.equal(weeklyCounts([], huge).length, 6);
+});
 
 // [cycle-time#1]
 test("cycle start: moved to in-progress, back to planned and to in-progress again, and moved in-progress → active → in-progress, each start at the second in-progress line, from the log", () => {
