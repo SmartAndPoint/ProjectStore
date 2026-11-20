@@ -83,7 +83,30 @@ const codeUi = (() => {
   };
   const howChips = (how, why) => how.map((x) => h("span", { class: `chip how how-${x}`, title: [HOW[x]?.[1], why?.[x]].filter(Boolean).join("\n") }, HOW[x]?.[0] || x));
   const share = (p) => (p.files === null || p.files === undefined ? (p.filesReason ? `Its files: unknown, ${p.filesReason}.` : null) : `${p.inside} of ${plural(p.files, "file")} in the story's code paths`);
-  const unknownLine = (what, why) => h("div", { class: "code-unknown" }, `${what}: unknown. ${sentence(why)}.`);
+  // The engineering facts, folded: a person reads the plain line, an engineer opens Details.
+  const details = (...kids) => h("details", { class: "fold" }, h("summary", null, "Details"), kids);
+  // What is unknown, in one plain sentence that says what to do; the exact reason under Details.
+  const PLAIN = {
+    "Pull requests": (why) =>
+      /known GitHub host/i.test(why)
+        ? "The project's repository does not seem to be on GitHub, so the page cannot read its pull requests: the links below may be missing."
+        : /not installed|not on PATH/i.test(why)
+        ? "GitHub cannot be asked about pull requests, so the links below may be missing. To let the page ask, install GitHub's command-line tool gh and sign in with gh auth login."
+        : /not logged in|auth login/i.test(why)
+          ? "GitHub cannot be asked about pull requests, so the links below may be missing. To let the page ask, sign in with gh auth login in a terminal."
+          : /past its budget|failed|timed out/i.test(why)
+            ? "The pull requests could not be read this time, so the links below may be missing. Use Check again in a moment."
+            : "The pull requests cannot be read here, so the links below may be missing.",
+    // A retry helps only when a read failed; a project that is no git repository, or Windows, stays as it is.
+    Commits: (why) =>
+      /failed|timed out|past its budget/i.test(why)
+        ? "The project's commits could not be read this time, so this story's commits are unknown. Use Check again in a moment."
+        : "The project's commits cannot be read here, so this story's commits are unknown.",
+  };
+  const unknownLine = (what, why) => h("div", { class: "code-unknown" }, PLAIN[what] ? [PLAIN[what](String(why)), details(h("div", { class: "faint" }, `${what}: unknown. ${sentence(why)}.`))] : `${what}: unknown. ${sentence(why)}.`);
+  // Why no commit is tied to the story, in words.
+  const windowWords = (why) =>
+    /started_at/.test(why || "") ? "This story has no start date recorded, so the page cannot tell which commits are its own." : /no code path/.test(why || "") ? "The story names no code path, so its commits cannot be found." : `${sentence(why || "no commit can be tied to it")}.`;
 
   function where(c) {
     const m = c.main;
@@ -94,7 +117,7 @@ const codeUi = (() => {
     if (m.fetchedAt) bits.push(`last fetched ${dayOf(m.fetchedAt)}`);
     if (m.fetched) bits.push(m.behind === null || m.behind === undefined ? "how far the checkout is behind is unknown" : m.behind ? `the checkout is ${plural(m.behind, "commit")} behind` : "the checkout is not behind it");
     if (m.shallow) bits.push("the repository is shallow, so older commits are unknown");
-    return h("div", { class: "code-where faint" }, `${sentence(bits.join("; "))}.`);
+    return h("details", { class: "fold code-where" }, h("summary", null, "Where this comes from"), h("div", { class: "faint" }, `${sentence(bits.join("; "))}.`));
   }
 
   function prRow(p) {
@@ -114,7 +137,7 @@ const codeUi = (() => {
     ui.codeOpen ??= {};
     const remember = (key) => (e) => setTimeout(() => (ui.codeOpen[key] = e.target.closest("details").open));
     const commits = !c.window
-      ? h("div", { class: "faint" }, sentence(c.windowReason || "no commit can be tied to it") + ".")
+      ? h("div", { class: "faint", title: c.windowReason || "" }, windowWords(c.windowReason))
       : c.unknown.git
         ? unknownLine("Commits", c.unknown.git)
         : h(
@@ -128,9 +151,9 @@ const codeUi = (() => {
     return [
       c.unknown.prs ? unknownLine("Pull requests", c.unknown.prs) : null,
       c.listFull ? h("div", { class: "faint" }, "Only the newest 1000 pull requests were read.") : null,
-      h("div", { class: "code-h" }, "Links"),
-      links.length ? links.map(prRow) : h("div", { class: "faint" }, "None: no pull request is named in the story's field or by a counted Closes-story line."),
-      leads.length ? [h("div", { class: "code-h" }, "Leads, not links"), leads.map(prRow)] : null,
+      h("div", { class: "code-h", title: "A link is written down: the story's own pull-request field, or a Closes-story line in the pull request" }, "Linked pull requests"),
+      links.length ? links.map(prRow) : h("div", { class: "faint" }, "No pull request is linked to this story yet. A link is the story's own pull-request field, or a Closes-story line in a pull request's description."),
+      leads.length ? [h("div", { class: "code-h", title: "Not linked: these only name the story, or are named by it" }, "Maybe related, not linked"), leads.map(prRow)] : null,
       derived.length ? h("details", { open: ui.codeOpen.derived ?? false }, h("summary", { onclick: remember("derived") }, "Found by commits alone", h("span", { class: "faint" }, derived.length)), h("div", { class: "faint" }, "Nobody wrote these down. A file shared with other stories brings their pull requests here."), derived.map(prRow)) : null,
       commits,
       c.skipped?.length ? h("div", { class: "code-unknown" }, `Skipped code paths outside the repository: ${c.skipped.join(", ")}.`) : null,
@@ -170,7 +193,7 @@ const codeUi = (() => {
   function block(d) {
     if (!relFor(d)) return null;
     const c = d.code;
-    const again = h("button", { class: "link", onclick: () => ask(d, { fresh: true }), title: "Read the pull requests from gh again" }, d.codeAsking && c ? "asking…" : "Ask gh again");
+    const again = h("button", { class: "link", onclick: () => ask(d, { fresh: true }), title: "Ask GitHub again for the pull requests" }, d.codeAsking && c ? "checking…" : "Check again");
     const head = h("h3", { class: "side-h" }, h("span", null, ico("github"), " Code"), c && !c.failed ? again : null);
     if (!c) return h("div", { class: "side-rel side-code" }, head, h("div", { class: "faint" }, "reading the repository…"));
     if (c.failed) return h("div", { class: "side-rel side-code" }, head, h("div", { class: "code-unknown" }, `${sentence(c.failed)}.`));

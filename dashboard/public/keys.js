@@ -106,15 +106,17 @@ function rootLevel(q) {
   nav.forEach((b, i) => out.push(cmd(b.querySelector(".nm")?.textContent || b.textContent, () => b.click(), { group: "Go to", key: i < 9 ? String(i + 1) : "", kw: "go open view" })));
   out.push(
     cmd("Copy a link to this view", () => copyText(savedDef(ui.view) ? viewLink(ui.view) : `${location.origin}${location.pathname}#/${ui.view}`, "A link to this view"), { group: "Go to", kw: "share address url" }),
-    cmd("Who am I…", null, { group: "Settings", children: () => S.people.filter((p) => p.kind === "person").map((p) => cmd(p.name, () => setMe(p.name), { mark: p.name === ui.me })) }),
+    cmd("Choose my name…", null, { group: "Settings", kw: "who am i me person", children: () => [...new Set([...S.people.filter((p) => p.kind === "person").map((p) => p.name), ...(S.me ? [S.me] : [])])].map((n) => cmd(n, () => setMe(n), { mark: n === ui.me })) }),
     cmd("Read the vault again", load, { group: "Settings", key: "R" }),
     cmd("Keyboard shortcuts", showKeys, { group: "Settings", key: "?" }),
   );
   if (q.trim().length >= 2) {
-    for (const i of S.initiatives) out.push(cmd(i.title, () => openDrawer("initiative", i.id), { group: "Initiatives", icon: ICON.initiative, hint: i.stage }));
-    for (const e of S.epics) out.push(cmd(`${e.id} · ${e.title}`, () => openDrawer("epic", e.id), { group: "Epics", icon: ICON.epic, hint: e.status }));
-    for (const s of S.stories) out.push(cmd(s.title, () => openDrawer("story", s.ref), { group: "Stories", icon: ICON.story, hint: `${s.epic} · ${s.column || s.status}`, kw: s.ref }));
-    for (const a of ART) if (!["story", "epic", "initiative"].includes(a.type)) out.push(cmd(a.title, () => openDrawer("doc", a.rel), { group: "Documents", icon: a.type || "document", hint: `${a.type}${a.status ? ` · ${a.status}` : ""}` }));
+    // The same word for a state as the tree and the panel use.
+    const word = (w) => STATUS_LABEL[w] || w;
+    for (const i of S.initiatives) out.push(cmd(i.title, () => openDrawer("initiative", i.id), { group: "Initiatives", icon: ICON.initiative, hint: word(i.stage) }));
+    for (const e of S.epics) out.push(cmd(`${e.id} · ${e.title}`, () => openDrawer("epic", e.id), { group: "Epics", icon: ICON.epic, hint: word(epicWord(e)) }));
+    for (const s of S.stories) out.push(cmd(s.title, () => openDrawer("story", s.ref), { group: "Stories", icon: ICON.story, hint: `${s.epic} · ${s.column || word(s.status)}`, kw: s.ref }));
+    for (const a of ART) if (!["story", "epic", "initiative"].includes(a.type)) out.push(cmd(a.title, () => openDrawer("doc", a.rel), { group: "Documents", icon: a.type || "document", hint: `${a.type}${a.status ? ` · ${word(a.status)}` : ""}` }));
   }
   return out;
 }
@@ -208,7 +210,7 @@ const KEYS = [
   ["H  L", "Board: the column to the left or right. Backlog: fold or unfold"],
   ["↵  or  O", "Open the selected item"],
   ["Esc", "Close the item, or drop the selection"],
-  [`${MAC ? "⌥" : "Alt+"}↑  ${MAC ? "⌥" : "Alt+"}↓`, "Backlog: move the selected epic or open story above or below its neighbour (a commit, after a dialog)"],
+  [`${MAC ? "⌥" : "Alt+"}↑  ${MAC ? "⌥" : "Alt+"}↓`, "Backlog: move the selected epic or open story above or below its neighbour (a change to publish later; it asks first only when other rows get a place too)"],
   ["R", "Read the vault again"],
   ["?", "This list"],
 ];

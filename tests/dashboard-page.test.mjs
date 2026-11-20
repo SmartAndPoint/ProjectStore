@@ -455,6 +455,8 @@ test("dashboard page: the state lists epics with their initiative, stories with 
     assert.equal(state.stories.length, 4);
     for (const s of state.stories) assert.equal(s.column, statusToColumn(s.status), s.ref || s.title);
     assert.deepEqual(state.assignees, ["Ann", "Bob"]);
+    // [dashboard#12] `me` is the binding's default_author: the page does not ask who it already knows.
+    assert.equal(state.me, "Test");
     const limits = Object.fromEntries(state.people.map((p) => [p.name, p.limit]));
     assert.equal(limits.Ann, 2);
     assert.equal(limits.Bob, 3);
@@ -467,9 +469,11 @@ test("dashboard page: the state lists epics with their initiative, stories with 
     );
     assert.ok(list.some((a) => a.rel === "adr/a-decision.md"));
   });
-  // No initiatives/ folder: none, and nothing else breaks.
+  // No initiatives/ folder: none, and nothing else breaks. A default_author with spaces at its
+  // ends is `me` trimmed [dashboard#12].
   const { proj, vault } = fixture();
   rmSync(join(vault, "initiatives"), { recursive: true });
+  writeBinding(proj, { vault_path: vault, layout: "engineering", language: "en", default_author: "  Ann Lee  " });
   const port = await freePort();
   const s = startServer(["--core", REPO, "--project", proj, "--port", String(port)]);
   try {
@@ -477,9 +481,22 @@ test("dashboard page: the state lists epics with their initiative, stories with 
     const state = JSON.parse((await call(port, "/api/state")).body);
     assert.deepEqual(state.initiatives, []);
     assert.equal(state.epics.length, 2);
+    assert.equal(state.me, "Ann Lee");
   } finally {
     s.child.kill("SIGTERM");
     await s.exited;
+  }
+  // A binding with no default_author: `me` is null, and the page asks [dashboard#12].
+  const bare = fixture();
+  writeBinding(bare.proj, { vault_path: bare.vault, layout: "engineering", language: "en", default_author: "" });
+  const port2 = await freePort();
+  const s2 = startServer(["--core", REPO, "--project", bare.proj, "--port", String(port2)]);
+  try {
+    assert.ok(await s2.ready);
+    assert.equal(JSON.parse((await call(port2, "/api/state")).body).me, null);
+  } finally {
+    s2.child.kill("SIGTERM");
+    await s2.exited;
   }
 });
 
@@ -878,13 +895,16 @@ test("dashboard page: a read-only vault gets no write control and one line namin
   assert.deepEqual(plain(ui.rootCommands()), []);
   ui.paint();
   assert.deepEqual(els["#write"].buttons, [], "the strip holds no button: no Send, no Discard");
-  assert.match(els["#write"].text, /Kept branches \(1\)/, "the kept list is still shown");
+  assert.match(els["#write"].text, /Kept aside \(1\)/, "the kept list is still shown");
   const foot = ui.footLine();
   assert.equal(foot.querySelectorAll("button").length, 0);
-  assert.match(foot.text, /^No writes: the vault is not in a git repository/);
+  assert.match(foot.text, /^Changes are off here: the vault is not in a git repository/);
   // A server that says nothing about writes is read-only too, and the line says so.
   const quiet = loadWriteUi(undefined);
-  assert.match(quiet.ui.footLine().text, /^No writes: this server does not say whether the page can write/);
+  assert.match(
+    quiet.ui.footLine().text,
+    /^Changes are off here: this server does not say whether the page can save changes/,
+  );
   assert.deepEqual(plain(quiet.ui.movesOf(STORIES[0])), []);
 });
 
@@ -986,7 +1006,7 @@ test("dashboard page: a move previews the core's plan, and one click on its butt
     calls.map((c) => [c.url, JSON.parse(c.body)]),
     [["/api/preview", { verb: "move", fields: { story: "PS-X/story-a", to: "todo", reason: "ready" } }]],
   );
-  assert.match(box.text, /What the core will change/);
+  assert.match(box.text, /What will change/);
   assert.ok(box.text.includes(plan.path), "the plan names the story's path in the bound vault");
   assert.equal(primary.text, "Move to ToDo");
   // An edited reason needs a new preview before the button moves anything.
@@ -1065,12 +1085,14 @@ test("dashboard page: the batch strip shows the branch, its count, the pull requ
   assert.ok(!bar.hidden);
   const text = bar.text;
   for (const s of [
+    "2 changes · review request open",
+    "Waiting for review",
     BATCH.branch,
     "2 commits not in main",
     "PR #7 · open",
-    "Kept branches (2)",
-    "3 commits the default branch lacks",
-    "A carry stopped at abcdef0",
+    "Kept aside (2)",
+    "3 changes not in the backlog",
+    "Stopped at abcdef0",
     "it does not apply",
     "count unknown",
     "fatal: bad object",
@@ -1078,10 +1100,21 @@ test("dashboard page: the batch strip shows the branch, its count, the pull requ
     assert.ok(text.includes(s), `the strip says ${s}`);
   assert.equal(bar.querySelector("a").attrs.href, pr.url);
   assert.doesNotMatch(text, /\bgit (push|branch)\b/, "the page prints no command for a kept branch");
-  assert.deepEqual(plain(bar.buttons.map((b) => b.text).filter((t) => t !== "✕")), ["Send…", "Discard…"]);
-  // Send asks first, saying what it will do; its button runs /api/send.
-  bar.buttons.find((b) => b.text === "Send…").click();
+  assert.deepEqual(plain(bar.buttons.map((b) => b.text).filter((t) => t !== "✕")), [
+    "Publish again…",
+    "Discard changes…",
+  ]);
+  // The branch, the commit count and the pull request's number stand under Details only.
+  const more = bar.querySelectorAll("details").find((d) => d.text.startsWith("Details"));
+  assert.ok(
+    more && more.text.includes(BATCH.branch) && more.text.includes("2 commits not in main"),
+    "Details holds the branch and its commits",
+  );
+  assert.ok(!bar.text.replace(more.text, "").includes(BATCH.branch), "the branch is named nowhere else in the strip");
+  // Publish asks first, saying what it will do; its button runs /api/send.
+  bar.buttons.find((b) => b.text === "Publish again…").click();
   const dlg = els["#modal"].kids[0];
+  assert.match(dlg.text, /Your 2 changes join your open review request/);
   assert.match(dlg.text, new RegExp(`Push branch ${BATCH.branch} with 2 commits`));
   assert.equal(calls.length, 0, "nothing runs before the click in the dialog");
   dlg.querySelector("button.primary").click();
@@ -1090,11 +1123,34 @@ test("dashboard page: the batch strip shows the branch, its count, the pull requ
     calls.map((c) => [c.url, c.method]),
     [["/api/send", "POST"]],
   );
-  assert.match(els["#write"].text, /Sent dashboard\/test-person\/\S+: 2 commits pushed to origin\. pull request #7/);
-  // gh that cannot be asked is said in the strip.
+  assert.match(els["#write"].text, /Published 2 changes for review\. Review request: pull request #7/);
+  // gh answering and no pull request: the changes are not published yet.
+  const fresh = loadWriteUi(writable(undefined, { batch: BATCH }));
+  fresh.ui.paint();
+  assert.match(fresh.els["#write"].text, /^2 changes not published yet/);
+  assert.deepEqual(plain(fresh.els["#write"].buttons.map((b) => b.text)), ["Publish for review…", "Discard changes…"]);
+  // gh that cannot be asked is not said in the strip, but in the Publish dialog: what to do, and why under Details.
   const noGh = loadWriteUi(writable(undefined, { batch: BATCH, pull_requests: "gh is not installed" }));
   noGh.ui.paint();
-  assert.match(noGh.els["#write"].text, /cannot be asked about pull requests: gh is not installed/);
+  assert.doesNotMatch(noGh.els["#write"].text, /gh is not installed|cannot ask GitHub/);
+  assert.match(
+    noGh.els["#write"].text,
+    /2 changes not in the backlog yet/,
+    "with gh out of reach the strip does not claim the changes are unpublished",
+  );
+  noGh.ui.confirmSend();
+  const ghDlg = noGh.els["#modal"].kids[0];
+  assert.match(
+    ghDlg.text,
+    /cannot ask GitHub about review requests, so it cannot open.*install GitHub's command-line tool gh and sign in with gh auth login/,
+  );
+  assert.match(
+    ghDlg
+      .querySelectorAll("details")
+      .map((d) => d.text)
+      .join(""),
+    /Why GitHub cannot be asked: gh is not installed/,
+  );
 });
 
 // [dashboard-delivery#4] Discard says nothing is deleted;
@@ -1115,7 +1171,52 @@ test("dashboard page: Discard asks first and shows the server's message, and Sen
     calls.map((c) => c.url),
     ["/api/discard"],
   );
-  assert.match(els["#write"].text, /The batch ended on this machine; its branch is kept/);
+  // [dashboard-delivery#4] The note follows how the batch ended: here, a review request may stay open.
+  assert.match(els["#write"].text, /Your changes were discarded and kept aside on this computer\./);
+  const why = els["#write"]
+    .querySelectorAll("details")
+    .map((d) => d.text)
+    .join("");
+  assert.match(
+    why,
+    /The batch ended on this machine; its branch is kept/,
+    "the server's own line stands under Details",
+  );
+  const merged = loadWriteUi(writable(undefined, { batch: BATCH }), {
+    "/api/discard": {
+      status: 200,
+      body: {
+        ok: true,
+        result: {
+          ended: "merged",
+          pull_request: { number: 7, state: "MERGED", url: null },
+          batch: "dashboard/test-person/2",
+          message: "carried",
+        },
+        write: writable(),
+      },
+    },
+  });
+  merged.ui.confirmDiscard();
+  merged.els["#modal"].kids[0].querySelector("button.primary").click();
+  await settle();
+  assert.match(merged.els["#write"].text, /Your review request was merged already: your changes are in the backlog\./);
+  // With gh out of reach, a review request may stay open, and the note says so in sight.
+  const noGh = loadWriteUi(writable(undefined, { batch: BATCH, pull_requests: "gh is not installed" }), {
+    "/api/discard": {
+      status: 200,
+      body: {
+        ok: true,
+        result: { ended: "here", pull_request: null, message: "x" },
+        write: writable(undefined, { pull_requests: "gh is not installed" }),
+      },
+    },
+  });
+  noGh.ui.confirmDiscard();
+  assert.match(noGh.els["#modal"].kids[0].text, /a review request for them, if one is open, stays open/);
+  noGh.els["#modal"].kids[0].querySelector("button.primary").click();
+  await settle();
+  assert.match(noGh.els["#write"].text, /stays open on your code host: close it there/);
   const words = ui.sendWords({
     ok: true,
     result: {
@@ -1136,9 +1237,9 @@ test("dashboard page: Discard asks first and shows the server's message, and Sen
   });
   assert.match(
     words,
-    /1 commit made after it was sent was carried from dashboard\/p\/1 into the new batch dashboard\/p\/2/,
+    /1 change made after the last publish was kept for your next review \(moved from dashboard\/p\/1 into dashboard\/p\/2\)/,
   );
-  assert.match(words, /the carry stopped at bbbbbbb "y", because it does not apply on the default branch/);
+  assert.match(words, /one change could not be kept, "y" \(bbbbbbb\), because it does not apply on the default branch/);
 });
 
 test("dashboard page: a pull request whose url is not http or https gets no link", () => {
@@ -1164,14 +1265,38 @@ test("dashboard page: a refresh that leaves the page unable to write says so, an
   assert.equal(ctx.S.write.can, false);
   const text = els["#write"].text;
   assert.doesNotMatch(text, /merged|ended/, text);
-  assert.match(text, /cannot write now: the clone's origin differs\. The batch dashboard\/test-person\/\S+ stays/);
+  assert.match(
+    text,
+    /cannot save changes now: the clone's origin differs\. Your unpublished changes stay on this computer\./,
+  );
   // With the page still writable, a batch that went away and is not kept was merged.
   const merged = loadWriteUi(writable(undefined, { batch: BATCH }), {
     "/api/refresh": { status: 200, body: { ok: true, result: null, write: writable() } },
   });
   await merged.ui.refresh();
   await settle();
-  assert.match(merged.els["#write"].text, /The batch dashboard\/test-person\/\S+ was merged\./);
+  assert.match(merged.els["#write"].text, /Your changes were merged into the backlog\./);
+  // A kept batch: closed without a merge, or merged with a carry that stopped (only a merge carries).
+  const kept = (k) =>
+    loadWriteUi(writable(undefined, { batch: BATCH }), {
+      "/api/refresh": { status: 200, body: { ok: true, result: null, write: writable(undefined, { kept: [k] }) } },
+    });
+  const closed = kept({ branch: BATCH.branch, commits: 2 });
+  await closed.ui.refresh();
+  await settle();
+  assert.match(closed.els["#write"].text, /Your review request was closed without being merged\./);
+  const stopped = kept({
+    branch: BATCH.branch,
+    commits: 2,
+    stopped_at: { sha: "abcdef0123", subject: "move x", reason: "it does not apply" },
+  });
+  await stopped.ui.refresh();
+  await settle();
+  assert.match(
+    stopped.els["#write"].text,
+    /Your review request was merged, but one change made after you published could not be kept, "move x": it does not apply\./,
+  );
+  assert.doesNotMatch(stopped.els["#write"].text, /closed without being merged/);
 });
 
 test("dashboard page: Escape closes a dialog and gives the focus back; Discard's starts on Cancel", () => {
@@ -1390,6 +1515,11 @@ test("dashboard page: the handover dialog takes its title, labels, button word a
     reason.value = "Ann is away";
     reason.fire("input");
     assert.match(box.querySelector(".subject").text, /^Commit: hand over PS-X\/story-h from Ann to Bea: Ann is away$/);
+    // [dashboard-writes#10] as amended 2026-11-20: the subject stands under Details.
+    assert.ok(
+      box.querySelectorAll("details").some((d) => d.contains(box.querySelector(".subject"))),
+      "the commit's subject is under Details",
+    );
     assert.equal(box.querySelector("button.primary").text, "Preview");
   }
   // The button's word after a preview is the entry's label too.
@@ -1492,7 +1622,7 @@ test("dashboard page: a story in ToDo that someone holds offers its move and Han
   await settle();
   box.querySelector("button.primary").click();
   await settle();
-  assert.match(r.els["#write"].text, /T is Bea's now\. The batch dashboard\/p\/20261118T000000Z holds 1 commit\./);
+  assert.match(r.els["#write"].text, /T is Bea's now\./);
 });
 
 // [dashboard-writes#10]
@@ -1635,7 +1765,7 @@ test("dashboard page: the Code block lists the links and the leads apart, each t
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].headers["x-projectstore-token"], "the-run-token");
   assert.deepEqual(JSON.parse(calls[0].body), { rel: "epics/PS-X/stories/story-a.md" });
-  assert.deepEqual(texts(el, ".code-h"), ["Links", "Leads, not links"]);
+  assert.deepEqual(texts(el, ".code-h"), ["Linked pull requests", "Maybe related, not linked"]);
   const rows = el.querySelectorAll(".code-pr");
   assert.deepEqual(
     rows.map((r) => r.querySelectorAll(".chip.how").map((c) => c.text)),
@@ -1674,8 +1804,36 @@ test("dashboard page: with gh logged out the Code block says the pull requests a
     }),
   });
   assert.match(el.text, /Pull requests: unknown\. gh is not logged in/);
+  // The plain sentence stands in sight, the reason only under Details.
+  const fold = el.querySelectorAll("details").find((d) => d.text.includes("Pull requests: unknown"));
+  assert.ok(fold, "the reason stands under Details");
+  assert.match(
+    el.text.replace(fold.text, ""),
+    /GitHub cannot be asked about pull requests.*sign in with gh auth login/,
+  );
   assert.match(el.text, /Commits while it was open/);
   assert.match(el.text, /a commit/);
+  // A project not on GitHub is told so, not sent to sign in.
+  const away = await drawn({
+    ok: true,
+    result: storyResult({
+      unknown: {
+        git: null,
+        prs: "gh pr list failed: none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`",
+      },
+    }),
+  });
+  assert.match(away.el.text, /does not seem to be on GitHub/);
+  assert.doesNotMatch(
+    away.el.text.replace(
+      away.el
+        .querySelectorAll("details")
+        .map((d) => d.text)
+        .join(""),
+      "",
+    ),
+    /sign in/,
+  );
 });
 
 // [dashboard-code#11]
@@ -1702,7 +1860,7 @@ test("dashboard page: a title from the code host is text, and only an https url 
 // [dashboard-code#11]
 test("dashboard page: the block's button asks gh again with fresh, an item opening asks without, and a spec gets its block", async () => {
   const { el, calls, code, d } = await drawn({ ok: true, result: storyResult() });
-  const again = el.querySelectorAll("button").find((b) => b.text === "Ask gh again");
+  const again = el.querySelectorAll("button").find((b) => b.text === "Check again");
   assert.ok(again);
   again.click();
   await settle();

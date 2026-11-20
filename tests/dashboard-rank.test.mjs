@@ -384,6 +384,7 @@ function world({
   preview = { ok: true, result: { changes: [{ path: "x.md", from: null, to: "1048576" }] } },
   action = { ok: true, result: { written: ["x.md"] } },
   slow = false,
+  loadFails = false,
 } = {}) {
   const rows = [
     new Row({ key: "e:PS-A", epic: "PS-A", group: "I" }, 0),
@@ -428,6 +429,7 @@ function world({
     ],
   };
   const docListeners = {};
+  const loads = { n: 0 };
   const posts = [];
   const made = [];
   const document = {
@@ -458,7 +460,10 @@ function world({
     render() {},
     fill() {},
     kv: (...pairs) => new Made("div", null, pairs.filter(Boolean).flat()),
-    load: async () => {},
+    load: async () => {
+      loads.n++;
+      if (loadFails) throw new Error("the state could not be read");
+    },
     fetch: async (url, opts) => {
       const body = JSON.parse(opts.body);
       posts.push({ url, ...body });
@@ -507,7 +512,7 @@ function world({
     await settle();
     return { accepted, line, previews: posts.filter((p) => p.url === "/api/preview").map((p) => p.fields) };
   }
-  return { ctx, posts, made, texts, drag, settle, release: () => release && release() };
+  return { ctx, S, posts, made, loads, texts, drag, settle, release: () => release && release() };
 }
 
 // [dashboard-rank#6]
@@ -551,6 +556,8 @@ test("dashboard rank: the dialog shows the plan's file count and its click runs 
   });
   await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
   assert.match(w.texts(), /2 files to write\./);
+  assert.match(w.texts(), /this also sets the place of 1 other story/);
+  assert.equal(w.posts.filter((p) => p.url === "/api/action").length, 0, "no action before the confirmation's button");
   const primary = w.made.find((m) => m.tag === "button" && m.text === "Reorder");
   assert.ok(primary, "the dialog's button reads the entry's label");
   primary.listeners.click[0]();
@@ -574,6 +581,88 @@ test("dashboard rank: a refused preview opens no dialog and shows its error; a p
   await v.drag("s:PS-A/a2", "s:PS-A/a1", 21);
   assert.doesNotMatch(v.texts(), /files? to write\./);
   assert.match(v.texts(), /already in that place/);
+});
+
+// [dashboard-rank#6] as amended 2026-11-20 and [dashboard-writes#10] as amended: a one-file plan is the action at once, with no dialog.
+test("dashboard rank: a drop whose plan writes one file draws the row at its new place before any answer, then runs the action with the same fields and opens no dialog", async () => {
+  const w = world({ slow: true });
+  const ended = w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  await w.settle();
+  const places = Object.fromEntries(w.S.stories.filter((s) => s.place !== null).map((s) => [s.ref, s.place]));
+  assert.deepEqual(places, { "PS-A/a2": 0, "PS-A/a1": 1 }, "the row stands first while the plan is asked");
+  w.release();
+  await ended;
+  await w.settle();
+  assert.deepEqual(
+    w.posts.map((p) => [p.url, p.fields]),
+    [
+      ["/api/preview", { story: "PS-A/a2", before: "PS-A/a1" }],
+      ["/api/action", { story: "PS-A/a2", before: "PS-A/a1" }],
+    ],
+  );
+  assert.ok(!w.made.some((m) => m.tag === "button" && m.text === "Reorder"), "no dialog");
+  assert.ok(w.loads.n >= 1, "the state is read again after the action");
+});
+
+// [dashboard-rank#6] as amended 2026-11-20 (failure).
+test("dashboard rank: an action refused after a one-file plan opens no dialog, shows the core's line as a note, and reads the state again so the tree is as before (failure)", async () => {
+  const w = world({ action: { ok: false, error: "rank: epics/PS-A/stories/a2.md: its rank is now 9" } });
+  await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  await w.settle();
+  assert.equal(w.posts.filter((p) => p.url === "/api/action").length, 1);
+  assert.ok(!w.made.some((m) => m.tag === "button" && m.text === "Reorder"), "no dialog");
+  assert.match(w.texts(), /its rank is now 9/);
+  assert.ok(w.loads.n >= 1, "the state is read again, which puts the row back");
+  const v = world({ preview: { ok: false, error: "rank: PS-A/a2 is not open" } });
+  await v.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  assert.equal(v.posts.filter((p) => p.url === "/api/action").length, 0);
+  assert.ok(v.loads.n >= 1, "a refused plan puts the row back too");
+});
+
+// [dashboard-rank#11]
+test("dashboard rank: a drop while a reorder is still being saved draws nothing, asks nothing, and the note says the last move is still being saved", async () => {
+  const w = world({ slow: true });
+  const first = w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  await w.settle();
+  const places = () => w.S.epics.map((e) => [e.id, e.place]);
+  const was = places();
+  await w.drag("e:PS-C", "e:PS-A", 2);
+  assert.deepEqual(places(), was, "the second drop moved no row");
+  assert.equal(w.posts.length, 1, "only the first plan was asked");
+  assert.match(w.texts(), /The last move is still being saved/);
+  w.release();
+  await first;
+});
+
+// [dashboard-rank#11]
+test("dashboard rank: a refused action puts the group's places back as they were before the drop, then reads the state again (failure)", async () => {
+  const w = world({ action: { ok: false, error: "rank: the clone moved" } });
+  const was = w.S.stories.map((s) => [s.ref, s.place]);
+  await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  await w.settle();
+  assert.deepEqual(
+    w.S.stories.map((s) => [s.ref, s.place]),
+    was,
+  );
+  assert.match(w.texts(), /could not be saved, so the row went back/);
+  assert.ok(
+    w.made.some((m) => m.tag === "details" && m.text.includes("the clone moved")),
+    "the core's line stands under Details",
+  );
+  assert.ok(w.loads.n >= 1);
+});
+
+// [dashboard-rank#11]
+test("dashboard rank: a refused action and a read of the state that fails leave the tree as before the drop, and the note says to reload (failure)", async () => {
+  const w = world({ action: { ok: false, error: "rank: the clone moved" }, loadFails: true });
+  const was = w.S.stories.map((s) => [s.ref, s.place]);
+  await w.drag("s:PS-A/a2", "s:PS-A/a1", 21);
+  await w.settle();
+  assert.deepEqual(
+    w.S.stories.map((s) => [s.ref, s.place]),
+    was,
+  );
+  assert.match(w.texts(), /Reload the page/);
 });
 
 // [dashboard-rank#7]

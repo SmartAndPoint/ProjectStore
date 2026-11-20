@@ -240,7 +240,11 @@ const ROWS = {
       ],
       ["`git clean -d -x` put the clone back", '["clean", "-d", "-x", "--quiet"]', code(WRITE_MODULE)],
       ["only when that branch is ahead of the clone's, `git merge`", "`HEAD..${remote}`", code(WRITE_MODULE)],
-      ["After a click, it commits on its own branch in that clone.", '["commit", "--quiet"', code(WRITE_MODULE)],
+      [
+        "After a click, or a drop or a key that reorders the backlog tree, it commits on its own branch in that clone.",
+        '["commit", "--quiet"',
+        code(WRITE_MODULE),
+      ],
       [
         "Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it; with no `gh` to ask, Send pushes and opens no pull request",
         '["push", "--porcelain", "--", "origin", `refs/heads/${branch}`]',

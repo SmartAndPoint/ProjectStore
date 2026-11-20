@@ -276,6 +276,9 @@ export function readState(ctx) {
     vault: shown.vault,
     project: { dir: shown.project, name: basename(shown.project) },
     coreVersion: ctx.version,
+    // Who is looking until the person picks another name: the binding's
+    // default_author, the name the page's batch is kept under (package spec, contract 12).
+    me: typeof ctx.cfg?.default_author === "string" && ctx.cfg.default_author.trim() ? ctx.cfg.default_author.trim() : null,
     asOf: new Date(now).toISOString(),
     unread,
     initiatives,
