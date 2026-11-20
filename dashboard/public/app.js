@@ -49,6 +49,7 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 const PRI = ["p0", "p1", "p2", "p3"];
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 // Priority, then title: the board, the list, My work and the initiatives. The
 // backlog tree's groups stand by their place instead (the spec dashboard-rank).
@@ -56,7 +57,8 @@ const byOrder = (a, b) => cmp(PRI.indexOf(a.priority), PRI.indexOf(b.priority)) 
 // A group's members by the place the core's siblingOrder gave them.
 const byPlace = (a, b) => cmp(a.place ?? Infinity, b.place ?? Infinity) || cmp(a.ref || a.id, b.ref || b.id);
 // A small mark on a row whose place is set by hand (contract 9).
-const rankMark = () => h("span", { class: "rank-mark", title: "Placed by hand: its rank sets where it stands in its group" }, "⇅");
+const rankMark = (kind) =>
+  h("span", { class: "rank-mark", title: `Placed by hand: someone dragged it to this place. ${kind === "epic" ? "Epics without this mark stand by their id." : "Stories without this mark stand by status, then priority."}` }, "⇅");
 const initials = (name) =>
   name
     .replace(/^agent:/, "")
@@ -72,9 +74,24 @@ const pill = (s) => h("span", { class: `pill ${pillClass(s.column)}` }, s.column
 // One word for one state, whatever the level: an epic that has not started reads "Backlog", as
 // its stories do. The vault's own word stays in the tip.
 const STATUS_LABEL = { planned: "Backlog", todo: "ToDo", "in-progress": "In Progress", review: "Review", done: "Done", proposed: "Proposed", elaborating: "Being worked out", accepted: "Accepted", rejected: "Rejected", deferred: "Deferred", superseded: "Superseded", parked: "Parked" };
-const wordPill = (word, cls = word) => h("span", { class: `pill ${cls}`, title: `in the vault: ${word}` }, STATUS_LABEL[word] || word);
-const epicPill = (e) => wordPill(e.status, e.status === "done" ? "done" : e.status === "in-progress" ? "in-progress" : "backlog");
-const chipP = (p) => h("span", { class: `chip ${p}` }, p);
+const wordPill = (word, cls = word, tip = null) => h("span", { class: `pill ${cls}`, title: tip || `in the vault: ${word}` }, STATUS_LABEL[word] || word);
+// An epic's word: the vault's own status, except that an epic still marked planned whose
+// stories have started (one done or in work) reads In Progress, as the board shows it.
+function epicWord(e) {
+  const c = e.counts || { done: 0, active: 0, backlog: 0 };
+  return e.status === "planned" && c.done + c.active > 0 ? "in-progress" : e.status;
+}
+const epicPill = (e) => {
+  const word = epicWord(e);
+  const tip = word !== e.status ? `Work has started: ${e.counts.done} of ${e.counts.done + e.counts.active + e.counts.backlog} stories done. In the vault the epic is still "${e.status}".` : null;
+  return wordPill(word, word === "done" ? "done" : word === "in-progress" ? "in-progress" : "backlog", tip);
+};
+// A person's work in progress against their limit, in words: "3 in work", "3 of 4 in work".
+const wipText = (p) => (p.limit === null || p.limit === undefined ? `${p.held} in work` : `${p.held} of ${p.limit} in work`);
+const wipTip = (p) =>
+  `Stories ${p.name} has started and not finished (In Progress or Review). ${p.limit === null || p.limit === undefined ? "The vault's flow policy sets no limit for this person." : `The vault's flow policy sets a limit of ${p.limit}: finish one before starting another.`}`;
+const PRI_WORD = { p0: "p0: drop everything", p1: "p1: high", p2: "p2: normal", p3: "p3: low" };
+const chipP = (p) => h("span", { class: `chip ${p}`, title: `Priority ${PRI_WORD[p] || p}` }, p);
 // Something that opens on a click opens from the keyboard too: Tab reaches it, Enter or Space
 // opens it. The key stops here, so the page's own Enter (open the selected item) does not also run.
 const opens = (fn, name) => ({
@@ -152,6 +169,8 @@ function toast(kind, what, why) {
 // ── modal ──
 function dialog(title, body, actions) {
   const m = $("#modal");
+  m.close?.(); // a write dialog that stands there closes through its own close(), so its onClose runs
+  m.close = null;
   const close = () => {
     m.hidden = true;
     m.replaceChildren();
@@ -200,8 +219,8 @@ function progress(c) {
   return h(
     "div",
     { class: "prog" },
-    h("div", { class: "bar", title: `${c.done} done · ${c.active} in work · ${c.backlog} waiting` }, h("i", { class: "d", style: w(c.done) }), h("i", { class: "a", style: w(c.active) }), h("i", { class: "b", style: w(c.backlog) })),
-    `${c.done}/${total}`,
+    h("div", { class: "bar", title: `Green: ${c.done} done · amber: ${c.active} in work · grey: ${c.backlog} not started` }, h("i", { class: "d", style: w(c.done) }), h("i", { class: "a", style: w(c.active) }), h("i", { class: "b", style: w(c.backlog) })),
+    h("span", { title: `${c.done} of ${total} stories done` }, `${c.done}/${total}`),
   );
 }
 function viewBacklog() {
@@ -217,10 +236,16 @@ function viewBacklog() {
   const rows = [];
   // Rows can be reordered only while the page can write and no search narrows the tree.
   const ranking = !q && writeUi.canRank();
+  // A click anywhere on the row opens it; the caret folds, and the grip drags.
+  const rowClick = (onOpen) => (e) => {
+    if (!(e.target instanceof Element) || e.target.closest(".caret, .grip, .label, button, a, input")) return;
+    if (window.getSelection?.()?.toString()) return; // selecting text is not a click to open
+    onOpen();
+  };
   const row = (cls, depth, key, kids, glyph, label, onOpen, cells, tags, data = {}) =>
     h(
       "tr",
-      { class: cls, "data-key": key, ...data },
+      { class: cls, "data-key": key, onclick: rowClick(onOpen), ...data },
       h(
         "td",
         null,
@@ -257,7 +282,7 @@ function viewBacklog() {
           h("td", { class: "num dim" }, s.assignee || "—"),
           h("td", { class: "num" }, s.subtasks.length ? h("span", { class: "prog" }, `${done}/${s.subtasks.length} subtasks`) : ""),
         ],
-        member && s.ranked ? rankMark() : null,
+        member && s.ranked ? rankMark("story") : null,
         { ...block, "data-story": s.ref, "data-part": member ? "open" : s.column === "Done" ? "done" : "aside" },
       );
       rows.push(ranking && member ? writeUi.dragTreeRow(tr, { kind: "story", ref: s.ref, title: s.title, epic: e.id }) : tr);
@@ -290,7 +315,7 @@ function viewBacklog() {
             h("td", { class: "num dim" }, ""),
             h("td", { class: "num" }, progress(e.counts)),
           ],
-          [e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"), e.ranked && rankMark()],
+          [e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"), e.ranked && rankMark("epic")],
           { "data-epic": e.id, "data-group": e.group ?? "" },
         ),
       );
@@ -345,7 +370,8 @@ function viewBacklog() {
       }),
       h("label", { class: "chk" }, h("input", { type: "checkbox", checked: ui.hideDone, onchange: (e) => (store.set("hideDone", (ui.hideDone = e.target.checked)), render()) }), "Hide done stories"),
       h("button", { class: "btn ghost", onclick: () => (ui.open.clear(), store.set("open", []), render()) }, "Collapse all"),
-      h("span", { class: "faint", style: "margin-left:auto" }, `${S.initiatives.length} initiatives · ${S.epics.length} epics · ${S.stories.length} stories`),
+      h("span", { class: "legend faint", title: "The bar beside each epic and initiative" }, h("i", { class: "d" }), "done", h("i", { class: "a" }), "in work", h("i", { class: "b" }), "not started"),
+      h("span", { class: "faint", style: "margin-left:auto" }, `${plural(S.initiatives.length, "initiative")} · ${plural(S.epics.length, "epic")} · ${plural(S.stories.filter((s) => s.column && s.column !== "Done").length, "open story", "open stories")}`),
     ),
     !S.initiatives.length && h("div", { class: "note", style: "margin:0 0 10px" }, "There are no initiatives yet. An initiative names an outcome and holds the epics that deliver it; the vault keeps them in initiatives/."),
     h("table", { class: "tree" }, h("thead", null, h("tr", null, ["Work item", "Status", "Priority", "Owner / assignee", "Progress"].map((t) => h("th", null, t)))), h("tbody", null, rows)),

@@ -12,10 +12,11 @@ npx projectstore dashboard
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
 palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
-another person, and reorder the backlog tree by a drag or Alt+↑ and Alt+↓. The core's own `move`,
+another person, and reorder the backlog tree by a drag or Alt+↑ and Alt+↓ (a reorder that writes
+one file is committed on its drop or key; one that also gives other rows a place asks first). The core's own `move`,
 `handover` and `rank` run in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
-branch. **Send** pushes that branch and opens one pull request for it (with no `gh` to ask, it
+branch. **Send** (the button reads "Publish for review") pushes that branch and opens one pull request for it (with no `gh` to ask, it
 pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to
 ask, it ends the batch on this machine only, and an open pull request stays open on the code
 host). Nothing reaches the vault until a person merges the pull request, and the page
@@ -150,11 +151,11 @@ Open the `url` of the line it prints. The server keeps nothing between requests:
 under `public/` and reload the page; edit a file under `lib/` and start the server again.
 `Ctrl+C` ends it.
 
-## Kept branches, by hand
+## Kept branches ("Kept aside" on the page), by hand
 
 The page keeps a batch branch it no longer works on: a batch you discarded, one whose pull
 request was closed, or one where a carry stopped at a commit that does not apply. The page lists
-them under **Kept branches**, with the commits each holds that the default branch lacks, and
+them under **Kept aside**, with the commits each holds that the default branch lacks, and
 never sends or deletes one. They live in the page's own clone, at
 `<project>/.projectstore/state/dashboard/<person>/clone/` (in the main checkout of the code
 repository, when the project is a worktree). Stop the page first, so no step of it runs in the
@@ -243,6 +244,10 @@ What the page reads that the core has no reader for yet:
   epics that name it.
 - **Ready for ToDo**: a story's Description and at least one acceptance criterion are filled
   (the sections found by the core's `sectionOf`).
+- **An epic's word**: the vault's own status, except that an epic still `planned` with a story
+  done or in work reads In Progress, in the tree, on its panel and on the board of epics.
+- **Who is looking**: `/api/state`'s `me`, the binding's `default_author`, until the person
+  chooses another name at the foot of the menu; the choice stays in the browser.
 - **Agents**: a person of the flow policy, or an assignee, whose name starts with `agent:`.
 - **People with no policy**: every assignee the policy does not list joins the people, with no
   WIP limit (the page adds them from `assignees`).

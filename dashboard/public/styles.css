@@ -530,3 +530,18 @@ tr.drop-line-after > td { box-shadow: inset 0 -2px 0 var(--accent); }
 .code-subj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-pr-chip { display: inline-flex; gap: 4px; align-items: center; font: 12px var(--mono); }
 .side-code details > summary { cursor: pointer; font-size: 12px; color: var(--dim); padding: 4px 0; display: flex; gap: 6px; align-items: center; }
+/* Plain words (the story "The page speaks a product manager's words…"): engineering facts fold under Details. */
+details.fold { margin-top: 6px; font-size: 12px; color: var(--faint); }
+details.fold > summary { cursor: pointer; width: max-content; color: var(--dim); }
+details.fold > summary:hover { color: var(--accent); }
+details.fold[open] > summary { margin-bottom: 4px; }
+.batch details.fold { flex-basis: 100%; margin-top: 2px; }
+.gh-line { margin: 8px 0; }
+.file-line { margin-top: 10px; font-size: 12px; color: var(--faint); }
+.file-line > summary { cursor: pointer; color: var(--dim); }
+.file-line .mono { display: block; margin-top: 4px; word-break: break-all; }
+.nav-foot .hint { font-style: normal; color: var(--faint); }
+.tree tbody tr:not(.subtask) { cursor: pointer; }
+.toolbar .legend { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; font-size: 11px; }
+.toolbar .legend i { display: inline-block; width: 10px; height: 6px; border-radius: 2px; margin-left: 6px; }
+.toolbar .legend i.d { background: var(--ok); } .toolbar .legend i.a { background: var(--warn); } .toolbar .legend i.b { background: var(--line-2); }

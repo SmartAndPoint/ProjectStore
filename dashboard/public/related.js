@@ -166,6 +166,6 @@ function relatedView(d) {
     r.self && r.self.total ? [h("h3", null, r.type === "spec" ? "This spec's contracts" : "This ADR's decisions"), partsStrip(r.self, true)] : null,
     r.groups.map((g) => [h("h3", null, kindIco(g.kind), `${g.label} · ${g.items.length}`), DOC_KINDS.includes(g.kind) ? g.items.map(card) : h("div", { class: "linklist" }, g.items.slice(0, 40).map((it) => h("div", { class: "line" }, h("button", { class: "link", onclick: () => openByRel(it.rel) }, it.title), h("span", { class: "faint" }, it.how.join(", ")))))]),
     !r.groups.length ? h("div", { class: "empty" }, "No other artifact links to this one, and it links to none.") : null,
-    h("div", { class: "rel-foot" }, `Edges: ${r.read.graph} (${r.read.nodes} nodes, ${r.read.edges} edges, ${r.read.ms} ms). Contracts: ${r.read.marks}.`),
+    h("details", { class: "fold rel-foot" }, h("summary", null, "Where this comes from"), h("div", null, `Edges: ${r.read.graph} (${r.read.nodes} nodes, ${r.read.edges} edges, ${r.read.ms} ms). Contracts: ${r.read.marks}.`)),
   );
 }

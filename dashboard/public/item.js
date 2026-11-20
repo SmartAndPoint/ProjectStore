@@ -173,15 +173,9 @@ function renderDrawer() {
   else if (item.missing) main.append(h("div", { class: "faint" }, "The file could not be read."));
   else
     main.append(
-      h(
-        "div",
-        { class: "doc-bar" },
-        // What belongs to the item stands in the side panel. Its long form opens here, in place of the text.
-        d.tab !== "doc" ? h("button", { class: "tog on", onclick: () => showTab(d, "doc") }, "← Back to the text") : null,
-        d.tab !== "doc" ? h("b", null, "Related, in full") : null,
-        h("span", { class: "ref", title: item.rel }, item.rel),
-      ),
-      d.tab === "rel" ? relatedView(d) : MD.render(item.body.replace(/^\s*# .*\n/, ""), docCtx(item.rel)),
+      // What belongs to the item stands in the side panel. Its long form opens here, in place of the text.
+      d.tab !== "doc" ? h("div", { class: "doc-bar" }, h("button", { class: "tog on", onclick: () => showTab(d, "doc") }, "← Back to the text"), h("b", null, "Related, in full")) : null,
+      d.tab === "rel" ? relatedView(d) : MD.render(bodyOf(d, item), docCtx(item.rel)),
     );
   const scroll = pane.scrollTop;
   pane.replaceChildren(
@@ -195,6 +189,15 @@ function renderDrawer() {
   pane.scrollTop = scroll;
 }
 
+// The text below the title. A story's own Field/Value table repeats the side panel, so it is
+// left out; an epic's, an initiative's, an ADR's or a spec's stays, since its panel does not hold the same.
+const HEAD_TABLE = /^\s*\|\s*Field\s*\|\s*Value\s*\|[^\n]*\n(?:\|[^\n]*(?:\n|$))*(?:\s*---\s*(?:\n|$))?/;
+function bodyOf(d, item) {
+  const text = item.body.replace(/^\s*# .*\n/, "");
+  return d.kind === "story" ? text.replace(HEAD_TABLE, "") : text;
+}
+// The file an item is read from, folded: a person who edits the vault by hand finds it here.
+const fileLine = (rel) => (rel ? h("details", { class: "file-line" }, h("summary", null, "Where the file is"), h("span", { class: "mono" }, rel)) : null);
 const kv = (...pairs) => h("div", { class: "kv" }, pairs.filter(Boolean).flatMap(([k, v]) => [h("span", null, k), h("span", null, v)]));
 const who = (name) => (name ? h("span", { class: "who-line" }, avatar(name), ` ${name}`) : "—");
 
@@ -207,14 +210,15 @@ function sideStory(d) {
     title: s.title,
     fields: [
       kv(
-        ["Status", [pill(s), s.ageDays !== null && s.column !== "Done" ? h("span", { class: "faint" }, `  ${s.ageDays} d`) : null]],
+        ["Status", [pill(s), s.ageDays !== null && s.column !== "Done" ? h("span", { class: "faint", title: "Days in this status" }, `  ${s.ageDays} ${s.ageDays === 1 ? "day" : "days"}`) : null]],
         ["Epic", h("button", { class: "link", onclick: () => openDrawer("epic", s.epic) }, s.epic)],
         ["Priority", chipP(s.priority)],
         ["Assignee", who(s.assignee)],
         ["Subtasks", s.subtasks.length ? `${done} of ${s.subtasks.length} done` : "—"],
-        ["Ready", h("span", { style: s.ready.ok ? "color:var(--ok)" : "color:var(--warn)" }, s.ready.ok ? "yes" : `needs ${s.ready.missing.join(" and ")}`)],
+        ["Ready for ToDo", h("span", { style: s.ready.ok ? "color:var(--ok)" : "color:var(--warn)", title: "A story is ready for ToDo when it has a Description and at least one acceptance criterion." }, s.ready.ok ? "yes, it has a description and acceptance criteria" : `not yet: it needs ${s.ready.missing.join(" and ")}`)],
       ),
       writeUi.storyButtons(s), // write.js: the keyboard's way to a move, beside the drag
+      fileLine(s.rel),
     ],
   };
 }
@@ -235,6 +239,7 @@ function sideEpic(d) {
         ["Priority", chipP(e.priority)],
         ["Progress", progress(e.counts)],
       ),
+      fileLine(e.rel),
     ],
     more: [h("h3", null, `Stories (${mine.length})`), h("div", { class: "linklist" }, mine.map((s) => h("div", { class: "line" }, pill(s), h("button", { class: "link", onclick: () => openDrawer("story", s.ref) }, s.title))))],
   };
@@ -256,6 +261,7 @@ function sideInitiative(d) {
         ["Worked out in", el ? [pill(el), " ", h("button", { class: "link", onclick: () => openDrawer("story", el.ref) }, `story for ${el.assignee || "nobody"}`)] : "—"],
         ["Progress", i.epics.length ? progress(i.counts) : "no epics yet"],
       ),
+      fileLine(i.rel),
     ],
     more: [h("h3", null, `Epics (${i.epics.length})`), h("div", { class: "linklist" }, i.epics.map((x) => h("button", { class: "link", onclick: () => openDrawer("epic", x) }, `${x} · ${epic(x)?.title || ""}`)))],
   };
@@ -267,13 +273,13 @@ function sideDoc(d) {
   return {
     kind: a?.type || item?.type || "document",
     title: a?.title || item?.title || d.id,
-    fields: [kv(["Kind", a?.type || "—"], ["Status", a?.status || item?.status || "—"])],
+    fields: [kv(["Kind", a?.type || "—"], ["Status", a?.status || item?.status || "—"]), fileLine(d.id)],
   };
 }
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || e.defaultPrevented) return;
-  if (!$("#modal").hidden) $("#modal").hidden = true;
+  if (!$("#modal").hidden) $("#modal").close ? $("#modal").close() : ($("#modal").hidden = true); // a dialog of write.js closes through its own close(), so its onClose runs
   else if (ui.drawer) closeDrawer();
 });
 

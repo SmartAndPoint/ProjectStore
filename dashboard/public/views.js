@@ -4,10 +4,13 @@
 // initiatives), a layout (board or list), a filter, lanes (or a grouping, in
 // a list) and a sort. The address carries what differs from the built-in
 // view, so a link opens the same picture for someone else. "Me" is a setting
-// of this browser: the page has no sign-in, so it asks who is looking and
-// filters by that name. Nothing of it is written to the vault.
+// of this browser: the page has no sign-in. It starts with the binding's
+// default_author (`me` in /api/state), and the menu's foot is the one place
+// to pick another name. Nothing of it is written to the vault.
 
-ui.me = store.get("me", "");
+// The name is kept per project: pages of two projects may share a port, and so this browser's storage.
+const meKey = () => `me:${S?.project?.dir || ""}`;
+ui.me = undefined; // read in render(), once the state names the project
 ui.work = {}; // the filter being tried in each view
 
 const GROUPS = { none: "No grouping", status: "Status", epic: "Epic", initiative: "Initiative", assignee: "Assignee", priority: "Priority" };
@@ -46,23 +49,33 @@ function render() {
   if (!S) return;
   fitBoards.disconnect(); // the boards of the last draw are gone
   if (!isView(ui.view)) ui.view = "backlog";
+  if (ui.me === undefined) ui.me = store.get(meKey(), null) ?? (S.me || ""); // never chosen here: /api/state's `me`
   const me = S.people.find((p) => p.name === ui.me);
   const open = S.stories.filter((s) => s.column && s.column !== "Done");
   // A number in the menu says what it counts, in its tip.
+  // A number counts one thing, the open stories its view shows: the board's, and yours.
   const item = (id, label, n, counts) => h("button", { class: ui.view === id ? "on" : "", onclick: () => go(id), title: counts ? `${label}: ${counts}` : label }, h("span", { class: "nm" }, label), h("span", { class: "n" }, n ?? ""));
   const mineN = ui.me ? open.filter((s) => s.assignee === ui.me).length : null;
   fill(
     $("#nav"),
     h("div", { class: "nav-h" }, "Views"),
-    item("backlog", "Backlog", S.epics.length, `${S.epics.length} epics under ${S.initiatives.length} initiatives`),
-    item("board", "Board", open.length, `${open.length} stories that are not done`),
-    item("mine", "My work", mineN ?? "?", mineN === null ? "say who you are, below" : `${mineN} stories of yours that are not done`),
-    item("initiatives", "Initiatives", S.initiatives.length, `${S.initiatives.length} initiatives`),
+    item("backlog", "Backlog", null, "the plan: initiatives, their epics and stories, in order"),
+    item("board", "Board", open.length, `${plural(open.length, "open story", "open stories")} (not done)`),
+    item("mine", "My work", mineN, mineN === null ? "choose your name at the bottom of this menu" : `${plural(mineN, "open story", "open stories")} assigned to ${ui.me}`),
+    item("initiatives", "Initiatives", null, "the initiatives, from proposal to done"),
   );
+  // The one place that asks who is looking, and why it matters.
+  const names = [...new Set([...S.people.filter((p) => p.kind === "person").map((p) => p.name), ...(S.me ? [S.me] : []), ...(ui.me ? [ui.me] : [])])];
   fill(
     $("#foot"),
-    h("label", { class: "f" }, h("span", null, "You are"), h("select", { onchange: (e) => setMe(e.target.value) }, h("option", { value: "", selected: !ui.me }, "— choose —"), S.people.filter((p) => p.kind === "person").map((p) => h("option", { selected: p.name === ui.me }, p.name)))),
-    me && h("div", { class: "mono" }, `in work ${me.held}/${me.limit ?? "∞"} · ${me.queued} queued`),
+    h(
+      "label",
+      { class: "f" },
+      h("span", null, "Your name"),
+      h("select", { id: "me-select", onchange: (e) => setMe(e.target.value) }, !ui.me && h("option", { value: "", selected: true }, "Choose…"), names.map((n) => h("option", { selected: n === ui.me }, n))),
+      h("i", { class: "hint" }, "My work lists this person's stories."),
+    ),
+    me && h("div", { class: "faint", title: wipTip(me) }, `${wipText(me)} · ${me.queued} waiting in ToDo`),
     writeUi.footLine(), // write.js: whether this page writes, and why not when it does not
   );
   const def = savedDef(ui.view);
@@ -103,7 +116,7 @@ function render() {
 }
 function setMe(name) {
   ui.me = name;
-  store.set("me", name);
+  store.set(meKey(), name);
   render();
 }
 
@@ -275,7 +288,7 @@ function lanesBoard(level, dim, pool, cols) {
         (dim === "assignee" || dim === "owner") && ln.key ? avatar(ln.key) : null,
         h("span", { class: "lt" }, ln.title),
         h("span", { class: "n" }, ln.items.length),
-        person ? h("span", { class: `wip${person.limit !== null && person.held > person.limit ? " over" : ""}`, title: "in work / limit" }, `${person.held}/${person.limit ?? "∞"}`) : null,
+        person ? h("span", { class: `wip${person.limit !== null && person.held > person.limit ? " over" : ""}`, title: wipTip(person) }, wipText(person)) : null,
       ),
       row,
     );
@@ -325,6 +338,12 @@ function viewStories(id) {
           )
         : S.initiatives.filter((i) => pri(i) && hit(i.title) && (!f.initiative || i.id === f.initiative) && (!f.hideDone || i.stage !== "done") && (!f.assignee || (i.owner || "") === person));
   const total = level === "stories" ? S.stories.filter((s) => s.column).length : level === "epics" ? S.epics.length : S.initiatives.length;
+  // What the view counts, in words: open and done stories (the menu's number is the open ones), or epics, or initiatives.
+  const doneN = level === "stories" ? pool.filter((s) => s.column === "Done").length : 0;
+  const shownCount =
+    level === "stories"
+      ? `${plural(pool.length - doneN, "open story", "open stories")}${doneN ? ` · ${doneN} done` : ""}${pool.length < total ? " (filtered)" : ""}`
+      : `${plural(pool.length, level === "epics" ? "epic" : "initiative")}${pool.length < total ? ` of ${total}` : ""}`;
   const dirty = !same(viewOf(def), viewOf(saved));
 
   // "Board" and "Initiatives" are the same board at two levels, each with its place in the menu:
@@ -376,7 +395,7 @@ function viewStories(id) {
       h("span", { class: "seg", role: "group", "aria-label": "What the cards are" }, Object.entries(LEVELS).map(([k, t]) => chip(level === k, [ico(LEVEL_ICON[k]), t], () => toLevel(k), `A board of ${t.toLowerCase()}`))),
       level === "stories" && h("span", { class: "seg" }, chip(def.layout === "board", "Board", () => ((def.layout = "board"), LANES.stories[def.group] || (def.group = "none"))), chip(def.layout === "list", "List", () => (def.layout = "list"))),
       def.layout === "board" && pick("Lanes", def.group, (v) => (def.group = v), Object.entries(LANES[level]).map(([k, t]) => opt(k, k === "none" ? "No lanes" : `Lanes: ${t.toLowerCase()}`, def.group))),
-      h("span", { class: "faint" }, `${pool.length} of ${total}`),
+      h("span", { class: "faint count" }, shownCount),
       h("span", { class: "grow" }),
       h("button", { class: "btn ghost", onclick: () => copyViewLink(id), title: "Copy a link that opens this view as it is now" }, "Copy link"),
       dirty && h("button", { class: "btn ghost", onclick: set(() => delete ui.work[id]) }, "Reset"),
@@ -436,13 +455,14 @@ function viewStories(id) {
 }
 const viewOf = (def) => ({ level: def.level || "stories", layout: def.layout, group: def.group, sort: def.sort, filter: clone(def.filter) });
 
+// My work with no name chosen: it points to the one place that asks.
 function whoAreYou() {
   return h(
     "div",
     { class: "panel", style: "max-width:520px" },
-    h("h2", null, "Who are you?"),
-    h("div", { class: "dim" }, "The page has no sign-in. Pick your name and it shows your work. The choice stays in this browser."),
-    h("div", { class: "row", style: "margin-top:12px" }, S.people.filter((p) => p.kind === "person").map((p) => h("button", { class: "btn", onclick: () => setMe(p.name) }, p.name))),
+    h("h2", null, "Whose work?"),
+    h("div", { class: "dim" }, "The page has no sign-in. Choose your name under \u201cYour name\u201d at the bottom of the menu, and this view lists your stories. The choice stays in this browser."),
+    h("div", { class: "row", style: "margin-top:12px" }, h("button", { class: "btn", onclick: (e) => (e.stopPropagation(), document.body.classList.add("nav-open"), $("#me-select")?.focus()) }, "Choose my name")),
   );
 }
 function mineHead() {
@@ -452,12 +472,15 @@ function mineHead() {
   return h(
     "div",
     { class: "people" },
-    me && h("div", { class: `person${over ? " over" : ""}` }, avatar(me.name), h("span", null, "In work"), h("span", { class: "wip" }, `${me.held}/${me.limit ?? "∞"}`), over && h("span", null, "over your limit: finish before you start")),
+    me && h("div", { class: `person${over ? " over" : ""}`, title: wipTip(me) }, avatar(me.name), h("span", { class: "wip" }, wipText(me)), over && h("span", null, "over your limit: finish before you start")),
     me && me.queued > 0 && h("div", { class: "person" }, h("span", null, "Waiting for you in ToDo"), h("span", { class: "wip" }, me.queued)),
     own.length > 0 && h("div", { class: "person" }, h("span", null, "Initiatives you own"), own.map((i) => h("button", { class: "link", onclick: () => openDrawer("initiative", i.id) }, i.title.slice(0, 36)))),
   );
 }
 let HIDE = new Set(); // what the view in sight already says for every card: "who", "epic", "status"
+// The two flags a card or a row can carry, each with its reason in the tip.
+const readyChip = (s) => (s.column === "Backlog" && !s.ready.ok ? h("span", { class: "chip flag", title: `Not ready for ToDo yet: it needs ${s.ready.missing.join(" and ")}.` }, "not ready") : null);
+const awaitingChip = (s) => (s.awaiting ? h("span", { class: "chip flag", title: "Its pull request is merged. The story waits for its close gate, which checks the work and marks it Done." }, "merged, to close") : null);
 function listRow(s) {
   const done = s.subtasks.filter((t) => t.done).length;
   // Every row has the same cells, empty or not: the columns line up.
@@ -470,14 +493,14 @@ function listRow(s) {
       { class: "c-ttl" },
       h("span", { class: "ttl", title: s.title }, s.title),
       s.variant ? h("span", { class: "chip agent" }, s.variant) : null,
-      s.column === "Backlog" && !s.ready.ok ? h("span", { class: "chip flag", title: `needs ${s.ready.missing.join(" and ")}` }, "not ready") : null,
-      s.awaiting ? h("span", { class: "chip flag" }, "awaiting close") : null,
+      readyChip(s),
+      awaitingChip(s),
     ),
     h("span", { class: "c-sub", title: "subtasks done" }, s.subtasks.length ? `☑ ${done}/${s.subtasks.length}` : ""),
     !HIDE.has("epic") && h("span", { class: "c-epic" }, h("span", { class: "chip" }, s.epic)),
     !HIDE.has("who") && h("span", { class: "who", title: s.assignee || "nobody" }, s.assignee ? [avatar(s.assignee), h("span", { class: "nm" }, s.assignee.replace(/^agent:/, ""))] : "—"),
     !HIDE.has("status") && h("span", { class: "c-st" }, pill(s)),
-    h("span", { class: "age", title: "days in this status" }, s.ageDays !== null && s.column !== "Done" ? `${s.ageDays} d` : ""),
+    h("span", { class: "age", title: "Days in this status" }, s.ageDays !== null && s.column !== "Done" ? `${s.ageDays} d` : ""),
   );
 }
 
@@ -485,14 +508,14 @@ function listRow(s) {
 function personChip(p) {
   const over = p.limit !== null && p.held > p.limit;
   const full = p.limit !== null && p.held === p.limit;
-  const tip = p.inPolicy === false ? "not in the vault's flow policy: no WIP limit" : p.kind === "agent" ? "an agent of the flow policy" : `${p.time || "no"} time`;
+  const who = p.inPolicy === false ? "Not in the vault's flow policy." : p.kind === "agent" ? "An agent of the flow policy." : p.time ? `Works ${p.time} time.` : "";
   return h(
     "div",
-    { class: `person${over ? " over" : full ? " full" : ""}`, title: tip },
+    { class: `person${over ? " over" : full ? " full" : ""}`, title: `${who} ${wipTip(p)}`.trim() },
     avatar(p.name),
     h("span", null, p.name),
-    h("span", { class: "wip" }, `${p.held}/${p.limit ?? "∞"}`),
-    p.queued ? h("span", { class: "faint" }, `+${p.queued} in ToDo`) : null,
+    h("span", { class: "wip" }, wipText(p)),
+    p.queued ? h("span", { class: "faint" }, `+${p.queued} waiting in ToDo`) : null,
   );
 }
 // A board fits its place. When its columns do not, the empty ones and Done fold into strips; a
@@ -567,18 +590,20 @@ function column(c, pool, lane) {
   const all = !!ui.colAll?.has(allKey);
   const shown = !all && total > cap ? list.slice(0, cap) : list;
   // How a story comes into a gate column, in a person's words.
-  const gateWhy = isDone
-    ? "A story is closed by its close gate, when its work is checked."
-    : c.shows.includes("In Progress")
-      ? "Work starts at the plan gate, when the assignee takes the story from ToDo."
-      : "A story comes here from In Progress, by its gate.";
+  const gateWhy = `Cards cannot be dragged here: they move by themselves. ${
+    isDone
+      ? "A story comes here when its close gate checks the work and marks it done."
+      : c.shows.includes("In Progress")
+        ? "A story comes here when its assignee starts the work and writes the plan (the plan gate)."
+        : "A story comes here from In Progress when its work is ready to be checked."
+  }`;
   const cls = `col${gate ? " gate" : ""}${isDone || !total ? " can-slim" : ""}${ui.colOpen?.has(c.name) ? " open" : ""}`;
   const head = h(
     "div",
     { class: "col-head", onclick: colToggle(c.name), "aria-label": `${c.name}, ${total} stories` },
     c.name,
     h("span", { class: `n${c.limit && total > c.limit ? " over" : ""}` }, c.limit ? `${total}/${c.limit}` : total),
-    gate && h("span", { class: "lock", title: gateWhy }, isDone ? "close gate" : c.shows.includes("In Progress") ? "plan gate" : "gate"),
+    gate && h("span", { class: "lock", title: gateWhy }, "auto"),
   );
   if (lane?.heads) return h("div", { class: `${cls} head-only` }, head);
   // write.js: the Backlog and ToDo columns take a dragged card while the page can write.
@@ -598,8 +623,8 @@ function card(s) {
       chipP(s.priority),
       s.subtasks.length ? h("span", { class: "chip", title: "subtasks" }, `☑ ${done}/${s.subtasks.length}`) : null,
       s.variant ? h("span", { class: "chip agent" }, s.variant) : null,
-      s.column === "Backlog" && !s.ready.ok ? h("span", { class: "chip flag", title: `needs ${s.ready.missing.join(" and ")}` }, "not ready") : null,
-      s.awaiting ? h("span", { class: "chip flag" }, "awaiting close") : null,
+      readyChip(s),
+      awaitingChip(s),
       s.assignee && !HIDE.has("who") ? h("span", { class: "who" }, avatar(s.assignee)) : null,
     ),
   ), s);
@@ -619,7 +644,7 @@ const STAGES = [
 function initiativeColumn(c, pool, lane) {
   const cell = laneOf(lane);
   const mine = pool.filter((i) => c.stages.includes(i.stage)).sort(byOrder);
-  const follows = `This column follows the work: an initiative is here when ${c.hint}.`;
+  const follows = `Cards cannot be dragged here: they move by themselves. An initiative is here when ${c.hint}.`;
   const cls = `col${c.follows ? " gate" : ""}${mine.length ? "" : " can-slim"}${ui.colOpen?.has(c.name) ? " open" : ""}`;
   const head = h("div", { class: "col-head", onclick: colToggle(c.name) }, c.name, h("span", { class: "n" }, mine.length), c.follows && h("span", { class: "lock", title: follows }, "auto"));
   if (lane?.heads) return h("div", { class: `${cls} head-only` }, head, h("div", { class: "col-hint" }, c.hint));
@@ -640,14 +665,14 @@ function initiativeCard(i) {
 // ── Epics on the board ──
 // An epic stands in the column its stories put it in.
 const EPIC_COLS = [
-  { name: "Backlog", is: (e) => e.status !== "in-progress" && e.status !== "done" },
-  { name: "In Progress", is: (e) => e.status === "in-progress" },
-  { name: "Done", is: (e) => e.status === "done" },
+  { name: "Backlog", is: (e) => epicWord(e) !== "in-progress" && epicWord(e) !== "done" },
+  { name: "In Progress", is: (e) => epicWord(e) === "in-progress" },
+  { name: "Done", is: (e) => epicWord(e) === "done" },
 ];
 function epicColumn(c, pool, lane) {
   const cell = laneOf(lane);
   const list = pool.filter(c.is).sort((a, b) => cmp(PRI.indexOf(a.priority), PRI.indexOf(b.priority)) || cmp(a.id, b.id));
-  const follows = "An epic stands in the column its stories put it in.";
+  const follows = "Cards cannot be dragged here: an epic stands in the column its stories put it in.";
   const key = `epic:${c.name}`;
   const cls = `col gate${list.length ? "" : " can-slim"}${ui.colOpen?.has(key) ? " open" : ""}`;
   const head = h("div", { class: "col-head", onclick: colToggle(key), "aria-label": `${c.name}, ${list.length} epics` }, c.name, h("span", { class: "n" }, list.length), h("span", { class: "lock", title: follows }, "auto"));
@@ -659,7 +684,7 @@ function epicCard(e) {
   const ini = e.initiative && S.initiatives.find((i) => i.id === e.initiative);
   return h(
     "div",
-    { class: "card", "data-key": `e:${e.id}`, ...opens(() => openDrawer("epic", e.id), `epic: ${e.id}, ${e.title}, ${STATUS_LABEL[e.status] || e.status}`) },
+    { class: "card", "data-key": `e:${e.id}`, ...opens(() => openDrawer("epic", e.id), `epic: ${e.id}, ${e.title}, ${STATUS_LABEL[epicWord(e)] || epicWord(e)}`) },
     h("div", { class: "title" }, h("b", null, e.id), ` · ${e.title}`),
     h(
       "div",

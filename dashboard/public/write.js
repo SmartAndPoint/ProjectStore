@@ -8,7 +8,8 @@
 // Origin. Every control here is drawn from `write`: none while `write.can` is
 // false, and none for a verb that `write.verbs` does not list. The core plans
 // each change and makes it: the page shows the plan, and the click on its
-// button is the approval. Nothing here is a second gate on the vault: a change
+// button is the approval; a reorder that writes one file needs no click, its
+// drop or key is the approval (the spec dashboard-rank, contract 6). Nothing here is a second gate on the vault: a change
 // lands on the person's batch branch in the page's own clone, and reaches the
 // vault when the pull request that Send opens is merged.
 //
@@ -72,7 +73,7 @@ const writeUi = (() => {
       render();
       await load(); // app.js: /api/state, the artifacts and the open item
     } catch (e) {
-      say("warn", `The page could not read the vault again: ${e?.message || e}. Reload the page.`);
+      say("warn", "The page could not read the backlog again, so what it shows may be out of date. Reload the page.", String(e?.message || e));
     }
     // Only a focus that a redraw took away moves: none (the page just opened) stays none.
     if (el && el !== document.body && !el.isConnected) refocus(key);
@@ -97,6 +98,7 @@ const writeUi = (() => {
       return await fn();
     } finally {
       busy = null;
+      settled();
       paint();
     }
   }
@@ -107,11 +109,17 @@ const writeUi = (() => {
     const plain = /^[a-z][a-z'’-]*[,:;]?$/.test(first) && !NAMES.has(first.replace(/[,:;]$/, ""));
     return plain ? t.charAt(0).toUpperCase() + t.slice(1) : t;
   };
-  const say = (kind, text) => {
+  // `detail`, when given, is the core's or the server's own line: it stands under Details,
+  // and the note says in plain words what happened.
+  // A `passing` note ("wait, a step runs") goes away by itself when no step runs any more.
+  const say = (kind, text, detail = null, passing = false) => {
     // The module's and the core's messages start in lower case; a note is a sentence.
     const t = text ? String(text) : "";
-    note = t ? { kind, text: sentence(t) } : null;
+    note = t ? { kind, text: sentence(t), detail: detail ? String(detail) : null, passing } : null;
     paint();
+  };
+  const settled = () => {
+    if (!busy && !ranking && note?.passing) note = null;
   };
 
   // ── what may be offered ──
@@ -203,8 +211,8 @@ const writeUi = (() => {
 
   // ── reordering the backlog tree (the spec dashboard-rank) ──
   // `rank` is offered by a drop and by keys, never by a button: a drop or a key
-  // asks the core for the plan at once, and the dialog opens with that plan as
-  // its preview. A row moves only inside its group: an epic's open stories, or
+  // asks the core for the plan at once; a one-file plan runs at once, a larger
+  // one opens a confirmation (contracts 6, 8 and 11). A row moves only inside its group: an epic's open stories, or
   // the epics of one initiative (or of none).
   const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
   const EPIC_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
@@ -237,7 +245,7 @@ const writeUi = (() => {
   const elsewhere = (item) =>
     item.kind === "story"
       ? `A story moves only among the open stories of its own epic, ${item.epic}.`
-      : "An epic moves only among the epics of its initiative; `epic <EPIC-ID> --initiative <id>` changes its initiative.";
+      : "An epic moves only among the epics of its initiative. To give it another initiative, change the epic's initiative field (the command `epic <EPIC-ID> --initiative <id>` does it).";
   const clearLine = () => {
     for (const el of document.querySelectorAll(".drop-line-before, .drop-line-after")) el.classList.remove("drop-line-before", "drop-line-after");
   };
@@ -313,7 +321,13 @@ const writeUi = (() => {
       const place = placeOf(treeDrag.gap);
       treeDrag.dropped = true;
       clearLine();
-      if (place && !busy) openRank(item, place);
+      // The redraw below takes the grip away, and a browser may send its dragend to no one: end the drag here.
+      const ending = treeDrag;
+      treeDrag = null;
+      document.body.classList.remove("dragging-row");
+      if (!place) return void (ending.dropped = true);
+      if (busy || ranking) say("warn", busyWords(), null, true);
+      else openRank(item, place);
     });
   }
   // A tree row that may be reordered: draggable, with a grip.
@@ -322,7 +336,7 @@ const writeUi = (() => {
     listen();
     tr.classList.add("can-rank");
     // The grip is the handle: the row's text stays selectable, and its buttons stay buttons.
-    const grip = h("span", { class: "grip", draggable: "true", title: `Drag to reorder ${item.kind === "story" ? "among the open stories of its epic" : "among the epics of its initiative"}` }, "⠿");
+    const grip = h("span", { class: "grip", draggable: "true", title: `Drag to change the order ${item.kind === "story" ? "of this epic's open stories" : "of this initiative's epics"}` }, "⠿");
     tr.querySelector(".t")?.prepend(grip);
     grip.addEventListener("dragstart", (e) => {
       const members = membersOf(item);
@@ -355,73 +369,170 @@ const writeUi = (() => {
     const at = members.findIndex((m) => m.ref === item.ref);
     const next = members[at + dir];
     // A step that runs, a plan asked and not yet answered included, takes no key.
-    if (at === -1 || !next || busy) return true;
+    if (at === -1 || !next) return true;
+    if (busy || ranking) {
+      say("warn", busyWords(), null, true);
+      return true;
+    }
     openRank(item, dir < 0 ? { before: next } : { after: next });
     return true;
   }
-  // The plan for a reorder, then its dialog (contract 6; the write-path spec's contract 10).
+  // Why a drop or a key does nothing now: a reorder being saved, or another step of the page.
+  const busyWords = () => (ranking ? "The last move is still being saved. Try again in a moment." : `${BUSY[busy] || "Working…"} Try again in a moment.`);
+  // A reorder runs from the drop or the key to the read of the state after it;
+  // no other drop or key starts meanwhile (the spec dashboard-rank, contract 11).
+  let ranking = false;
+  // The row at its new place at once: the group's places in the state are
+  // redrawn as the drop asks, before any answer. → a function that puts the
+  // places back as they were before the drop.
+  function showAt(item, place) {
+    const sib = (place.before || place.after).ref;
+    const list = item.kind === "story" ? S.stories.filter((s) => s.epic === item.epic && placed(s)) : S.epics.filter((e) => (e.group ?? "") === item.group && placed(e));
+    const was = list.map((x) => [x, x.place]);
+    const back = () => {
+      for (const [x, p] of was) x.place = p;
+      render();
+    };
+    const refOf = (x) => (item.kind === "story" ? x.ref : x.id);
+    const order = [...list].sort(byPlace).filter((x) => refOf(x) !== item.ref);
+    const moved = list.find((x) => refOf(x) === item.ref);
+    const at = order.findIndex((x) => refOf(x) === sib);
+    if (!moved || at === -1) return back;
+    order.splice(place.before ? at : at + 1, 0, moved);
+    order.forEach((x, i) => (x.place = i));
+    render();
+    return back;
+  }
+  // A step of a reorder that did not save: the places go back first, then the
+  // state is read again; the note says it in words, the core's line under Details.
+  async function undo(back, text, detail) {
+    back();
+    say("error", text, detail);
+    await after();
+  }
+  // How many other rows a plan places: its files but the item's own.
+  function othersIn(item, changes) {
+    const it = item.kind === "story" ? S.stories.find((s) => s.ref === item.ref) : S.epics.find((e) => e.id === item.ref);
+    const rel = it && typeof it.rel === "string" ? it.rel : null;
+    const own = rel ? changes.some((c) => typeof c.path === "string" && c.path.endsWith(rel)) : true;
+    return changes.length - (own ? 1 : 0);
+  }
+  const othersWord = (item, n) => `${n} other ${item.kind === "story" ? (n === 1 ? "story" : "stories") : n === 1 ? "epic" : "epics"}`;
+  // A reorder (contract 6; the write-path spec's contract 10): the row moves at
+  // once, the core's plan is asked, and a plan that writes one file is the
+  // action at once. Only a plan that also places other rows asks first.
   async function openRank(item, place) {
     const entry = entryOf("rank");
     if (!entry) return say("error", "The page cannot reorder now.");
     const side = place.before ? "before" : "after";
     const sib = place.before || place.after;
     const fields = { [item.kind]: item.ref, [side]: sib.ref };
-    const a = await running("preview", () => post("/api/preview", { verb: "rank", fields }));
-    render();
-    if (!a.ok) return say("error", a.error);
-    const changes = Array.isArray(a.result?.changes) ? a.result.changes : [];
-    if (!changes.length) return say("ok", `${item.title} is already in that place: nothing to write.`);
+    const where = `${side === "before" ? "above" : "below"} “${sib.title}”`;
+    ranking = true;
+    let asked = false; // a confirmation took over, and ends the reorder itself
+    try {
+      const back = showAt(item, place);
+      const a = await running("preview", () => post("/api/preview", { verb: "rank", fields }));
+      if (!a.ok) return await undo(back, "The move could not be planned, so the row went back.", a.error);
+      const changes = Array.isArray(a.result?.changes) ? a.result.changes : [];
+      if (!changes.length) {
+        back();
+        say("ok", `“${item.title}” is already in that place: nothing changed.`);
+        return await after();
+      }
+      if (changes.length === 1) return await rankNow(item, fields, where, back);
+      try {
+        const dlg = confirmRank(entry, item, fields, where, changes, back);
+        asked = true; // the confirmation stands: it ends the reorder itself
+        return dlg;
+      } catch (e) {
+        return await undo(back, "The move could not be shown, so the row went back.", String(e?.message || e));
+      }
+    } finally {
+      if (!asked) ranking = false;
+      settled();
+      paint();
+    }
+  }
+  // The action of a reorder, with no dialog.
+  async function rankNow(item, fields, where, back) {
+    const before = w()?.batch?.commits || 0;
+    const r = await running("action", () => post("/api/action", { verb: "rank", fields }));
+    if (!r.ok) return undo(back, "The move could not be saved, so the row went back.", r.error);
+    const wrote = (w()?.batch?.commits || 0) > before;
+    const files = Array.isArray(r.result?.written) ? r.result.written.length : 1;
+    say("ok", wrote ? `Moved “${item.title}” ${where}${files > 1 ? `, and set the place of ${othersWord(item, files - 1)}` : ""}.` : `“${item.title}” is already in that place: nothing changed.`);
+    await after();
+  }
+  // A plan that also places other rows: asked first, in words; the files under Details.
+  function confirmRank(entry, item, fields, where, changes, back) {
     const label = entry.label || "Reorder";
     const subjects = [entry.subject].flat().filter((s) => typeof s === "string");
     const template = subjects.find((s) => [...s.matchAll(/\{([a-z_]+)\}/g)].every((m) => Object.hasOwn(fields, m[1]))) || "rank {story}";
+    const kinds = othersWord(item, othersIn(item, changes));
     const err = h("div", { class: "write-err", role: "alert" });
     const primary = h("button", { class: "btn primary", type: "button" }, label);
     const cancel = h("button", { class: "btn", type: "button" }, "Cancel");
+    let ran = false; // the action was sent: its own answer decides what the tree shows
     const plan = h(
       "div",
       { class: "plan-box" },
-      h("div", { class: "plan-h" }, "What the core will change"),
-      h(
-        "div",
-        { class: "plan" },
+      h("div", null, `To keep the order you see, this also sets the place of ${kinds} in the same group.`),
+      details(
         kv(...changes.map((c) => ["File", h("span", null, h("span", { class: "mono path" }, c.path), ` rank ${c.from ?? "none"} → ${c.to}`)])),
+        h("div", { class: "faint rank-count" }, `${plural(changes.length, "file")} to write. Only each file's rank: line changes; no date moves.`),
+        h("div", { class: "faint subject mono" }, `Commit: ${fillSubject(template, fields)}`),
       ),
-      h("div", { class: "faint rank-count" }, `${plural(changes.length, "file")} to write. Only each file's rank: line changes; no date moves.`),
       h("div", { class: "faint" }, landing()),
     );
     let inFlight = false;
     primary.addEventListener("click", async () => {
-      if (inFlight) return;
+      if (inFlight || ran) return;
       inFlight = true;
+      ran = true;
       primary.disabled = true;
-      primary.textContent = "Reordering…";
+      primary.textContent = "Saving…";
       fill(err, null);
       const before = w()?.batch?.commits || 0;
       const r = await running("action", () => post("/api/action", { verb: "rank", fields }));
       inFlight = false;
-      if (r.ok) {
-        dlg.close();
-        const b = w()?.batch;
-        const wrote = (b?.commits || 0) > before;
-        const files = Array.isArray(r.result?.written) ? r.result.written.length : changes.length;
-        say("ok", wrote ? `${item.title} now stands ${side} ${sib.title}: one commit of ${plural(files, "file")}.${b ? ` The batch ${b.branch} holds ${plural(b.commits, "commit")}.` : ""}` : `Nothing was written: ${item.title} is already in that place.`);
-        await after();
-      } else {
-        // The plan on screen is no longer the one a click would run: no button runs it again.
-        primary.remove();
-        cancel.textContent = "Close";
-        fill(err, h("div", { class: "msg" }, r.error));
-        render();
+      try {
+        if (r.ok) {
+          dlg.close();
+          say("ok", (w()?.batch?.commits || 0) > before ? `Moved “${item.title}” ${where}, and set the place of ${kinds}.` : `“${item.title}” is already in that place: nothing changed.`);
+          await after();
+        } else {
+          // The plan on screen is no longer the one a click would run: no button runs it again.
+          primary.remove();
+          cancel.textContent = "Close";
+          fill(err, h("div", { class: "msg" }, "The move could not be saved, so the row went back."), details(h("div", { class: "faint" }, r.error)));
+          back();
+          await after();
+        }
+      } finally {
+        ranking = false;
+        settled();
+        paint();
       }
     });
     cancel.addEventListener("click", () => dlg.close());
-    const dlg = modal(label, [
-      h("div", { class: "move-what" }, h("b", null, item.title), h("div", { class: "faint" }, h("span", { class: "mono" }, item.ref), ` · ${side} ${sib.title}`)),
-      h("div", { class: "faint subject mono" }, `Commit: ${fillSubject(template, fields)}`),
-      plan,
-      err,
-      h("div", { class: "btns" }, cancel, primary),
-    ], { first: primary });
+    // Cancel, Escape or a click outside before the action: the places go back, then the state is read.
+    const dlg = modal(
+      `Move ${item.kind === "story" ? "this story" : "this epic"}?`,
+      [h("div", { class: "move-what" }, h("b", null, item.title), h("div", { class: "faint" }, `Goes ${where}`)), plan, err, h("div", { class: "btns" }, cancel, primary)],
+      {
+        first: primary,
+        onClose: () => {
+          if (ran) return;
+          back();
+          after().finally(() => {
+            ranking = false;
+            settled();
+            paint();
+          });
+        },
+      },
+    );
     return dlg;
   }
 
@@ -431,12 +542,14 @@ const writeUi = (() => {
     const opener = document.activeElement;
     const back = opener && opener !== document.body ? opener : null;
     const backKey = back?.getAttribute?.("data-focus") || null;
+    m.close?.(); // a dialog that stands there is closed first, so its onClose runs
     const box = h("div", { class: "dialog write-dialog", role: "dialog", "aria-modal": "true", "aria-label": title }, h("h2", null, title), kids);
     const close = () => {
       if (m.hidden || !m.contains(box)) return; // closed already, or another dialog stands there now
       m.hidden = true;
       m.replaceChildren();
       m.onclick = null;
+      m.close = null;
       onClose?.();
       if (back && back.isConnected && typeof back.focus === "function") back.focus();
       else refocus(backKey); // the opener was redrawn, or was the palette
@@ -463,6 +576,7 @@ const writeUi = (() => {
     });
     m.replaceChildren(box);
     m.hidden = false;
+    m.close = close; // item.js's Escape closes through it, so onClose runs
     m.onclick = (e) => {
       if (e.target === m) close();
     };
@@ -475,19 +589,14 @@ const writeUi = (() => {
   function movePlan(result) {
     if (!result || typeof result !== "object") return h("div", { class: "faint" }, "The core gave no plan.");
     const shown = new Set(["story", "from", "to", "reason", "path", "written", "actor", "already", "error"]);
-    const word = (st) => `${WORD[st] || st} (${st})`;
+    const word = (st) => WORD[st] || st;
     const rest = Object.entries(result).filter(([k, v]) => !shown.has(k) && v !== null && typeof v !== "object");
     return h(
       "div",
       { class: "plan" },
-      kv(
-        ["Story", h("span", { class: "mono" }, result.story)],
-        result.from || result.to ? ["Status", `${word(result.from)} → ${word(result.to)}`] : null,
-        result.reason ? ["Reason", result.reason] : null,
-        result.path ? ["File", h("span", { class: "mono path" }, result.path)] : null,
-        ...rest.map(([k, v]) => [k, String(v)]),
-      ),
-      result.already ? h("div", { class: "note" }, "The story is in that status already: the core will write nothing.") : null,
+      kv(result.from || result.to ? ["Status", `${word(result.from)} → ${word(result.to)}`] : null, result.reason ? ["Reason", result.reason] : null),
+      result.already ? h("div", { class: "note" }, "The story is in that status already: nothing will change.") : null,
+      details(kv(["Story", h("span", { class: "mono" }, result.story)], result.path ? ["File", h("span", { class: "mono path" }, result.path)] : null, ...rest.map(([k, v]) => [k, String(v)]))),
     );
   }
   // `handover`'s plan: the story, who gives it and who takes it, the
@@ -500,24 +609,21 @@ const writeUi = (() => {
     return h(
       "div",
       { class: "plan" },
-      kv(
-        ["Story", h("span", { class: "mono" }, result.story || items[0]?.story || "")],
-        ["People", `${result.from} → ${result.to}`],
-        result.reason ? ["Reason", result.reason] : null,
-        ...items.map((x) => ["File", h("span", { class: "mono path" }, x.path)]),
-      ),
-      !items.length && !result.error ? h("div", { class: "note" }, `The story is ${result.to}'s already: the core will write nothing.`) : null,
+      kv(["From → to", `${result.from} → ${result.to}`], result.reason ? ["Reason", result.reason] : null),
+      !items.length && !result.error ? h("div", { class: "note" }, `The story is ${result.to}'s already: nothing will change.`) : null,
       wip && wip.over ? h("div", { class: "note warn" }, `${wip.assignee} would hold ${wip.after} stories in progress against a limit of ${wip.limit}.`) : null,
       ...notes.map((n) => h("div", { class: "note" }, String(n.message))),
+      details(kv(["Story", h("span", { class: "mono" }, result.story || items[0]?.story || "")], ...items.map((x) => ["File", h("span", { class: "mono path" }, x.path)]))),
     );
   }
   // What the click on the verb's button does, in words.
   function landing() {
     const b = w()?.batch;
-    return b
-      ? `The click commits this change to the batch branch ${b.branch}, beside its ${plural(b.commits, "commit")}. Nothing reaches the vault before Send and a merge of the pull request.`
-      : "The click commits this change to a new batch branch in the page's own clone. Nothing reaches the vault before Send and a merge of the pull request.";
+    const n = b?.commits || 0;
+    return `It is saved as a draft change${n ? `, beside your ${plural(n, "other change")}` : ""}. Nobody else sees it until you publish your changes for review and someone approves them.`;
   }
+  // The engineering facts of a dialog or the strip, folded under one toggle.
+  const details = (...kids) => h("details", { class: "fold" }, h("summary", null, "Details"), kids);
   // The names a typed person field suggests: the vault's people and assignees,
   // without anyone marked left and without `except` (the person who gives).
   function namesFor(except) {
@@ -563,13 +669,13 @@ const writeUi = (() => {
         }
         const input = h("input", attrs);
         const count = max ? h("span", { class: "faint count" }, `0/${max}`) : null;
-        const hint = f.kind === "line" ? `(one line${max ? `, at most ${max} characters` : ""}${name === "reason" ? "; it goes into the story's status log and the commit" : ""})` : max ? `(one name, at most ${max} characters)` : "(one name)";
+        const hint = f.kind === "line" ? `(one line${max ? `, at most ${max} characters` : ""}${name === "reason" ? "; it is kept in the story's history" : ""})` : max ? `(one name, at most ${max} characters)` : "(one name)";
         rows.push(h("label", { class: "f" }, h("span", null, `${label} `, h("i", null, hint)), input, count, list));
         inputs.push({ name, field: f, input, count, max });
       }
     }
     const subject = h("div", { class: "faint subject mono" });
-    const plan = h("div", { class: "plan-box" }, h("div", { class: "faint" }, opts.hint || "Fill in the fields, then Preview: the core shows what it will change, and nothing is written yet."));
+    const plan = h("div", { class: "plan-box" }, h("div", { class: "faint" }, opts.hint || "Fill in the fields, then Preview to see what will change. Nothing is saved yet."));
     const err = h("div", { class: "write-err", role: "alert" });
     const primary = h("button", { class: "btn primary", type: "button" }, "Preview");
     const cancel = h("button", { class: "btn", type: "button" }, "Cancel");
@@ -609,7 +715,7 @@ const writeUi = (() => {
       if (bad) return showError(bad);
       inFlight = true;
       showError(null);
-      fill(plan, h("div", { class: "faint" }, "Asking the core for its plan…"));
+      fill(plan, h("div", { class: "faint" }, "Checking what will change…"));
       sync();
       const sent = valuesNow();
       const key = JSON.stringify(sent);
@@ -617,7 +723,7 @@ const writeUi = (() => {
       inFlight = false;
       if (a.ok) {
         planned = key;
-        fill(plan, h("div", { class: "plan-h" }, "What the core will change"), opts.planView(a.result), h("div", { class: "faint" }, landing()));
+        fill(plan, h("div", { class: "plan-h" }, "What will change"), opts.planView(a.result), h("div", { class: "faint" }, landing()));
       } else {
         planned = null;
         fill(plan, a.result && typeof a.result === "object" && a.result.story ? opts.planView(a.result) : null);
@@ -644,7 +750,7 @@ const writeUi = (() => {
         dlg.close();
         const b = w()?.batch;
         const wrote = (b?.commits || 0) > before;
-        say("ok", wrote ? `${opts.doneText(sent)}${b ? ` The batch ${b.branch} holds ${plural(b.commits, "commit")}.` : ""}` : `Nothing was written: ${opts.sameText(sent)}`);
+        say("ok", wrote ? opts.doneText(sent) : `Nothing was written: ${opts.sameText(sent)}`);
       } else {
         planned = null;
         showError(a.error);
@@ -664,7 +770,7 @@ const writeUi = (() => {
       x.input.addEventListener("input", () => {
         if (planned !== null && !fresh()) {
           planned = null;
-          fill(plan, h("div", { class: "faint" }, opts.changed || "A field changed: Preview again to see the plan with it."));
+          fill(plan, h("div", { class: "faint" }, opts.changed || "A field changed: Preview again to see what will change."));
         }
         showError(null);
         sync();
@@ -678,7 +784,7 @@ const writeUi = (() => {
         else showError(valid());
       });
     }
-    const dlg = modal(title, [opts.what(title), ...rows, subject, plan, err, h("div", { class: "btns" }, cancel, primary)]);
+    const dlg = modal(title, [opts.what(title), ...rows, plan, details(subject), err, h("div", { class: "btns" }, cancel, primary)]);
     sync();
     return dlg;
   }
@@ -688,9 +794,9 @@ const writeUi = (() => {
     const move = s && movesOf(s).find((m) => m.to === to);
     if (!move) return toast("refused", "This move is not offered", s ? `${s.title} is ${s.status}; the page offers no move to ${to} for it.` : `No story ${ref} on the board.`);
     return openVerb("move", s, { to }, {
-      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, h("span", { class: "mono" }, s.ref), ` · ${s.column || s.status} → ${WORD[to] || to}`)),
-      hint: "Write why, then Preview: the core shows what it will change, and nothing is written yet.",
-      changed: "The reason changed: Preview again to see the plan with it.",
+      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, `${s.column || s.status} → ${WORD[to] || to}`)),
+      hint: "Say why in one line, then Preview to see what will change. Nothing is saved yet.",
+      changed: "The reason changed: Preview again to see what will change.",
       planView: movePlan,
       busyWord: "Moving…",
       doneText: () => `${s.title} is in ${WORD[to] || to}.`,
@@ -701,8 +807,8 @@ const writeUi = (() => {
     const s = story(ref);
     if (!s || !canHandOver(s)) return toast("refused", "This story cannot be handed over here", s ? `${s.title} has ${s.assignee ? `the column ${s.column || "none"}` : "no assignee"}; the page offers Hand over on an open story that someone holds.` : `No story ${ref} on the board.`);
     return openVerb("handover", s, {}, {
-      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, h("span", { class: "mono" }, s.ref), ` · ${s.column} · held by ${s.assignee}`)),
-      hint: "Name who takes it and why, then Preview: the core shows what it will change, and nothing is written yet.",
+      what: () => h("div", { class: "move-what" }, h("b", null, s.title), h("div", { class: "faint" }, `${s.column} · assigned to ${s.assignee}`)),
+      hint: "Name who takes it and why, then Preview to see what will change. Nothing is saved yet.",
       planView: handoverPlan,
       busyWord: "Handing over…",
       doneText: (f) => `${s.title} is ${f.to}'s now.`,
@@ -710,34 +816,58 @@ const writeUi = (() => {
     });
   }
 
-  // ── Send and Discard ──
+  // ── Publish (Send) and Discard ──
+  // A person sees "changes" and "a review request"; the branch, the commits and
+  // the pull request's number stay under Details.
+  const PR_WORD = { OPEN: "Waiting for review", MERGED: "Merged", CLOSED: "Review closed" };
   const prWords = (pr) => (pr ? `pull request #${pr.number ?? "?"} (${String(pr.state || "").toLowerCase() || "state unknown"})` : null);
+  const changeWord = (n) => `${n} ${n === 1 ? "change" : "changes"}`;
+  // gh that cannot be asked, in one sentence that says what to do; the raw reason under Details.
+  // What to do when gh cannot be asked, by its reason: what the page knows, and nothing more.
+  const ghAdvice = (reason) => {
+    const r = String(reason || "");
+    if (/not installed|not on PATH/i.test(r)) return "To let the page do it, install GitHub's command-line tool gh and sign in with gh auth login.";
+    if (/known GitHub host/i.test(r)) return "The vault's repository does not seem to be on GitHub, so the page cannot open review requests there: open them on your code host.";
+    if (/not logged in|auth login/i.test(r)) return "To let the page do it, sign in with gh auth login in a terminal.";
+    return "This may pass: try again later.";
+  };
+  const ghLine = (reason) => h("div", { class: "note warn gh-line" }, `The page cannot ask GitHub about review requests, so it cannot open or follow one by itself. ${ghAdvice(reason)}`);
   function carryWords(c) {
     if (!c) return "";
     const parts = [];
-    if (c.carried?.length) parts.push(`${plural(c.carried.length, "commit")} made after it was sent ${c.carried.length === 1 ? "was" : "were"} carried from ${c.from} into the new batch ${c.branch}`);
-    if (c.skipped?.length) parts.push(`${plural(c.skipped.length, "commit")} ${c.skipped.length === 1 ? "is" : "are"} in the default branch already`);
-    if (c.stopped_at) parts.push(`the carry stopped at ${short(c.stopped_at.sha)} "${c.stopped_at.subject}", because ${c.stopped_at.reason}; it and the commits after it stay on the kept branch ${c.from}`);
+    if (c.carried?.length) parts.push(`${changeWord(c.carried.length)} made after the last publish ${c.carried.length === 1 ? "was" : "were"} kept for your next review (moved from ${c.from} into ${c.branch})`);
+    if (c.skipped?.length) parts.push(`${changeWord(c.skipped.length)} ${c.skipped.length === 1 ? "is" : "are"} in the backlog already`);
+    if (c.stopped_at) parts.push(`one change could not be kept, "${c.stopped_at.subject}" (${short(c.stopped_at.sha)}), because ${c.stopped_at.reason}; it and the changes after it stay aside on ${c.from}`);
     return parts.length ? ` ${parts.join("; ")}.` : "";
   }
   function sendWords(a) {
     if (!a.ok) return a.error;
     const r = a.result || {};
-    if (!r.sent) return `Nothing was sent.${carryWords(r.carry)}`;
+    if (!r.sent) return `Nothing was published.${carryWords(r.carry)}`;
     const pr = r.pull_request;
-    const where = pr ? ` ${prWords(pr)}${isUrl(pr.url) ? ` is at ${pr.url}` : ""}.` : r.gh ? ` No pull request was opened, because gh cannot be asked: ${r.gh}` : "";
-    return `Sent ${r.branch}: ${plural(Number(r.commits) || 0, "commit")} pushed to origin.${where}${carryWords(r.carry)}`;
+    const where = pr ? ` Review request: ${prWords(pr)}${isUrl(pr.url) ? `, ${pr.url}` : ""}.` : r.gh ? " The page could not open the review request, because GitHub cannot be asked: open the pull request by hand on your code host." : "";
+    return `Published ${changeWord(Number(r.commits) || 0)} for review.${where}${carryWords(r.carry)}`;
   }
-  const waitBusy = () => toast("refused", "A step is running", `${BUSY[busy] || "Working…"} Try again when it has ended.`);
+  const waitBusy = () => toast("refused", "Please wait", `${BUSY[busy] || "Working…"} Try again when it has ended.`);
   function confirmSend() {
     const b = w()?.batch;
     if (!b || !can()) return;
     if (busy) return waitBusy();
     const x = w();
     const pr = b.pull_request;
-    const text = pr && pr.state === "OPEN" ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. Its ${prWords(pr)} is open already and gets them.` : x.pull_requests ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. gh cannot be asked now (${x.pull_requests}), so no pull request is opened: you open one on the code host.` : `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin and open a pull request into ${x.default_branch || "the default branch"}.`;
-    const go = h("button", { class: "btn primary", type: "button" }, "Send");
-    const dlg = modal("Send the batch", [h("div", null, text), h("div", { class: "faint" }, "The pull request is the review: the vault changes when someone merges it."), h("div", { class: "btns" }, h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel"), go)]);
+    const open = pr && pr.state === "OPEN";
+    const text = open
+      ? `Your ${changeWord(b.commits)} ${b.commits === 1 ? "joins" : "join"} your open review request. Nothing changes in the backlog until someone approves it.`
+      : x.pull_requests
+        ? `Your ${changeWord(b.commits)} ${b.commits === 1 ? "uploads" : "upload"} for review, but the page cannot open the review request itself: open the pull request by hand on your code host. Nothing changes in the backlog until someone approves it.`
+        : `Your ${changeWord(b.commits)} ${b.commits === 1 ? "goes" : "go"} to the team as one review request (a pull request on GitHub). Nothing changes in the backlog until someone approves it.`;
+    const how = open
+      ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. Its ${prWords(pr)} gets them.`
+      : x.pull_requests
+        ? `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin. gh cannot be asked now, so no pull request is opened.`
+        : `Push branch ${b.branch} with ${plural(b.commits, "commit")} to origin and open a pull request into ${x.default_branch || "the default branch"}.`;
+    const go = h("button", { class: "btn primary", type: "button" }, "Publish");
+    const dlg = modal("Publish for review", [h("div", null, text), x.pull_requests ? ghLine(x.pull_requests) : null, details(h("div", { class: "faint" }, how), x.pull_requests ? h("div", { class: "faint" }, `Why GitHub cannot be asked: ${x.pull_requests}`) : null), h("div", { class: "btns" }, h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel"), go)]);
     go.addEventListener("click", async () => {
       dlg.close();
       const a = await running("send", () => post("/api/send"));
@@ -745,20 +875,42 @@ const writeUi = (() => {
       await after();
     });
   }
+  // The note after Discard, by how the batch ended (the delivery spec, contract 4).
+  function discardWords(r) {
+    const ended = r?.ended;
+    if (ended === "merged")
+      return `${r.pull_request ? "Your review request was merged already: your changes" : "Your changes"} are in the backlog.${r.kept?.stopped_at ? " One change made after you published could not be kept: it is kept aside on this computer." : ""}${r.batch ? " Changes made after you published are a new draft; Discard again to drop them." : ""}`;
+    if (ended === "closed") return "Your changes were discarded and their review request is closed. They are kept aside on this computer.";
+    if (r?.pull_request?.state === "MERGED") return "Your review request was merged already. The changes made after you published could not be carried yet, so they are kept aside on this computer.";
+    if (!r?.pull_request && !w()?.pull_requests) return "Your changes were discarded and kept aside on this computer.";
+    return "Your changes were discarded on this computer and kept aside. A review request for them, if one is open, stays open on your code host: close it there.";
+  }
   function confirmDiscard() {
     const b = w()?.batch;
     if (!b || !can()) return;
     if (busy) return waitBusy();
     const pr = b.pull_request;
-    const text = pr && pr.state === "OPEN" ? `End the batch on ${b.branch}: its ${prWords(pr)} is closed on the code host.` : !pr && !w()?.pull_requests ? `End the batch on ${b.branch} on this machine. No pull request was opened for it.` : `End the batch on ${b.branch} on this machine. A pull request for it, if one is open, stays open.`;
+    const open = pr && pr.state === "OPEN";
+    const gone = `Your ${changeWord(b.commits)} ${b.commits === 1 ? "leaves" : "leave"} this page`;
+    const text = w()?.pull_requests
+      ? `${gone}. GitHub cannot be asked, so a review request for them, if one is open, stays open: close it on your code host.`
+      : open
+        ? `${gone}, and the review request is closed.`
+        : `${gone}.`;
+    const how = open
+      ? `End the batch on ${b.branch}: its ${prWords(pr)} is closed on the code host.`
+      : !pr && !w()?.pull_requests
+        ? `End the batch on ${b.branch} on this machine. No pull request was opened for it.`
+        : `End the batch on ${b.branch} on this machine. A pull request for it, if one is open, stays open.`;
     const go = h("button", { class: "btn primary danger", type: "button" }, "Discard");
     const cancel = h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Cancel");
     // The focus starts on Cancel: Enter on a dialog just opened ends nothing.
     const dlg = modal(
-      "Discard the batch",
+      "Discard your changes",
       [
         h("div", null, text),
-        h("div", { class: "faint" }, `Nothing is deleted: the branch and its ${plural(b.commits, "commit")} are kept here (and on origin, if it was sent), and the page lists it under Kept branches.`),
+        h("div", { class: "faint" }, "Nothing is deleted: the changes are kept aside on this computer (and on your code host, if you published them), and the page lists them under Kept aside."),
+        details(h("div", { class: "faint" }, how)),
         h("div", { class: "btns" }, cancel, go),
       ],
       { first: cancel },
@@ -766,7 +918,7 @@ const writeUi = (() => {
     go.addEventListener("click", async () => {
       dlg.close();
       const a = await running("discard", () => post("/api/discard"));
-      say(a.ok ? "ok" : a.status >= 500 || a.status === 0 ? "error" : "warn", a.ok ? `${a.result?.message || "The batch ended."}` : a.error);
+      say(a.ok ? "ok" : a.status >= 500 || a.status === 0 ? "error" : "warn", a.ok ? discardWords(a.result) : a.error, a.ok ? sentence(String(a.result?.message || "The batch ended.")) : null);
       await after();
     });
   }
@@ -780,29 +932,33 @@ const writeUi = (() => {
     const x = w();
     const now = x?.batch?.branch || null;
     const kept = (x?.kept || []).find((k) => k.branch === was);
-    if (!a.ok && a.error) say("warn", `The refresh did not end well: ${a.error}`);
+    if (!a.ok && a.error) say("warn", `The page could not get the latest backlog: ${a.error}`);
     // The page can no longer write: the batch is not read, and its branch keeps its commits.
-    else if (was && !x?.can) say("warn", `The page cannot write now: ${x?.reason || "the server does not say why"}. The batch ${was} stays in the page's clone with its commits.`);
-    else if (was && now !== was && kept)
-      say("warn", `The batch ${was} ended: its pull request was closed, or a carry stopped${kept.stopped_at ? ` at ${short(kept.stopped_at.sha)} "${kept.stopped_at.subject}" (${kept.stopped_at.reason})` : ""}. Its branch is kept${now ? `, and ${now} is the new batch` : ""}.`);
-    else if (was && now !== was) say("ok", `The batch ${was} was merged.${now ? ` The commits made after it was sent are in the new batch ${now}.` : ""}`);
+    else if (was && !x?.can) say("warn", `The page cannot save changes now: ${x?.reason || "the server does not say why"}. Your unpublished changes stay on this computer.`, `They are on the branch ${was} in the page's clone.`);
+    // A kept branch with a stop was merged and its carry stopped (only a merge carries); one without was closed.
+    else if (was && now !== was && kept && kept.stopped_at)
+      say("warn", `Your review request was merged, but one change made after you published could not be kept, "${kept.stopped_at.subject}": ${kept.stopped_at.reason}. It and the changes after it are kept aside on this computer.`, `The batch ${was} is kept, stopped at ${short(kept.stopped_at.sha)}${now ? `; the new one is ${now}` : ""}.`);
+    else if (was && now !== was && kept) say("warn", `Your review request was closed without being merged. Your changes are kept aside on this computer${now ? "; new changes start a fresh draft" : ""}.`, `The batch ${was} is kept.`);
+    else if (was && now !== was) say("ok", `Your changes were merged into the backlog.${now ? " Changes made after you published are kept for your next review." : ""}`, `The batch ${was} was merged${now ? `; the new one is ${now}` : ""}.`);
     await after();
   }
 
   // ── what the page shows ──
-  const BUSY = { refresh: "Fetching the vault's repository and asking the code host…", preview: "Asking the core for its plan…", action: "Committing the change…", send: "Sending the batch…", discard: "Ending the batch…" };
+  const BUSY = { refresh: "Getting the latest backlog…", preview: "Checking what will change…", action: "Saving…", send: "Publishing…", discard: "Discarding…" };
   function prLink(pr) {
-    if (!pr) return h("span", { class: "faint" }, "no pull request yet");
-    const label = `PR #${pr.number ?? "?"} · ${String(pr.state || "").toLowerCase()}`;
-    const cls = `chip pr ${String(pr.state || "").toLowerCase()}`;
-    return isUrl(pr.url) ? h("a", { class: cls, href: pr.url, target: "_blank", rel: "noopener noreferrer", title: pr.url }, label, " ↗") : h("span", { class: cls }, label);
+    if (!pr) return null;
+    const state = String(pr.state || "").toUpperCase();
+    const label = PR_WORD[state] || `Review: ${String(pr.state || "state unknown").toLowerCase()}`;
+    const cls = `chip pr ${state.toLowerCase()}`;
+    const tip = `Pull request #${pr.number ?? "?"} on the code host`;
+    return isUrl(pr.url) ? h("a", { class: cls, href: pr.url, target: "_blank", rel: "noopener noreferrer", title: tip }, label, " ↗") : h("span", { class: cls, title: tip }, label);
   }
   function keptList(kept) {
     if (!Array.isArray(kept) || !kept.length) return null;
     return h(
       "details",
       { class: "kept", open: kept.some((k) => k.stopped_at || k.commits === null) },
-      h("summary", null, `Kept branches (${kept.length})`, h("span", { class: "faint" }, " · commits that may never have been sent")),
+      h("summary", null, `Kept aside (${kept.length})`, h("span", { class: "faint" }, " · changes that were discarded or not merged, kept on this computer")),
       h(
         "ul",
         null,
@@ -810,19 +966,19 @@ const writeUi = (() => {
           h(
             "li",
             null,
-            h("span", { class: "mono" }, k.branch),
+            k.commits === null || k.commits === undefined ? h("span", { class: "chip flag", title: k.reason || "" }, "count unknown") : h("span", null, `${changeWord(k.commits)} not in the backlog`),
             " ",
-            k.commits === null || k.commits === undefined ? h("span", { class: "chip flag", title: k.reason || "" }, "count unknown") : h("span", { class: "faint" }, `${plural(k.commits, "commit")} the default branch lacks`),
+            h("span", { class: "mono faint" }, k.branch),
             k.commits === null && k.reason ? h("div", { class: "faint" }, `git could not count them: ${k.reason}`) : null,
-            k.stopped_at ? h("div", { class: "stopped" }, `A carry stopped at ${short(k.stopped_at.sha)} "${k.stopped_at.subject}": ${k.stopped_at.reason}.`) : null,
+            k.stopped_at ? h("div", { class: "stopped" }, `Stopped at ${short(k.stopped_at.sha)} "${k.stopped_at.subject}": ${k.stopped_at.reason}.`) : null,
           ),
         ),
       ),
-      h("div", { class: "faint" }, "The page does not send or delete a kept branch. The dashboard's README says how to do either by hand."),
+      h("div", { class: "faint" }, "The page does not publish or delete them. The dashboard's README says how to do either by hand."),
     );
   }
-  // The strip above the view: the batch, its pull request, Send and Discard,
-  // what gh says, the kept branches, the last answer and what runs now.
+  // The strip above the view: your changes, their review request, Publish and
+  // Discard, the changes kept aside, the last answer and what runs now.
   function paint() {
     const bar = $("#write");
     if (!bar) return;
@@ -830,23 +986,41 @@ const writeUi = (() => {
     if (!x) return void ((bar.hidden = true), bar.replaceChildren());
     const b = x.can ? x.batch : null;
     const off = !!busy;
+    const open = b?.pull_request?.state === "OPEN";
     const kids = [
       b &&
         h(
           "div",
-          { class: "batch", role: "group", "aria-label": "The batch" },
-          h("span", { class: "batch-h" }, ico("branch"), "Batch"),
-          h("span", { class: "mono", title: `started ${b.started_at || "?"}` }, b.branch),
-          h("span", { class: "chip" }, `${plural(b.commits, "commit")} not in ${x.default_branch || "the default branch"}`),
+          { class: "batch", role: "group", "aria-label": "Your changes" },
+          // With gh out of reach the page cannot tell a published batch from one that is not: it says only what it knows.
+          h(
+            "span",
+            { class: "batch-h", title: x.pull_requests && !b.pull_request ? "GitHub cannot be asked, so the page cannot tell whether these changes were published." : "" },
+            ico("branch"),
+            !b.commits ? "No changes yet" : open ? `${changeWord(b.commits)} · review request open` : b.pull_request ? `${changeWord(b.commits)} · ${(PR_WORD[String(b.pull_request.state || "").toUpperCase()] || "review request state unknown").toLowerCase()}` : x.pull_requests && !b.pull_request ? `${changeWord(b.commits)} not in the backlog yet` : `${changeWord(b.commits)} not published yet`,
+          ),
           prLink(b.pull_request),
           h("span", { class: "grow" }),
-          h("button", { class: "btn primary", type: "button", "data-focus": "send", disabled: off || !b.commits, onclick: confirmSend, title: b.commits ? "Push the batch and open its pull request" : "The batch holds no commit to send" }, "Send…"),
-          h("button", { class: "btn", type: "button", "data-focus": "discard", disabled: off, onclick: confirmDiscard, title: "End the batch; nothing is deleted" }, "Discard…"),
+          h(
+            "button",
+            { class: "btn primary", type: "button", "data-focus": "send", disabled: off || !b.commits, onclick: confirmSend, title: !b.commits ? "There is no change to publish" : open ? "Add the changes made since the last publish to your open review request" : "Send your changes to the team as one review request" },
+            open ? "Publish again…" : "Publish for review…",
+          ),
+          h("button", { class: "btn", type: "button", "data-focus": "discard", disabled: off, onclick: confirmDiscard, title: "Drop your changes from this page; nothing is deleted" }, "Discard changes…"),
+          details(
+            h(
+              "div",
+              { class: "faint" },
+              h("span", { class: "mono", title: `started ${b.started_at || "?"}` }, b.branch),
+              ` · ${plural(b.commits, "commit")} not in ${x.default_branch || "the default branch"}`,
+              b.started_at ? ` · started ${new Date(b.started_at).toLocaleString()}` : "",
+              b.pull_request ? ` · PR #${b.pull_request.number ?? "?"} · ${String(b.pull_request.state || "").toLowerCase()}` : x.pull_requests ? " · pull request: gh cannot be asked" : " · no pull request yet",
+            ),
+          ),
         ),
-      x.can && x.pull_requests ? h("div", { class: "note warn" }, `The code host cannot be asked about pull requests: ${x.pull_requests}`) : null,
       keptList(x.kept),
       busy ? h("div", { class: "faint busy", role: "status" }, BUSY[busy] || "Working…") : null,
-      note ? h("div", { class: `write-note ${note.kind}`, role: note.kind === "error" ? "alert" : "status" }, h("span", { class: "msg" }, note.text), h("button", { class: "btn ghost", type: "button", "data-focus": "note-close", "aria-label": "close this message", onclick: () => say(null, null) }, "✕")) : null,
+      note ? h("div", { class: `write-note ${note.kind}`, role: note.kind === "error" ? "alert" : "status" }, h("span", { class: "msg" }, note.text, note.detail ? details(h("div", { class: "faint" }, note.detail)) : null), h("button", { class: "btn ghost", type: "button", "data-focus": "note-close", "aria-label": "close this message", onclick: () => say(null, null) }, "✕")) : null,
     ].filter(Boolean);
     // A button of the strip that held the focus is replaced here: its new one takes it.
     // One that was disabled then (a step running) takes it back when the strip has it.
@@ -867,7 +1041,7 @@ const writeUi = (() => {
     }
   }
 
-  // The foot of the menu: whether this page writes, and, when it does not, why (one quiet line).
+  // The foot of the menu: whether this page saves changes, and, when it does not, why (one quiet line).
   function footLine() {
     const x = w();
     const name = S.project.name;
@@ -875,11 +1049,16 @@ const writeUi = (() => {
       return h(
         "div",
         { class: "write-reason", style: "margin-top:10px" },
-        h("div", null, h("b", null, "No writes: "), x?.reason || "this server does not say whether the page can write."),
-        h("div", null, `The vault of ${name}, as it is on disk. Nothing on this page changes it. core ${S.coreVersion}`),
+        h("div", null, h("b", null, "Changes are off here: "), x?.reason || "this server does not say whether the page can save changes."),
+        h("div", null, `The backlog of ${name}, as it is on disk. Nothing on this page changes it. Version ${S.coreVersion}.`),
       );
     const at = x.fetched_at ? ` Fetched ${new Date(x.fetched_at).toLocaleString()}.` : "";
-    return h("div", { style: "margin-top:10px" }, `The vault of ${name}. A change from this page is one commit on your batch branch, in the page's own clone; it reaches ${x.default_branch || "the default branch"} when its pull request is merged.${at} core ${S.coreVersion}`);
+    return h(
+      "div",
+      { style: "margin-top:10px" },
+      h("div", null, "What you change here stays a draft until you publish it for review and someone approves it."),
+      details(h("div", { class: "faint" }, `The backlog of ${name}. A change from this page is one commit on your batch branch, in the page's own clone; it reaches ${x.default_branch || "the default branch"} when its pull request is merged.${at} Version ${S.coreVersion}.`)),
+    );
   }
 
   // The story's side panel: its moves, as buttons (the keyboard's way to the
@@ -906,9 +1085,9 @@ const writeUi = (() => {
     const x = w();
     if (!x || !x.can) return [];
     const out = [];
-    if (x.batch && x.batch.commits) out.push({ label: "Send the batch…", run: confirmSend, group: "Batch", kw: "push pull request" });
-    if (x.batch) out.push({ label: "Discard the batch…", run: confirmDiscard, group: "Batch", kw: "end close" });
-    out.push({ label: "Fetch the vault's repository again", run: refresh, group: "Batch", kw: "refresh fetch pull request state code host" });
+    if (x.batch && x.batch.commits) out.push({ label: "Publish my changes for review…", run: confirmSend, group: "My changes", kw: "send push pull request batch" });
+    if (x.batch) out.push({ label: "Discard my changes…", run: confirmDiscard, group: "My changes", kw: "end close batch" });
+    out.push({ label: "Get the latest backlog", run: refresh, group: "My changes", kw: "refresh fetch pull request state code host" });
     return out;
   }
 
