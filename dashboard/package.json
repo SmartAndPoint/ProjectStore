@@ -1,6 +1,6 @@
 {
   "name": "projectstore-dashboard",
-  "version": "0.30.20",
+  "version": "0.30.21",
   "type": "module",
   "description": "A local page over a ProjectStore vault: the backlog, the board, an item's document and what is related to it. A story moved on it is committed in the page's own clone of the vault and reaches the vault only through a pull request a person merges. Started by `projectstore dashboard`, which fetches this package at its own version; reads the vault through that core.",
   "keywords": [
