@@ -1,0 +1,376 @@
+{
+  "export_version": 1,
+  "as_of": "2026-11-11T00:00:00.000Z",
+  "stories": [
+    {
+      "ref": "PS-A/story-backlog",
+      "path": "epics/PS-A/stories/story-backlog.md",
+      "id": "story-backlog",
+      "epic": "PS-A",
+      "title": "story-backlog",
+      "status": "planned",
+      "column": "Backlog",
+      "priority": "p2",
+      "assignee": null,
+      "awaiting_close": false,
+      "created": "2026-10-27T00:00:00.000Z",
+      "started_at": null,
+      "closed_at": null,
+      "updated": "2026-10-27T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-10-27T00:00:00.000Z",
+        "source": "updated",
+        "trusted": false
+      }
+    },
+    {
+      "ref": "PS-A/story-doing",
+      "path": "epics/PS-A/stories/story-doing.md",
+      "id": "story-doing",
+      "epic": "PS-A",
+      "title": "story-doing",
+      "status": "in-progress",
+      "column": "In Progress",
+      "priority": "p1",
+      "assignee": "Ada Byron",
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": "2026-10-28T10:00:00.000Z",
+      "closed_at": null,
+      "updated": "2026-09-01T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-10-28T10:00:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    },
+    {
+      "ref": "PS-A/story-done",
+      "path": "epics/PS-A/stories/story-done.md",
+      "id": "story-done",
+      "epic": "PS-A",
+      "title": "story-done",
+      "status": "done",
+      "column": "Done",
+      "priority": "p2",
+      "assignee": null,
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": "2026-10-27T10:00:00.000Z",
+      "closed_at": "2026-10-30T10:00:00.000Z",
+      "updated": "2026-10-30T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-10-30T10:00:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    },
+    {
+      "ref": "PS-A/story-parked",
+      "path": "epics/PS-A/stories/story-parked.md",
+      "id": "story-parked",
+      "epic": "PS-A",
+      "title": "story-parked",
+      "status": "parked",
+      "column": null,
+      "priority": "p2",
+      "assignee": null,
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": null,
+      "closed_at": null,
+      "updated": "2026-09-01T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-09-01T00:00:00.000Z",
+        "source": "updated",
+        "trusted": false
+      }
+    },
+    {
+      "ref": "PS-A/story-review",
+      "path": "epics/PS-A/stories/story-review.md",
+      "id": "story-review",
+      "epic": "PS-A",
+      "title": "story-review",
+      "status": "review",
+      "column": "Review",
+      "priority": "p2",
+      "assignee": "Bo Lee",
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": null,
+      "closed_at": null,
+      "updated": "2026-09-01T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-11-04T16:30:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    },
+    {
+      "ref": "PS-A/story-todo",
+      "path": "epics/PS-A/stories/story-todo.md",
+      "id": "story-todo",
+      "epic": "PS-A",
+      "title": "story-todo",
+      "status": "todo",
+      "column": "ToDo",
+      "priority": "p2",
+      "assignee": "Ada Byron",
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": null,
+      "closed_at": null,
+      "updated": "2026-09-01T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-11-02T09:00:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    },
+    {
+      "ref": "PS-B/story-mail",
+      "path": "epics/PS-B/stories/story-mail.md",
+      "id": "story-mail",
+      "epic": "PS-B",
+      "title": "story-mail",
+      "status": "in-progress",
+      "column": "In Progress",
+      "priority": "p2",
+      "assignee": "an email-shaped name",
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": null,
+      "closed_at": null,
+      "updated": "2026-09-01T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-10-01T08:00:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    },
+    {
+      "ref": "PS-B/story-old",
+      "path": "epics/PS-B/stories/story-old.md",
+      "id": "story-old",
+      "epic": "PS-B",
+      "title": "story-old",
+      "status": "done",
+      "column": "Done",
+      "priority": "p2",
+      "assignee": null,
+      "awaiting_close": false,
+      "created": "2026-09-01T00:00:00.000Z",
+      "started_at": "2026-09-10T10:00:00.000Z",
+      "closed_at": "2026-09-20T10:00:00.000Z",
+      "updated": "2026-09-20T00:00:00.000Z",
+      "status_since": {
+        "at": "2026-09-20T10:00:00.000Z",
+        "source": "stamp",
+        "trusted": true
+      }
+    }
+  ],
+  "epics": [
+    {
+      "epic": "PS-A",
+      "path": "epics/PS-A/epic.md",
+      "id": "PS-A",
+      "title": "PS-A",
+      "status": "in-progress",
+      "priority": null,
+      "initiative": null,
+      "created": "2026-01-01T00:00:00.000Z",
+      "updated": null
+    },
+    {
+      "epic": "PS-B",
+      "path": "epics/PS-B/epic.md",
+      "id": "PS-B",
+      "title": "PS-B",
+      "status": "in-progress",
+      "priority": null,
+      "initiative": null,
+      "created": "2026-01-01T00:00:00.000Z",
+      "updated": null
+    },
+    {
+      "epic": "PS-C",
+      "path": "epics/PS-C/epic.md",
+      "id": "PS-C",
+      "title": "PS-C",
+      "status": "done",
+      "priority": null,
+      "initiative": null,
+      "created": "2026-01-01T00:00:00.000Z",
+      "updated": null
+    }
+  ],
+  "transitions": [
+    {
+      "ref": "PS-A/story-doing",
+      "path": "epics/PS-A/stories/story-doing.md",
+      "at": "2026-10-28T10:00:00.000Z",
+      "from": "planned",
+      "to": "in-progress",
+      "reason": "work started",
+      "actor": "plan gate"
+    },
+    {
+      "ref": "PS-A/story-done",
+      "path": "epics/PS-A/stories/story-done.md",
+      "at": "2026-10-27T10:00:00.000Z",
+      "from": "planned",
+      "to": "in-progress",
+      "reason": "r",
+      "actor": "move"
+    },
+    {
+      "ref": "PS-A/story-done",
+      "path": "epics/PS-A/stories/story-done.md",
+      "at": "2026-10-30T10:00:00.000Z",
+      "from": "in-progress",
+      "to": "done",
+      "reason": "r",
+      "actor": "move"
+    },
+    {
+      "ref": "PS-A/story-review",
+      "path": "epics/PS-A/stories/story-review.md",
+      "at": "2026-10-20T10:00:00.000Z",
+      "from": "planned",
+      "to": "in-progress",
+      "reason": "work started",
+      "actor": "plan gate"
+    },
+    {
+      "ref": "PS-A/story-review",
+      "path": "epics/PS-A/stories/story-review.md",
+      "at": "2026-11-04T16:30:00.000Z",
+      "from": "in-progress",
+      "to": "review",
+      "reason": "pull request opened",
+      "actor": "follow"
+    },
+    {
+      "ref": "PS-A/story-todo",
+      "path": "epics/PS-A/stories/story-todo.md",
+      "at": "2026-11-02T09:00:00.000Z",
+      "from": "planned",
+      "to": "todo",
+      "reason": "next up",
+      "actor": "move"
+    },
+    {
+      "ref": "PS-B/story-mail",
+      "path": "epics/PS-B/stories/story-mail.md",
+      "at": "2026-10-01T08:00:00.000Z",
+      "from": "planned",
+      "to": "in-progress",
+      "reason": "work started",
+      "actor": "plan gate"
+    },
+    {
+      "ref": "PS-B/story-old",
+      "path": "epics/PS-B/stories/story-old.md",
+      "at": "2026-09-10T10:00:00.000Z",
+      "from": "planned",
+      "to": "in-progress",
+      "reason": "r",
+      "actor": "move"
+    },
+    {
+      "ref": "PS-B/story-old",
+      "path": "epics/PS-B/stories/story-old.md",
+      "at": "2026-09-20T10:00:00.000Z",
+      "from": "in-progress",
+      "to": "done",
+      "reason": "r",
+      "actor": "move"
+    }
+  ],
+  "counts": {
+    "wip": [
+      {
+        "assignee": "Ada Byron",
+        "held": 1,
+        "awaiting": 0,
+        "limit": 2
+      },
+      {
+        "assignee": "Bo Lee",
+        "held": 1,
+        "awaiting": 0,
+        "limit": null
+      },
+      {
+        "assignee": "an email-shaped name",
+        "held": 1,
+        "awaiting": 0,
+        "limit": null
+      }
+    ],
+    "window": {
+      "weeks": 2,
+      "from": "2026-10-26T00:00:00.000Z",
+      "to": "2026-11-09T00:00:00.000Z",
+      "created": 1,
+      "closed": 1,
+      "closed_unstamped": 0,
+      "young": false,
+      "weekly": [
+        {
+          "from": "2026-10-26T00:00:00.000Z",
+          "created": 1,
+          "closed": 1
+        },
+        {
+          "from": "2026-11-02T00:00:00.000Z",
+          "created": 0,
+          "closed": 0
+        }
+      ],
+      "omitted_weeks": 0,
+      "cycle_time": {
+        "closed": 1,
+        "median": 3,
+        "days": [
+          3
+        ],
+        "unplaced": []
+      }
+    },
+    "idle_epics": {
+      "threshold_days": 14,
+      "watched": 2,
+      "epics": [
+        {
+          "epic": "PS-B",
+          "path": "epics/PS-B/epic.md",
+          "days": 40,
+          "last_change": {
+            "at": "2026-10-01T08:00:00.000Z",
+            "source": "log",
+            "field": null
+          }
+        }
+      ]
+    }
+  },
+  "unread": {
+    "stories": 0,
+    "epics": 0
+  },
+  "notes": [
+    {
+      "code": "no-status-log",
+      "count": 2,
+      "text": "2 stories have no status line in a Status log, so they have no transitions: history from before stories carried a Status log is absent, not empty, and nothing is inferred from git or dates."
+    },
+    {
+      "code": "email-shaped-assignee",
+      "count": 1,
+      "text": "1 story row names an email-shaped assignee, printed as \"an email-shaped name\"."
+    }
+  ]
+}

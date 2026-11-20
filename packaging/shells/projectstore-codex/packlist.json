@@ -95,6 +95,7 @@
   "node_modules/projectstore/scripts/epic-rule.mjs",
   "node_modules/projectstore/scripts/fetch-shell.mjs",
   "node_modules/projectstore/scripts/flow-counts.mjs",
+  "node_modules/projectstore/scripts/flow-export.mjs",
   "node_modules/projectstore/scripts/flow-policy.mjs",
   "node_modules/projectstore/scripts/flow-stories.mjs",
   "node_modules/projectstore/scripts/flow-view.mjs",

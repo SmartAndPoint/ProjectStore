@@ -303,6 +303,11 @@ resistance. v0.13 makes that safe instead of forbidden:
   names an epic in progress where no story has changed status for that many
   days, counted to today. The page counts to its own date, so on a quiet
   vault only doctor sees an epic go quiet.
+- **`export`** prints the vault's flow as one JSON envelope: the stories,
+  the epics, each `status:` line of their Status logs, and the counts doctor
+  and `flow.md` give (WIP per person, the window's weeks and totals, the cycle
+  time and the epics without movement), as of the clock or `--as-of`. It
+  writes nothing, runs no git, and has no MCP tool.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.

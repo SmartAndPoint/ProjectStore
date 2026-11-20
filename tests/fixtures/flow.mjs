@@ -216,3 +216,62 @@ export function identity({
     GIT_COMMITTER_DATE: committedAt,
   };
 }
+
+// ─── The export verb's golden vault ────────────────────────────────────
+
+// The fixed vault whose `export --as-of 2026-11-11` result is
+// tests/fixtures/export-result.json (the export spec, contract 3): a story
+// in each column, a set-aside one, closes in the window, an epic without
+// movement, a person with a limit and an email-shaped assignee. A change
+// here changes the golden's bytes.
+export function exportGoldenVault() {
+  const at = (s) => `${s}:00.000Z`;
+  return flowVault({
+    vaultCfg: { flow: { window_weeks: 2, age_days: { epic_idle: 14 }, people: { "Ada Byron": { wip: 2 } } } },
+    stories: {
+      "PS-A/story-backlog": storyText({ id: "story-backlog", epic: "PS-A", created: "2026-10-27" }),
+      "PS-A/story-todo": storyText({
+        id: "story-todo",
+        epic: "PS-A",
+        assignee: "Ada Byron",
+        log: [{ to: "todo", at: at("2026-11-02T09:00"), reason: "next up", actor: "move" }],
+      }),
+      "PS-A/story-doing": storyText({
+        id: "story-doing",
+        epic: "PS-A",
+        assignee: "Ada Byron",
+        log: [{ to: "in-progress", at: at("2026-10-28T10:00"), reason: "work started", actor: "plan gate" }],
+        fm: { priority: "p1", started_at: JSON.stringify(at("2026-10-28T10:00")) },
+      }),
+      "PS-A/story-review": storyText({
+        id: "story-review",
+        epic: "PS-A",
+        assignee: "Bo Lee",
+        log: [
+          { to: "in-progress", at: at("2026-10-20T10:00"), reason: "work started", actor: "plan gate" },
+          { to: "review", at: at("2026-11-04T16:30"), reason: "pull request opened", actor: "follow" },
+        ],
+      }),
+      "PS-A/story-done": closedStory({
+        id: "story-done",
+        epic: "PS-A",
+        start: at("2026-10-27T10:00"),
+        close: at("2026-10-30T10:00"),
+      }),
+      "PS-A/story-parked": storyText({ id: "story-parked", epic: "PS-A", status: "parked" }),
+      "PS-B/story-old": closedStory({
+        id: "story-old",
+        epic: "PS-B",
+        start: at("2026-09-10T10:00"),
+        close: at("2026-09-20T10:00"),
+      }),
+      "PS-B/story-mail": storyText({
+        id: "story-mail",
+        epic: "PS-B",
+        assignee: ADDRESS,
+        log: [{ to: "in-progress", at: at("2026-10-01T08:00"), reason: "work started", actor: "plan gate" }],
+      }),
+    },
+    epics: { "PS-A": "in-progress", "PS-B": "in-progress", "PS-C": "done" },
+  });
+}

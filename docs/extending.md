@@ -316,6 +316,27 @@ each key activates.
   source test keeps both callers from counting either themselves. Reconcile makes it only on request (`--only flow`) and
   keeps an existing one fresh; doctor's `flow-view` check, beside the graph's,
   calls it stale exactly when reconcile would rewrite it.
+- The `export` verb (`scripts/flow-export.mjs`) prints the same stories and
+  counts as one JSON envelope for outside tools, with its own
+  `export_version` in the result. It counts nothing itself: every number
+  comes from `scripts/flow-counts.mjs` (the weeks it lists from `shownWeeks`,
+  shared with the page), and each transition is a `status:` line of a story's
+  Status log. It is dated by the clock, or by `--as-of`, like doctor.
+  The envelope's `result` holds these keys, in this order:
+  - `export_version`: the version of this shape, a whole number;
+  - `as_of`: the instant the window and the epics without movement are
+    counted at, in UTC;
+  - `stories`: one row per story, keyed by its vault-relative `path`;
+  - `epics`: one row per epic folder that holds an `epic.md`;
+  - `transitions`: each `status:` line of each story's Status log, in the
+    log's order;
+  - `counts`: WIP per person, the window's weeks, totals and cycle time, and
+    the epics without movement;
+  - `unread`: the story and epic files that could not be read;
+  - `notes`: what the reader should know about the data, each with a count.
+  `export_version` goes up when a key is removed or renamed, a value changes
+  its meaning, or a count's rule changes. A new key does not raise it, so a
+  consumer should ignore keys it does not know.
 - An epic becomes done by the epic rule (`applyEpicRule` in
   `scripts/epic-rule.mjs`), which the story command's close runs after the
   epic row: its own status is neither done nor set aside, at least one story
