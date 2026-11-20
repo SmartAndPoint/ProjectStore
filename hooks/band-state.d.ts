@@ -16,6 +16,9 @@ export type BandView = {
   story: { title: string; status: string | null } | null
   version: string | null
   hint: boolean
+  // The session's person's WIP from state/wip.json: its count and limit only,
+  // so a rewrite of the file's other numbers redraws nothing. null: no segment.
+  wip: { count: number; limit: number | null } | null
   words: Record<string, string>
 }
 

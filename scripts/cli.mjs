@@ -468,8 +468,9 @@ async function runBand(ctx) {
 }
 
 // `session refresh <path>`: this session's pointer from a story file, after a
-// write no hook saw (the close ceremony's copy). Machine-local state, like the
-// hooks' own writes — no confirmation. No session: nothing written, exit 0.
+// write no hook saw (the plan and close ceremonies' copy), and the band's WIP
+// count. Machine-local state, like the hooks' own writes — no confirmation.
+// No session: no pointer written, exit 0.
 async function runSession(ctx) {
   const { row, values, positionals, cfg, project, env, stdout, stderr } = ctx;
   const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
@@ -482,6 +483,12 @@ async function runSession(ctx) {
     );
   const r = refreshSessionPointer(project, cfg, positionals[1], { env });
   const ok = !r.refusal;
+  // The band's WIP count too, with or without a session id; refused, nothing
+  // (the band-wip spec, contract 7). It prints nothing and adds nothing to --json.
+  if (ok) {
+    const { refreshWip } = await import("./band-wip.mjs");
+    refreshWip({ project, cfg, env });
+  }
   const result = ok ? r : { error: r.refusal.message, code: r.refusal.code };
   if (values.json) stdout.write(JSON.stringify(envelope("session refresh", project, ok, result), null, 2) + "\n");
   else if (!ok) stderr.write(`${r.refusal.message}\n`);

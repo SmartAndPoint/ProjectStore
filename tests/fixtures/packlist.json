@@ -71,6 +71,7 @@
   "scaffold/layouts/engineering.json",
   "scripts/agents-change.mjs",
   "scripts/band-shared.mjs",
+  "scripts/band-wip.mjs",
   "scripts/band.mjs",
   "scripts/binding.mjs",
   "scripts/build-adapters.mjs",

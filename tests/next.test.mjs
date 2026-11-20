@@ -705,6 +705,7 @@ const WRITERS = [
   "install-harness.mjs",
   "agents-change.mjs",
   "band.mjs",
+  "band-wip.mjs",
   "move.mjs",
   "follow.mjs",
   "epic-rule.mjs",

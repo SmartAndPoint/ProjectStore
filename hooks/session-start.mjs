@@ -46,6 +46,8 @@ import {
 } from "../scripts/lib.mjs";
 import { runStartupChecks } from "../scripts/doctor.mjs";
 import { resolveBinding, bindingOfferText } from "../scripts/worktree.mjs";
+import { wipWanted, wipFromScan } from "../scripts/band-wip.mjs";
+import { speakingHarness } from "../scripts/harness.mjs";
 
 // The welcome has been seen, by this harness, when either marker exists: the
 // project's (state/<id>/welcomed, or the legacy .claude/.projectstore-welcomed
@@ -305,12 +307,26 @@ async function main() {
   // BEFORE registration, so the continuity section sees the log exactly as the
   // previous conversation left it. The exemption below is the other half: it
   // protects the NEXT compaction, this ordering protects this one.
+  //
+  // The same scan keeps what the band's WIP count needs (the band-wip spec,
+  // contract 6), asked for only when the band could draw it: a harness with
+  // a band, the band on, a person. The file is written right after the scan,
+  // before the payload is printed; under auto_inject=false (above) it is not.
   let facts = null;
   let gatherError = null;
+  let wantWip = false;
   try {
-    facts = await gatherVaultFacts(cfg, { sessionId: sid, source: input?.source });
+    wantWip = wipWanted({ cfg, harness: speakingHarness(process.env) });
+  } catch {}
+  try {
+    facts = await gatherVaultFacts(cfg, { sessionId: sid, source: input?.source, wip: wantWip });
   } catch (e) {
     gatherError = e;
+  }
+  if (wantWip && facts && !facts.vaultMissing) {
+    try {
+      wipFromScan({ project: proj, cfg, scan: facts.wip, env: process.env });
+    } catch {}
   }
 
   let warning = "";

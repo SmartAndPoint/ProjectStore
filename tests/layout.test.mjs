@@ -140,6 +140,9 @@ test("layout contract 0: the project-side paths are spelled once — in the reso
   assert.equal(p.binding, "/p/.projectstore/projectstore.json");
   assert.equal(p.overlay("codex"), "/p/.projectstore/harness/codex.json");
   assert.equal(p.launcher("claude-code"), "/p/.projectstore/state/claude-code/statusline.mjs");
+  // [band-wip#1] The band's WIP count: in state/, not in state/sessions/, whose sweep deletes old *.json.
+  assert.equal(p.wip, "/p/.projectstore/state/wip.json");
+  assert.equal(LAYOUT.wip, "wip.json");
   assert.equal(p.legacy.binding, `/p/${SRC.runtime.harness_dir}/projectstore.json`);
   assert.equal(p.legacy.launcher, `/p/${SRC.runtime.harness_dir}/.projectstore/statusline.mjs`);
   assert.deepEqual([...LAYOUT.gitignore], ["projectstore.json", "state/"]);

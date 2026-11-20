@@ -56,6 +56,10 @@ import {
   LINGER_MS,
   heartbeatNext,
   heartbeatFile,
+  headLayout,
+  wipShown,
+  wipText,
+  wipTone,
 } from "../scripts/band-shared.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -365,6 +369,102 @@ test("contract 14: the band's words — English per key, nothing invented", () =
   for (const bad of ["", "..", ".hidden", "_templates", "a/b", null]) assert.equal(isEpicName(bad), false, String(bad));
 });
 
+// ─── The head's WIP segment (contracts 4, 10, 14 as amended 2026-11-20 by
+// PS-FLOW; the file's rules are "The band's WIP state file…", alias `band-wip`)
+
+test("contract 4 (amended 2026-11-20): the WIP segment reads WIP n/limit, or WIP n with no limit; the count yellow at the limit, red above it", () => {
+  assert.equal(wipText(W, { count: 2, limit: 3 }), "WIP 2/3");
+  assert.equal(wipText(W, { count: 2, limit: null }), "WIP 2");
+  assert.equal(wipTone(2, 3), null);
+  assert.equal(wipTone(0, 3), null);
+  assert.equal(wipTone(3, 3), "yellow");
+  assert.equal(wipTone(4, 3), "red");
+  assert.equal(wipTone(9, null), null);
+});
+
+test("contract 14 (amended 2026-11-20): band_wip is WIP in every bundled locale", () => {
+  assert.ok(BAND_STRING_KEYS.includes("band_wip"));
+  const dir = join(ROOT, "templates");
+  for (const lang of readdirSync(dir).filter((d) => existsSync(join(dir, d, "strings.json")))) {
+    const words = JSON.parse(readFileSync(join(dir, lang, "strings.json"), "utf8"));
+    assert.equal(words.band_wip, "WIP", lang);
+  }
+});
+
+test("contract 4 (amended 2026-11-20): with a WIP segment the head cuts the title first, then drops the why, and keeps the segment whole, in en and zh", () => {
+  const zh = mergeWords(EN, JSON.parse(readFileSync(join(ROOT, "templates", "zh", "strings.json"), "utf8")));
+  const cases = [
+    {
+      badge: "[PS#0.30.20] ",
+      mark: "📚 PS-FLOW",
+      title: "Flow: WIP limits, age in status and the weekly grooming pass",
+      why: W.band_this_session,
+    },
+    { badge: "", mark: "📚 PS-ZH", title: "流程：在制品限制、状态停留时间与每周整理", why: zh.band_pinned },
+  ];
+  for (const parts of cases) {
+    for (const segment of ["WIP 2/3", "WIP 12"]) {
+      const p = { ...parts, segment };
+      const row = (lay) =>
+        cellWidth(p.badge) +
+        cellWidth(p.mark) +
+        cellWidth(` ${lay.title}`) +
+        (lay.why ? cellWidth(` · ${p.why}`) : 0) +
+        cellWidth(` · ${segment}`);
+      let kept = false;
+      for (let cols = 20; cols <= 200; cols++) {
+        const lay = headLayout(p, cols);
+        if (lay.title === p.title) {
+          assert.equal(lay.why, true, `${cols}: a whole title keeps the why`);
+          assert.ok(row(lay) <= cols - 3, `${cols}: a whole row fits bodyColumns − 3`);
+          continue;
+        }
+        assert.ok(lay.title.endsWith("…"), `${cols}: a cut title ends in an ellipsis`);
+        assert.ok(p.title.startsWith(lay.title.slice(0, -1)), `${cols}: the cut keeps the title's start`);
+        if (lay.why) kept = true;
+        else assert.equal(kept, false, `${cols}: once kept at a narrower row, the why is kept at every wider one`);
+        if (lay.why) {
+          assert.ok(row(lay) <= cols - 3, `${cols}: the row with the why fits`);
+          // The longest prefix that fits beside the why: one more character would not.
+          const more = [...p.title].slice(0, [...lay.title].length).join("") + "…";
+          assert.ok(row({ ...lay, title: more }) > cols - 3, `${cols}: ${JSON.stringify(more)} would not fit`);
+        } else {
+          // The why goes only when not even … fits beside it.
+          assert.ok(row({ title: "…", why: true }) > cols - 3, `${cols}: … would not fit beside the why`);
+          if (lay.title !== "…") assert.ok(row(lay) <= cols - 3, `${cols}: the row without the why fits`);
+        }
+      }
+    }
+  }
+  // The spec's own rows: badge [PS#9.9.9], "Harness adapters", this session.
+  const head = {
+    badge: "[PS#9.9.9] ",
+    mark: "📚 PS-HARNESS",
+    title: "Harness adapters",
+    why: "this session",
+    segment: "WIP 2/3",
+  };
+  assert.deepEqual(headLayout(head, 120), { title: "Harness adapters", why: true });
+  assert.deepEqual(headLayout(head, 60), { title: "Harnes…", why: true });
+  assert.deepEqual(headLayout(head, 50), { title: "Harness ada…", why: false });
+  assert.deepEqual(headLayout(head, 40), { title: "H…", why: false });
+  assert.deepEqual(
+    headLayout(head, undefined),
+    { title: "Harness adapters", why: true },
+    "no width: the host truncates",
+  );
+});
+
+test("contract 10 (amended 2026-11-20): the band's view holds the file's count and limit only, so a rewrite of awaiting_close alone shows the same", () => {
+  const a = wipShown({ assignee: "Test", count: 2, awaiting_close: 0, limit: 3 }, "Test");
+  const b = wipShown({ assignee: "Test", count: 2, awaiting_close: 1, limit: 3 }, "Test");
+  assert.equal(JSON.stringify(a), JSON.stringify(b));
+  assert.notEqual(
+    JSON.stringify(a),
+    JSON.stringify(wipShown({ assignee: "Test", count: 3, awaiting_close: 1, limit: 3 }, "Test")),
+  );
+});
+
 // ─── The module: Node-free, and pinned to the core ─────────────────────
 
 function importsOf(file) {
@@ -401,6 +501,8 @@ test("the band module's paths and hint token are the core's", () => {
   const p = layoutPaths("/p");
   assert.equal(`/p/${literal("BINDING")}`, p.binding);
   assert.equal(`/p/${literal("SESSIONS")}`, p.sessions);
+  // [band-wip#1] The WIP file the core writes, spelled as fixed text.
+  assert.equal(`/p/${literal("WIP")}`, p.wip);
   // The heartbeat's write spells its folder and its file name as fixed text,
   // for the directory's scan: the drift fence between that literal,
   // layoutPaths().sessions and heartbeatFile() (contract 10's file).

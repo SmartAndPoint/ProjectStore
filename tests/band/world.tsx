@@ -18,6 +18,7 @@ export const EN_WORDS: Record<string, string> = {
   band_verb_librarian: 'curates', band_verb_archaeologist: 'digs for decisions in', band_verb_other: 'works on',
   band_step_reads: 'reads', band_step_writes: 'writes', band_step_edits: 'edits', band_step_searches: 'searches',
   band_step_runs: 'runs', band_step_web: 'searches the web', band_step_vault: 'asks the vault:',
+  band_wip: 'WIP',
 }
 
 // The plugin's shipped files, by the path under its root.

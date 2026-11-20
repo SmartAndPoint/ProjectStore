@@ -492,6 +492,10 @@ export async function runFollow(ctx) {
       note(EPIC_ROW_MISSING, s.ref, p.pr, `${s.ref}: no row in its epic's Stories table links to it`);
   }
   result.epics = applyEpicRule({ epicsDir, write: true, at: now, onWrite });
+  // The band's WIP count, once per run, before the views; to this run's own
+  // project, never one from the environment (the band-wip spec, contract 7).
+  const { refreshWip } = await import("./band-wip.mjs");
+  refreshWip({ project, cfg, env });
   const { refreshViews } = await import("./reconcile.mjs");
   const { ownEnv: projectEnv } = await import("./verbs.mjs");
   const rec = refreshViews({ project, env: ownEnv ? ownEnv(project) : projectEnv(env, project) });

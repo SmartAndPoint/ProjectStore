@@ -3964,3 +3964,63 @@ test("clerk: definition carries the contract the ADR pinned", () => {
   );
   assert.ok(/"verbatim"/.test(src), "the report proves byte fidelity");
 });
+
+// ─── gatherVaultFacts' `wip` option: the band's WIP count from the same scan
+// ("The band's WIP state file…", alias `band-wip`, contract 6)
+
+// [band-wip#6]
+test("gather band-wip contract 6: with wip: true the scan keeps the In Progress and Review stories outside _ and . epics, and counts a failed read", async () => {
+  const vault = mkVault({
+    stories: [
+      { epic: "PS-A", slug: "story-a", title: "A", status: "in-progress" },
+      { epic: "PS-A", slug: "story-r", title: "R", status: " Review " },
+      { epic: "PS-A", slug: "story-p", title: "P", status: "parked" },
+      { epic: "PS-A", slug: "story-d", title: "D", status: "done" },
+      { epic: "_templates", slug: "story-t", title: "T", status: "in-progress" },
+      { epic: ".hidden", slug: "story-h", title: "H", status: "in-progress" },
+    ],
+  });
+  const read = (p) => readFileSync(p, "utf8");
+  const facts = await gatherVaultFacts(cfgFor(vault), { source: "startup", budgetMs: 2000, readFile: read, wip: true });
+  assert.equal(facts.wip.complete, true);
+  assert.deepEqual(facts.wip.stories.map((s) => s.rel).sort(), [
+    "epics/PS-A/stories/story-a.md",
+    "epics/PS-A/stories/story-r.md",
+  ]);
+  assert.deepEqual(facts.wip.vaultConfig, {}, "the vault config the scan read");
+  // A story file that cannot be read: the read is not whole.
+  const broken = (p) => (p.endsWith("story-d.md") ? Promise.reject(new Error("EIO")) : read(p));
+  const partial = await gatherVaultFacts(cfgFor(vault), { budgetMs: 2000, readFile: broken, wip: true });
+  assert.equal(partial.wip.complete, false);
+});
+
+// [band-wip#5]
+test("gather band-wip contract 5: a scan that times out is not whole, and without wip: true the result has no wip key (failure)", async () => {
+  const vault = mkVault({ stories: [{ epic: "PS-A", slug: "story-a", title: "A", status: "in-progress" }] });
+  const late = await gatherVaultFacts(cfgFor(vault), { budgetMs: 30, readFile: NEVER, wip: true });
+  assert.equal(late.inFlight.status, "timeout");
+  assert.equal(late.wip.complete, false);
+  const plain = await gatherVaultFacts(cfgFor(vault), { budgetMs: 2000, readFile: (p) => readFileSync(p, "utf8") });
+  assert.equal("wip" in plain, false);
+});
+
+// [band-wip#6]
+test("gather band-wip contract 6: the skeleton is byte-identical with and without wip: true", async () => {
+  const read = (p) => readFileSync(p, "utf8");
+  const vaults = [
+    mkVault(),
+    mkVault({
+      stories: [
+        { epic: "PS-A", slug: "story-a", title: "A", status: "in-progress", startedAt: "2026-08-01" },
+        { epic: "PS-B", slug: "story-b", title: "B", status: "review" },
+        { epic: "_t", slug: "story-t", title: "T", status: "in-progress" },
+      ],
+    }),
+  ];
+  for (const vault of vaults) {
+    const opts = { source: "startup", budgetMs: 2000, readFile: read };
+    const without = renderVaultSkeleton(await gatherVaultFacts(cfgFor(vault), opts));
+    const withWip = renderVaultSkeleton(await gatherVaultFacts(cfgFor(vault), { ...opts, wip: true }));
+    assert.equal(withWip, without);
+  }
+});

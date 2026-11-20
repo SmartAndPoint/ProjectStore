@@ -4,7 +4,8 @@
 // It shows this session's epic — or a pinned one, in a session with none of
 // its own — how far that epic is, its goal, this session's story and the
 // ProjectStore agent at work, and nothing while a question is open. It reads
-// the binding, this session's pointer and the focused epic's files, writes
+// the binding, this session's pointer, the focused epic's files and the WIP
+// count the core keeps for the session's person (state/wip.json), writes
 // nothing under the vault, and keeps a heartbeat in the session-state
 // directory while it draws so the status line can give way to it.
 //
@@ -15,7 +16,8 @@
 // starts clean and two loads never share a clock.
 //
 // Spec: the band above the prompt — rows, heartbeat, command and the status
-// line's yield (contracts 2–10, 12, 14).
+// line's yield (contracts 2–10, 12, 14; the head's WIP segment amended into
+// contracts 2, 4, 10 and 14 on 2026-11-20 by PS-FLOW).
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -28,6 +30,7 @@ import {
   focusRoots,
   goalForms,
   goalOf,
+  headLayout,
   heartbeatFile,
   heartbeatNext,
   isEpicName,
@@ -47,6 +50,9 @@ import {
   subjectLabel,
   subjectPath,
   totalOf,
+  wipShown,
+  wipText,
+  wipTone,
 } from '../scripts/band-shared.mjs'
 import type { BandAgent, BandCounts, BandView } from './band-state'
 
@@ -54,6 +60,9 @@ import type { BandAgent, BandCounts, BandView } from './band-state'
 // test pins these to it).
 const BINDING = '.projectstore/projectstore.json'
 const SESSIONS = '.projectstore/state/sessions'
+// The session's person's WIP, counted over the vault and written by the core
+// (scripts/band-wip.mjs); the band only reads it.
+const WIP = '.projectstore/state/wip.json'
 // The hint's command token, never translated (a node test pins it to the
 // manifest's invocation form).
 const HINT_COMMAND = '/projectstore:bar off'
@@ -306,7 +315,21 @@ async function scan($: EngineInterface, b: Band, root: string, sid: string | nul
     story: focus.why === 'this' ? storyOf(pointer as Json | null, stories) : null,
     version: binding.statusline?.show_version === false ? null : await versionOf($, b),
     hint: band.hint_seen !== true,
+    wip: await wipOf($, root, binding.default_author),
     words,
+  }
+}
+
+// The head's WIP view (contracts 4, 10): {count, limit} from the file the core
+// writes, for the binding's own person. A missing, unreadable or invalid
+// file, or one for another person, is no segment — never a failure row.
+async function wipOf($: EngineInterface, root: string, defaultAuthor: unknown) {
+  const text = await readText($, `${root}/${WIP}`)
+  if (text === null) return null
+  try {
+    return wipShown(JSON.parse(text), defaultAuthor)
+  } catch {
+    return null
   }
 }
 
@@ -441,12 +464,24 @@ export const register: Register = on => {
         return next(e)
       }
 
+      // With a WIP view the title is cut here, then ` · this session` goes,
+      // so the segment at the end is never what the host's truncation takes
+      // (contract 4); without one the head is as it always was.
+      const why = v.why === 'this' ? w.band_this_session : w.band_pinned
+      const wip = v.wip
+      const hl = wip
+        ? headLayout({ badge: v.version ? `[PS#${v.version}] ` : '', mark: `📚 ${v.id}`, title: v.title, why, segment: wipText(w, wip) }, e.props.bodyColumns)
+        : { title: v.title, why: true }
+      const tone = wip ? wipTone(wip.count, wip.limit) : null
       const head = (
         <Text wrap="truncate-end">
           {v.version ? <Text dimColor>[PS#{v.version}] </Text> : null}
           <Text bold color="yellow">📚 {v.id}</Text>
-          <Text bold> {v.title}</Text>
-          <Text dimColor> · {v.why === 'this' ? w.band_this_session : w.band_pinned}</Text>
+          <Text bold> {hl.title}</Text>
+          {hl.why ? <Text dimColor> · {why}</Text> : null}
+          {wip ? <Text dimColor> · {w.band_wip} </Text> : null}
+          {wip ? (tone ? <Text color={tone}>{wip.count}</Text> : <Text dimColor>{wip.count}</Text>) : null}
+          {wip && wip.limit !== null ? <Text dimColor>/{wip.limit}</Text> : null}
         </Text>
       )
 

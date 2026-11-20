@@ -9,7 +9,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { BINDING_PATH, SESSIONS, VAULT, band, binding, pointer, spawn, story, world } from './world'
+import { BINDING_PATH, ROOT, SESSIONS, VAULT, band, binding, pointer, spawn, story, world } from './world'
 
 type W = ReturnType<typeof world>
 
@@ -480,4 +480,105 @@ test('contract 8: a narrow row cuts the title, never the status', async ($, on) 
   // 30 columns hold 27 cells: 3 + "story " + title + " · in progress", so the
   // title keeps three characters and the ellipsis.
   expect(await shows($, /story B s… · in progress$/, 30)).toBe(true)
+})
+
+// ── The head's WIP segment (contracts 2, 4, 10, 14 as amended 2026-11-20 by
+// PS-FLOW; the file is "The band's WIP state file…", alias `band-wip`) ──
+
+const WIP_PATH = `${ROOT}/.projectstore/state/wip.json`
+const wipFile = (count: number, limit: number | null, awaiting = 0, assignee = 'Test') =>
+  JSON.stringify({ assignee, count, awaiting_close: awaiting, limit }) + '\n'
+const wipWorld = (on: Parameters<typeof world>[0], file: string | null, extra: Record<string, unknown> = {}) =>
+  world(on, {
+    [BINDING_PATH]: binding({ default_author: 'Test', ...extra }),
+    [`${SESSIONS}/s1.json`]: pointer('PS-HARNESS'),
+    ...(file === null ? {} : { [WIP_PATH]: file }),
+  })
+
+test('contract 4 (amended 2026-11-20): the head ends with WIP n/limit, the count yellow at the limit and red above it; WIP n with no limit', async ($, on) => {
+  const w = wipWorld(on, wipFile(2, 3))
+  await start($, w)
+  for (const [count, limit, color] of [[2, 3, null], [3, 3, 'yellow'], [4, 3, 'red'], [2, null, null]] as const) {
+    w.put(WIP_PATH, wipFile(count, limit))
+    await w.clock.advance(6_000)
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await mount($, surface)
+      const tail = limit === null ? `WIP ${count}` : `WIP ${count}\\/${limit}`
+      expect(await ui.find({ type: 'Text', text: new RegExp(`📚 PS-HARNESS Harness adapters · this session · ${tail}$`) })).toBeDefined()
+      const n = await ui.find({ type: 'Text', text: new RegExp(`^${count}$`) })
+      expect(n).toBeDefined()
+      if (color) expect(n?.props.color).toBe(color)
+      else {
+        expect(n?.props.color).toBeUndefined()
+        expect(n?.props.dimColor).toBe(true)
+      }
+      await ui.unmount()
+    }
+  }
+})
+
+test('contract 4 (amended 2026-11-20): a narrow head cuts the title, then drops this session, and keeps WIP 2/3 whole', async ($, on) => {
+  const w = wipWorld(on, wipFile(2, 3))
+  await start($, w)
+  expect(await shows($, /PS-HARNESS Harness adapters · this session · WIP 2\/3$/, 120)).toBe(true)
+  expect(await shows($, /PS-HARNESS Harnes… · this session · WIP 2\/3$/, 60)).toBe(true)
+  expect(await shows($, /PS-HARNESS Harness ada… · WIP 2\/3$/, 50)).toBe(true)
+  expect(await shows($, /PS-HARNESS H… · WIP 2\/3$/, 40)).toBe(true)
+})
+
+test('contract 10 (amended 2026-11-20): no wip.json, not json, an array, another person, or an unreadable file draws the head without a segment, no failure row, and the heartbeat as before', async ($, on) => {
+  const w = wipWorld(on, null)
+  await start($, w)
+  const plain = /📚 PS-HARNESS Harness adapters · this session$/
+  const check = async () => {
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await mount($, surface)
+      expect(await ui.find({ type: 'Text', text: plain })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /WIP/ })).toBeUndefined()
+      expect(await ui.find({ type: 'Text', text: /25%\s+1 done · 2 in work · 1 backlog · 4 stories/ })).toBeDefined()
+      await ui.unmount()
+    }
+    await w.clock.advance(6_000)
+    expect(JSON.parse(w.writes.get(`${SESSIONS}/.band-s1.json`) ?? '{}').drawn).toBe(true)
+  }
+  await check()
+  for (const text of ['not json', '[1,2]', wipFile(2, 3, 0, 'Other Person')]) {
+    w.put(WIP_PATH, text)
+    await w.clock.advance(6_000)
+    await check()
+  }
+  w.put(WIP_PATH, wipFile(2, 3))
+  w.fail(WIP_PATH)
+  await w.clock.advance(6_000)
+  await check()
+  expect([...w.writes.keys()].filter(p => p.startsWith(`${VAULT}/`))).toEqual([])
+})
+
+test("contract 10 (amended 2026-11-20): the binding's default_author is read trimmed, as the core writes it", async ($, on) => {
+  const w = wipWorld(on, wipFile(2, 3), { default_author: ' Test ' })
+  await start($, w)
+  expect(await shows($, /· this session · WIP 2\/3$/)).toBe(true)
+})
+
+test('contract 10 (amended 2026-11-20): a new count shows on the next tick; a rewrite of awaiting_close alone redraws nothing', async ($, on) => {
+  let sets = 0
+  on('state.set', ($, e, next) => {
+    const x = e as unknown as { plugin?: string; key?: string }
+    if (x.plugin === 'projectstore' && x.key === 'band') sets++
+    return next(e)
+  })
+  const w = wipWorld(on, wipFile(2, 3))
+  await start($, w)
+  expect(await shows($, /· WIP 2\/3$/)).toBe(true)
+  const first = sets
+  w.put(WIP_PATH, wipFile(3, 3))
+  await w.clock.advance(6_000)
+  expect(await shows($, /· WIP 3\/3$/)).toBe(true)
+  expect(sets).toBeGreaterThan(first)
+  const before = sets
+  w.put(WIP_PATH, wipFile(3, 3, 2))
+  await w.clock.advance(6_000)
+  await w.clock.advance(6_000)
+  expect(sets).toBe(before)
+  expect(await shows($, /· WIP 3\/3$/)).toBe(true)
 })

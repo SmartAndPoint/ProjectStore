@@ -31,6 +31,7 @@
   "band_step_runs": "runs",
   "band_step_web": "searches the web",
   "band_step_vault": "asks the vault:",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADRs",

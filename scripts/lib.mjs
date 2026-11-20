@@ -25,7 +25,7 @@ import { join, dirname, basename, resolve, relative, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { hostname, homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { parseFrontmatter, stageOf } from "./stages.mjs";
+import { parseFrontmatter, stageOf, statusToColumn, NOT_ACTIONABLE } from "./stages.mjs";
 import { storyKeyOf } from "./band-shared.mjs";
 import {
   projectRoot as harnessProjectRoot,
@@ -2656,6 +2656,11 @@ function countFolder(vault, folder) {
 // invitation: a synchronous read of an evicted file blocks uninterruptibly
 // inside one call and the timer never gets a turn, so the budget is only real
 // if every content read goes through `readActivityAsync`.
+//
+// `wip: true` also keeps, for the band's WIP writer (scripts/band-wip.mjs),
+// the stories the flow readers would count, read by this same scan: the
+// band-wip spec, contract 6. The result then gains `wip`; without the option
+// it is as before, and nothing kept reaches the payload.
 export async function gatherVaultFacts(cfg, opts = {}) {
   // Trailing slashes: `bind` normalizes, a hand-edited config may not, and the
   // relativization below is raw arithmetic. Normalizing once here keeps the
@@ -2685,6 +2690,20 @@ export async function gatherVaultFacts(cfg, opts = {}) {
   }));
 
   const storyFiles = listVaultStoryFiles(vault);
+  // The WIP part: the In Progress and Review stories (columnOf's reading:
+  // trimmed, lower-cased, NOT_ACTIONABLE in no column) of epic folders not
+  // named `_…` or `.…`, as readFlowStories skips them, and the reads that
+  // failed. The scan lists `epics/`; an epics folder that cannot be listed,
+  // or a layout whose epics live elsewhere, is not a whole read.
+  const wip = opts.wip ? { complete: false, stories: [], vaultConfig: vcfg, unread: 0 } : null;
+  if (wip && epicFolder?.path !== "epics") wip.unread++;
+  if (wip) {
+    try {
+      readdirSync(join(vault, "epics"));
+    } catch (e) {
+      if (e?.code !== "ENOENT") wip.unread++;
+    }
+  }
   const inFlight = { status: "ok", entries: [], total: 0 };
   // Present only on `compact` — contract 19's positive test, applied where the
   // cost is: on every other source the log is not read at all.
@@ -2717,12 +2736,20 @@ export async function gatherVaultFacts(cfg, opts = {}) {
       try {
         text = await readFile(abs);
       } catch {
+        if (wip) wip.unread++;
         continue;
       }
       const fm = parseFrontmatter(String(text)).data;
-      if (!fm || !isInProgress(fm.status)) continue;
       const rel = abs.startsWith(vault + "/") ? abs.slice(vault.length + 1) : abs;
       const seg = rel.split("/");
+      if (wip && fm && seg[0] === "epics" && seg[1] && !/^[_.]/.test(seg[1])) {
+        const st = String(fm.status ?? "")
+          .trim()
+          .toLowerCase();
+        const col = st && !NOT_ACTIONABLE.has(st) ? statusToColumn(st) : null;
+        if (col === "In Progress" || col === "Review") wip.stories.push({ rel, epic: seg[1], text: String(text), fm });
+      }
+      if (!fm || !isInProgress(fm.status)) continue;
       const epic = epicFolder && seg[0] === epicFolder.path && seg[1] ? seg[1] : seg[0];
       found.push({ epic, title: String(fm.title || seg[seg.length - 1]), startedAt: fm.started_at || "" });
     }
@@ -2777,6 +2804,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
   // the vault is idle, which is a different and possibly false claim.
   if (!done.inFlight) inFlight.status = "timeout";
   if (continuity && !done.activity) continuity.status = "timeout";
+  if (wip) wip.complete = done.inFlight && wip.unread === 0;
 
   return {
     vaultPath: vault,
@@ -2791,6 +2819,7 @@ export async function gatherVaultFacts(cfg, opts = {}) {
     inFlight,
     continuity,
     ...(specTree && { specTree }),
+    ...(wip && { wip }),
   };
 }
 
