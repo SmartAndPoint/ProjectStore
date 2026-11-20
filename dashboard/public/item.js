@@ -172,7 +172,9 @@ function renderDrawer() {
   if (!item) main.append(h("div", { class: "faint" }, "reading…"));
   else if (item.missing) main.append(h("div", { class: "faint" }, "The file could not be read."));
   else
-    main.append(
+    // fill(), not the native append: append prints a null as the text "null".
+    fill(
+      main,
       // What belongs to the item stands in the side panel. Its long form opens here, in place of the text.
       d.tab !== "doc" ? h("div", { class: "doc-bar" }, h("button", { class: "tog on", onclick: () => showTab(d, "doc") }, "← Back to the text"), h("b", null, "Related, in full")) : null,
       d.tab === "rel" ? relatedView(d) : MD.render(bodyOf(d, item), docCtx(item.rel)),
@@ -279,6 +281,7 @@ function sideDoc(d) {
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || e.defaultPrevented) return;
+  if (document.querySelector(".pal-back")) return; // keys.js: Escape closes the palette first, and only it
   if (!$("#modal").hidden) $("#modal").close ? $("#modal").close() : ($("#modal").hidden = true); // a dialog of write.js closes through its own close(), so its onClose runs
   else if (ui.drawer) closeDrawer();
 });

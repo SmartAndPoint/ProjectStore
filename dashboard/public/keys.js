@@ -195,6 +195,7 @@ function openPalette(level) {
   document.body.append(back);
   paint();
   input.focus();
+  setTimeout(() => pal && document.activeElement !== input && input.focus()); // after the opening click has ended
 }
 function closePalette() {
   pal?.back.remove();
@@ -233,6 +234,12 @@ document.addEventListener("keydown", (e) => {
   if (e.altKey && !mod && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && !typing && !pal && $("#modal").hidden && S && ui.view === "backlog") {
     if (writeUi.rankKey(ui.sel, e.key === "ArrowUp" ? -1 : 1)) e.preventDefault();
     return;
+  }
+  // Escape closes the palette wherever the focus is: a palette opened by its button can lose
+  // the focus to that button before its own input takes it.
+  if (pal && e.key === "Escape") {
+    e.preventDefault();
+    return closePalette();
   }
   if (typing || mod || e.altKey || pal || !$("#modal").hidden || !S) return;
   const k = e.key;

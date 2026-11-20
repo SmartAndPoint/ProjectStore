@@ -1902,6 +1902,36 @@ test("dashboard page: the block's button asks gh again with fresh, an item openi
 });
 
 // [dashboard-code#11] The item asks for the block when it opens and on R (fetchItem), and draws it after Related.
+// The native append and replaceChildren print a null or a false as text ("null" under a story's
+// title on 2026-11-20). A call that may get one goes through h() or fill(), which drop them.
+test("dashboard page: no page script hands the native append or replaceChildren a value that may be null or false", () => {
+  const found = [];
+  for (const file of PAGE_SCRIPTS) {
+    const src = readFileSync(join(PUBLIC, file), "utf8");
+    for (const m of src.matchAll(/\.(append|replaceChildren)\(/g)) {
+      let depth = 1;
+      let i = m.index + m[0].length;
+      const start = i;
+      while (i < src.length && depth) {
+        if (src[i] === "(") depth++;
+        else if (src[i] === ")") depth--;
+        i++;
+      }
+      // Only the call's own arguments: what nested h(…) or fill(…) calls hold is theirs to drop.
+      let own = "";
+      let d = 0;
+      for (const ch of src.slice(start, i - 1)) {
+        if (ch === "(") d++;
+        if (d === 0) own += ch;
+        if (ch === ")") d--;
+      }
+      if (/:\s*null\b|:\s*false\b|&&/.test(own))
+        found.push(`${file}: ${src.slice(m.index, i).split("\n")[0].slice(0, 120)}`);
+    }
+  }
+  assert.deepEqual(found, []);
+});
+
 test("dashboard page: item.js asks for the Code block in fetchItem and draws it after Related", () => {
   const src = readFileSync(join(PUBLIC, "item.js"), "utf8");
   const fetchItem = src.slice(src.indexOf("function fetchItem()"), src.indexOf("function closeDrawer()"));
