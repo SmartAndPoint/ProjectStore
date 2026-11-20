@@ -16,6 +16,11 @@
 // pull request's body), the rows of the ADR's decision 5 table before the
 // close, the awaiting line of a refused close, and the `pr:` line of a link
 // recorded or replaced, which comes after the status line (planStory).
+//
+// The close-refs spec, contract 7: the close carries the refs of the pull
+// request's files the caller read with the facts (closingMerge names that
+// pull request); a failed read is `files-unknown` and leaves the story
+// byte-identical; a code that left the refs unwritten ends the reason.
 
 import {
   parseFrontmatter,
@@ -41,7 +46,7 @@ import {
 } from "./status-log.mjs";
 import { statusToColumn, NOT_ACTIONABLE } from "./stages.mjs";
 import { ageDays, meets } from "./flow-counts.mjs";
-import { computeClose } from "./story-section.mjs";
+import { computeClose, CODE_REFS_UNREADABLE } from "./story-section.mjs";
 import { MARK_KEY, isMarked } from "./verb-mark.mjs";
 
 // An instant in nowIso() form: UTC, milliseconds, `Z`.
@@ -63,6 +68,10 @@ export function mergedAtIso(pr) {
     throw new Error(`mergedAt is not an instant the stamp reader reads: ${JSON.stringify(pr?.mergedAt)}`);
   return iso(ms);
 }
+
+// What ends a close's reason when the pull request's files gave no refs to
+// write (the close-refs spec, contract 7), before the note's code.
+export const UNWRITTEN_SUFFIX = "; code_refs not written: ";
 
 // The close's reason: `merged: <url> at <sha>`, without ` at <sha>` when the
 // pull request has no merge commit.
@@ -133,15 +142,25 @@ export function withMergedLine(text, line) {
 // the story carries an older one (so isLegacyStory never silences the
 // checks). `findings(judged)` is the caller's refusal, a list; empty means
 // the close may be written. `day` is the run's UTC day for `updated`.
+// `codeRefs` are the pull request's files as refs, added to both bytes, and
+// `epicText` the epic's text computeClose checks with them (the close-refs
+// ADR, decision 1: an unreadable code_refs throws code-refs-unreadable);
+// `unwritten` the note code that left the refs unwritten, which ends the
+// reason as `; code_refs not written: <code>` (the close-refs spec, contract 7).
 // Returns {written, judged, stamp, reason, line, refusal, refused}.
-export function closeForMerge(text, pr, { now, day, lang = "en", findings = null } = {}) {
+export function closeForMerge(
+  text,
+  pr,
+  { now, day, lang = "en", findings = null, codeRefs = null, epicText = null, unwritten = null } = {},
+) {
   const nowMs = stampMs(now);
   if (nowMs === null) throw new Error(`the run time is not an instant: ${JSON.stringify(now)}`);
   if (!day) throw new Error("the run's day is required");
-  const reason = mergeReason(pr);
+  const reason = `${mergeReason(pr)}${unwritten ? `${UNWRITTEN_SUFFIX}${unwritten}` : ""}`;
   const line = mergedLine(pr);
   const stamp = eventStamp(text, pr);
-  const closeAt = (at) => withMergedLine(computeClose(text, { reason, actor: "follow", at, day, lang }).text, line);
+  const closeAt = (at) =>
+    withMergedLine(computeClose(text, { reason, actor: "follow", at, day, lang, codeRefs, epicText }).text, line);
   const run = iso(nowMs);
   const written = closeAt(stamp.at);
   const judged = setFm(closeAt(run), "closed_at", JSON.stringify(run));
@@ -282,6 +301,27 @@ export function awaitingWhat(judged, refusal) {
   return parts;
 }
 
+// The merged pull request planStory would close the story by, or null: an
+// in-progress or review story whose closing pull request (its field, else the
+// one counted line) merged into its repository's default branch, and that
+// was not reopened by hand. The caller reads that pull request's files before
+// planning (the close-refs spec, contract 7); planStory's own rows decide.
+export function closingMerge(text, { named: lines = [], factsOf = () => null, branchOf = () => null } = {}) {
+  const low = String(parseFrontmatter(text).data.status ?? "")
+    .trim()
+    .toLowerCase();
+  const column = NOT_ACTIONABLE.has(low) ? null : statusToColumn(low);
+  if (column === null || ["Done", "Backlog", "ToDo"].includes(column)) return null;
+  if (!externalRefs(text).ok) return null;
+  const field = prUrlOf(text);
+  const named = lines.filter((p) => prState(p) !== "closed");
+  const link = storyLink({ field, fieldFacts: field ? factsOf(field) : null, named });
+  if (!["field", "fill", "replace"].includes(link.kind) || prState(link.pr) !== "merged") return null;
+  const b = branchOf(link.pr.url);
+  if (!b || !b.ok || link.pr.baseRefName !== b.branch || reopened(text)) return null;
+  return link.pr;
+}
+
 // One story's plan: its new text and what it says, as a pure function of its
 // text and the facts. `named` are the counted pull requests whose body lines
 // name it; `factsOf(url)` a pull request's facts ({ok, pr}, {ok: false,
@@ -289,9 +329,13 @@ export function awaitingWhat(judged, refusal) {
 // branch ({ok, branch}), or null when no merge may be judged; `refusal(judged)`
 // the close's findings on the bytes closed at the run time; `ageReview` the
 // policy's `flow.age_days.review`, or null. `now` is the run time, `day` its
-// UTC day. Returns {content, from, to, pr, judged, closes, lines, notes,
-// findings}: `lines` the status line, then the `pr:` line, each {field, from,
-// to, reason, at, line}; notes and findings {code, pr, message}.
+// UTC day. `refsOf(url)` is followRefs's answer for the merged pull request
+// the close is by (close-refs.mjs; read once with the facts), or null for no
+// refs; `epicText` the story's epic, which computeClose checks with refs.
+// Returns {content, from, to, pr, judged, closes, refs, lines, notes,
+// findings}: `refs` the refs the close adds; `lines` the status line, then
+// the `pr:` line, each {field, from, to, reason, at, line}; notes and
+// findings {code, pr, message}.
 export function planStory(
   text,
   {
@@ -303,6 +347,8 @@ export function planStory(
     lang = "en",
     ageReview = null,
     refusal = null,
+    refsOf = () => null,
+    epicText = null,
   },
 ) {
   // A line in a pull request closed without a merge is no link and no
@@ -324,6 +370,7 @@ export function planStory(
     pr: null,
     judged: false,
     closes: false,
+    refs: [],
     lines: [],
     notes: [],
     findings: [],
@@ -402,11 +449,36 @@ export function planStory(
           `${pr.url} merged, but the story was reopened after a close: it is unchanged`,
         );
       } else if (b && b.ok) {
-        const c = closeForMerge(text, pr, { now: run, day, lang, findings: refusal });
+        // The pull request's files, read once with the facts (the close-refs
+        // spec, contract 7): a failed read leaves the story byte-identical,
+        // its link included, so the next run reads again.
+        const got = refsOf(pr.url);
+        if (got && got.blocked) {
+          for (const n of got.notes) say(out.findings, n.code, pr.url, n.message);
+          return out;
+        }
+        let c;
+        try {
+          c = closeForMerge(text, pr, {
+            now: run,
+            day,
+            lang,
+            findings: refusal,
+            codeRefs: got ? got.refs : null,
+            epicText,
+            unwritten: got ? got.unwritten : null,
+          });
+        } catch (e) {
+          if (e?.code !== CODE_REFS_UNREADABLE) throw e;
+          say(out.findings, CODE_REFS_UNREADABLE, pr.url, `${e.message.replace(/^code-refs-unreadable: /, "")}`);
+          return out;
+        }
         if (!c.refused) {
           t = c.written;
           out.to = "done";
           out.closes = true;
+          out.refs = got ? [...got.refs] : [];
+          if (got) for (const n of got.notes) say(out.notes, n.code, pr.url, n.message);
           const last = lastStatusLine(t);
           out.lines.push({
             field: "status",

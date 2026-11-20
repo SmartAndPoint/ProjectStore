@@ -589,6 +589,9 @@ const mergedPr = (n, o = {}) =>
     mergeCommit: { oid: SHA },
     closedAt: PR.mergedAt,
     updatedAt: PR.mergedAt,
+    // The files a close reads (the close-refs spec, contract 7): none, unless a test gives them.
+    files: [],
+    changedFiles: 0,
     ...o,
   });
 const closedPr = (n, o = {}) => openPr(n, { state: "CLOSED", closedAt: "2026-11-03T08:00:00Z", ...o });
@@ -758,10 +761,11 @@ test("verb: a story with no external_refs.pr and no Closes-story line naming it 
   const stub = stubOf({ prs: [mergedPr(7), openPr(8, { body: "no line here" })] });
   const r = await follow(fx, stub, ["--write"]);
   assert.equal(r.code, 0, JSON.stringify(r.r.findings));
+  // The facts' view and, for its merge, the files' view: both the linked story's.
   assert.deepEqual(
     stub.calls("pr view").map((a) => a[2]),
-    [prUrl(7)],
-    "the one view is the linked story's",
+    [prUrl(7), prUrl(7)],
+    "the views are the linked story's",
   );
   assert.equal(read(pathOf(fx, "story-b")), b);
   assert.ok(!r.r.items.some((i) => i.story === "PS-X/story-b"));
