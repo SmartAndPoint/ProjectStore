@@ -256,7 +256,7 @@ npx projectstore create story PS-CORE "Faster login" --write
 `rank` orders the open work by hand, apart from priority: an open story among the open stories of its epic, or an epic among the epics of its initiative. It writes only a `rank:` line in each file whose rank value changes, and moves no date, so the age of a story does not reset. Bare, it prints the plan, each file with its old and new value; `--write` asks at a terminal:
 
 ```
-npx projectstore rank story PS-CORE/faster-login --before PS-CORE/sso --write
+npx projectstore rank story PS-CORE/story-faster-login --before PS-CORE/story-sso --write
 ```
 
 `npx projectstore dashboard` opens a page over the vault in your browser. On it you can also move stories between the backlog and ToDo, and send those moves as one pull request. It has its own section below, [The dashboard](#the-dashboard).
