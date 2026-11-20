@@ -424,3 +424,31 @@ test("packaging contract 3d: a version without its release notes fails the guard
     assert.equal(out.notes, rel);
   }
 });
+
+// [ci-template#1] The CI template and its page ship, the template at the root
+// of templates/, where a file is no language: languageNames() and the locale
+// tests read every folder there as one.
+test("packaging: the CI template and its docs page are packed, the template is a file at the root of templates/, and no new language appears", async () => {
+  const packed = JSON.parse(readFileSync(resolve(ROOT, PACKLIST), "utf8"));
+  for (const f of ["templates/follow-github-actions.yml", "docs/follow-in-ci.md"])
+    assert.ok(packed.includes(f), `${f} is in the packlist`);
+  const { languageNames } = await import("../scripts/binding.mjs");
+  const folders = readdirSync(resolve(ROOT, "templates"), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+  assert.deepEqual([...languageNames(ROOT)].sort(), folders, "the languages are the folders of templates/");
+  // No new language: every folder there is a locale with its own story template.
+  for (const lang of folders)
+    assert.ok(
+      readdirSync(resolve(ROOT, "templates", lang)).includes("story.md.tmpl"),
+      `templates/${lang}/ is a language`,
+    );
+  assert.ok(!folders.some((n) => /follow|github|ci/.test(n)), "the template made no folder");
+  assert.ok(
+    readdirSync(resolve(ROOT, "templates"), { withFileTypes: true }).some(
+      (e) => e.isFile() && e.name === "follow-github-actions.yml",
+    ),
+    "the template is a file at the root of templates/",
+  );
+});

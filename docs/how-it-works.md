@@ -279,7 +279,8 @@ resistance. v0.13 makes that safe instead of forbidden:
   each story through the same read-again writer `move` uses. In a vault that
   is a git repository it reads `git worktree list`, `git merge-base` and
   `git cat-file` first, and leaves alone a story a linked worktree's branch
-  changed.
+  changed. A workflow you copy into the code repository can run it after
+  every merge and push the vault: [Follow in CI](follow-in-ci.md).
 - **`handover`** gives one person's open stories to another:
   `handover --from <name> --to <name> --reason "<why>"`, or one story with
   `--story <EPIC>/<id>`. Open means neither done nor set aside, so planned,

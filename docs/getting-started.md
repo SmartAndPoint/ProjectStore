@@ -125,6 +125,8 @@ The README's [Configure](../README.md#configure) section lists what each setting
 /projectstore:groom                                       # weekly pass: stale ToDo back to the backlog, one-story epics to the librarian
 ```
 
+To have stories move as their pull requests merge without running `/projectstore:follow` yourself, copy the CI workflow the package ships: [Follow in CI](follow-in-ci.md).
+
 ## How approval works
 
 Every command that writes or edits a file goes through `AskUserQuestion`:
