@@ -171,6 +171,24 @@ export function collectDashboard(root = ROOT) {
   return [{ file: "dashboard/package.json", version: typeof pkg?.version === "string" ? pkg.version : null }];
 }
 
+// The CI template's pin, as a version site (the spec with alias `ci-template`,
+// contract 5): templates/follow-github-actions.yml runs
+// `npx --yes projectstore@<version>` on two lines, and both name the release
+// the file ships with. None when the tree has no template; one site per
+// `projectstore@` string outside comments. checkVersions refuses a template
+// that does not name it exactly twice, naming the count, so a bare
+// `projectstore` or a third line fails too.
+export const CI_TEMPLATE = "templates/follow-github-actions.yml";
+export function collectCiTemplate(root = ROOT) {
+  const file = resolve(root, CI_TEMPLATE);
+  if (!existsSync(file)) return [];
+  const text = readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
+  return [...text.matchAll(/\bprojectstore@([^\s"'`]+)/g)].map((m) => ({ file: CI_TEMPLATE, version: m[1] }));
+}
+
 export function checkVersions({ root = ROOT, tag = null } = {}) {
   const { found, error } = collectVersions(root);
   if (error) return { ok: false, error };
@@ -178,12 +196,21 @@ export function checkVersions({ root = ROOT, tag = null } = {}) {
   if (sh.error) return { ok: false, error: sh.error };
 
   // A shell's version is one more site under the same rule, and so is the
-  // dashboard's package when the tree has one (the dashboard spec, contract 2).
+  // dashboard's package when the tree has one (the dashboard spec, contract 2),
+  // and so is the CI template's pin (the ci-template spec, contract 5).
   const sites = [
     ...found,
     ...sh.shells.flatMap((s) => [{ file: s.file, version: s.version }, ...(s.pluginVersions || [])]),
     ...collectDashboard(root),
+    ...collectCiTemplate(root),
   ];
+  const ci = collectCiTemplate(root);
+  if (existsSync(resolve(root, CI_TEMPLATE)) && ci.length !== 2)
+    return {
+      ok: false,
+      error: `${CI_TEMPLATE}: the template must name projectstore@<version> exactly twice, found ${ci.length}`,
+      checked: sites,
+    };
   if (tag) sites.push({ file: "<tag>", version: stripV(tag) });
   const distinct = [...new Set(sites.map((s) => s.version))];
   if (distinct.length !== 1) return { ok: false, error: "version mismatch", versions: distinct, checked: sites };

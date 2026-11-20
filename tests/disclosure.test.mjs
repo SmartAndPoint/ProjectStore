@@ -93,6 +93,13 @@ const WRITE_MODULE = "dashboard/lib/write.mjs";
 // The file that names the Code block's calls, which the module starts (the
 // processes ADR as amended 2026-11-19; the spec alias `dashboard-code`).
 const CODE_MODULE = "dashboard/lib/code.mjs";
+// The CI template's lines that are not comments (the ci-template spec, contract 11).
+const CI_TEMPLATE = "templates/follow-github-actions.yml";
+const yml = (rel) =>
+  read(rel)
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n");
 const manifest = (id) => harness.loadHarness(id);
 const catalogs = (id) => manifest(id)?.agent_translation?.models?.catalogs || [];
 const hostCli = () =>
@@ -316,6 +323,28 @@ const ROWS = {
       ["standard input", "input:", code("scripts/statusline.mjs") + code("scripts/statusline-launcher.mjs")],
     ],
   },
+  // [ci-template#11] The CI template: a file the user copies, which nothing
+  // ProjectStore runs touches, so it is no module's row; `quiet` names it, and
+  // each sentence is tied to the template's own lines (comments dropped).
+  ci: {
+    sub: RUNS,
+    lead: "A CI workflow, only if you copy it",
+    quiet: CI_TEMPLATE,
+    says: (template = yml(CI_TEMPLATE)) => [
+      ["`templates/follow-github-actions.yml`", CI_TEMPLATE, PACKLIST.join("\n")],
+      ["a GitHub Actions workflow", "runs-on: ubuntu-latest", template],
+      [
+        "ProjectStore never installs it, never runs it and never reads its token",
+        "ProjectStore never installs it",
+        read(CI_TEMPLATE),
+      ],
+      ["runs `follow --write` after each merge", "follow --write", template],
+      ["commits the changed stories with `git commit`", "git commit --quiet", template],
+      ["pushes them with `git push` to the vault's repository", " push --quiet origin HEAD", template],
+      ["a token you keep in that repository's secrets", "secrets.PROJECTSTORE_VAULT_TOKEN", template],
+      ["`gh` reads the pull requests with the run's own token", "GH_TOKEN: ${{ github.token }}", template],
+    ],
+  },
   registry: {
     sub: SENDS,
     lead: "The npm registry",
@@ -470,7 +499,7 @@ test("disclosure: the shipped modules that spawn or fetch are the pinned map", (
   );
   assert.ok(section() !== null, `README has "${SECTION}"`);
   for (const [heading, rows] of [
-    [RUNS, ["node", "git", "gh", "browser", "hosts", "npm", "statusline"]],
+    [RUNS, ["node", "git", "gh", "browser", "hosts", "npm", "statusline", "ci"]],
     [SENDS, ["registry", "codex", "dashboard"]],
   ]) {
     const have = rowsOf(sub(heading));
@@ -991,4 +1020,36 @@ test("disclosure: the section's writes and the directory report, and no key-shap
     [],
     "no key-shaped value in README, docs/ or the privacy page",
   );
+});
+
+// [ci-template#11]
+test("disclosure: the CI template's row is the last of What it runs, tied to the template's lines; the git row and the three sends stay; the privacy page, its built copy and the llms files say it; a template without git push fails the row", () => {
+  const runs = [...rowsOf(sub(RUNS)).keys()];
+  assert.equal(runs.at(-1), ROWS.ci.lead, `the ci row is the last of "${RUNS}": ${runs.join(" | ")}`);
+  assert.equal(runs.at(-2), ROWS.statusline.lead, "it comes after Your own status line");
+  const row = rowsOf(sub(RUNS)).get(ROWS.ci.lead);
+  const failing = (template) =>
+    ROWS.ci.says(template).filter(([said, needle, source]) => !row.includes(said) || !String(source).includes(needle));
+  assert.deepEqual(failing(), [], "each sentence of the row is in the template");
+  // The git row keeps its scope sentence, and the sends keep their three rows.
+  assert.ok(
+    rowsOf(sub(RUNS)).get(ROWS.git.lead).includes("ProjectStore never commits, pushes, pulls or fetches"),
+    "the git row is unchanged",
+  );
+  assert.equal(rowsOf(sub(SENDS)).size, 3, "What it sends and fetches keeps three rows");
+  assert.ok(!(CI_TEMPLATE in MODULES), "the template is no module's");
+  // Planted: the template without its push.
+  const template = yml(CI_TEMPLATE);
+  const noPush = template.replace(/ push --quiet origin HEAD/g, " status");
+  assert.notEqual(noPush, template);
+  assert.deepEqual(
+    failing(noPush).map(([said]) => said),
+    ["pushes them with `git push` to the vault's repository"],
+    "a template without git push fails the row",
+  );
+  const pinned = "a CI workflow that ProjectStore never installs or runs";
+  for (const f of ["site/src/privacy.html", "site/privacy/index.html", "site/llms.txt", "site/llms-full.txt"])
+    assert.ok(read(f).includes(pinned), `${f} says: ${pinned}`);
+  for (const f of ["site/llms.txt", "site/llms-full.txt"])
+    assert.ok(read(f).includes("`templates/follow-github-actions.yml`"), `${f} names it by its path`);
 });
