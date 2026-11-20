@@ -62,6 +62,10 @@ const base = () => {
 const STORY = join("epics", "PS-A", "stories", "story-a.md");
 const fresh = () => resetVaultLocation();
 
+// The pointer's file reads race a 200 ms budget; a loaded CI runner can miss it.
+// Tests that are not about the budget give it room, so they test the pointer only.
+const ROOMY = { budgetMs: 10_000 };
+
 // ─── The resolver ───────────────────────────────────────────────────────
 
 test("a worktree inside the vault folder answers for its own copy; the bound checkout answers as today", () => {
@@ -296,7 +300,7 @@ test("refreshStoryPointer: a worktree-only story survives the refresh; a removed
     story_status: "planned",
     story_root: wt,
   });
-  assert.equal(await refreshStoryPointer(proj, vault, sid), "refreshed");
+  assert.equal(await refreshStoryPointer(proj, vault, sid, ROOMY), "refreshed");
   let s = readSessionState(proj, sid);
   assert.equal(s.active_story, "story-wt", "kept: the story lives in the worktree");
   assert.equal(s.story_status, "in-progress");
@@ -304,7 +308,7 @@ test("refreshStoryPointer: a worktree-only story survives the refresh; a removed
 
   // The same story merged and closed on main while the worktree is stale.
   writeStory(vault, { story: "story-wt", status: "done", title: "Only in the worktree" });
-  assert.equal(await refreshStoryPointer(proj, vault, sid), "refreshed");
+  assert.equal(await refreshStoryPointer(proj, vault, sid, ROOMY), "refreshed");
   s = readSessionState(proj, sid);
   assert.equal(s.story_status, "done", "main's done wins over a stale worktree copy");
   assert.equal(s.story_root, null);
@@ -313,7 +317,7 @@ test("refreshStoryPointer: a worktree-only story survives the refresh; a removed
   writeSessionState(proj, sid, { active_story: "story-gone", story_root: wt, story_status: "planned" });
   writeStory(wt, { story: "story-gone", status: "in-progress" });
   git(vault, "worktree", "remove", "--force", wt);
-  assert.equal(await refreshStoryPointer(proj, vault, sid), "refreshed");
+  assert.equal(await refreshStoryPointer(proj, vault, sid, ROOMY), "refreshed");
   s = readSessionState(proj, sid);
   assert.equal(s.active_story, null, "the bound checkout has no such story");
   assert.equal(s.story_root, null);

@@ -91,6 +91,10 @@ HAND WRITTEN — must survive.
 *Last updated: 2026-01-01*
 `;
 
+// The pointer's file reads race a 200 ms budget; a loaded CI runner can miss it.
+// Tests that are not about the budget give it room, so they test the pointer only.
+const ROOMY = { budgetMs: 10_000 };
+
 test("story-section plan: idempotent, preserves hand-written plan, no downgrade from review", () => {
   const p = join(mkdtempSync(join(tmpdir(), "ps-ss-")), "s.md");
   writeFileSync(p, STORY);
@@ -1220,16 +1224,16 @@ test("pointer: SessionStart's refresh takes the story's status from the file, an
   const hang = { readFile: () => new Promise(() => {}), budgetMs: 20 };
   assert.equal(await refreshStoryPointer(proj, vault, "s1", hang), "unknown");
   assert.equal(pointerOf(proj).story_status, "in-progress", "a read that never returns writes nothing");
-  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "refreshed");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1", ROOMY), "refreshed");
   assert.equal(pointerOf(proj).story_status, "done");
-  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "unchanged");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1", ROOMY), "unchanged");
   // A vault that is not there (an unmounted drive) proves nothing: no write.
   writeSessionState(proj, "s1", { active_story: "story-gone", story_title: "Gone", story_status: "review" });
   assert.equal(await refreshStoryPointer(proj, join(vault, "not-mounted"), "s1"), "unknown");
   assert.equal(pointerOf(proj).active_story, "story-gone");
   // A story the epic no longer has clears the fields.
   writeFileSync(join(vault, "epics", "PS-A", "epic.md"), '---\ntype: epic\ntitle: "A"\n---\n', "utf8");
-  assert.equal(await refreshStoryPointer(proj, vault, "s1"), "refreshed");
+  assert.equal(await refreshStoryPointer(proj, vault, "s1", ROOMY), "refreshed");
   assert.equal(pointerOf(proj).active_story, null);
 });
 
