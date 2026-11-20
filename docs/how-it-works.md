@@ -205,6 +205,14 @@ the base HUD prints as it always does. A band that stops, or never starts
 (an older Claude Code, modules switched off), lets the heartbeat go stale, and
 the line is back on its own.
 
+The band's head row can end with `WIP 2/3`: how many stories the binding's
+`default_author` holds in progress or review across the whole vault, against
+their limit from the vault's `flow` policy. The band cannot read the whole
+vault on each tick, so the core counts and writes `.projectstore/state/wip.json`
+at session start and after `move`, `follow`, `handover` and `session refresh`;
+the band reads that file on each tick. A change made by hand shows at the next
+of those.
+
 ## Doctor and reconcile: the trust layer
 
 The vault's guarantees used to depend on everyone using the gated commands —

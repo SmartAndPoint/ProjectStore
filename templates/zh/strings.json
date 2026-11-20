@@ -31,6 +31,7 @@
   "band_step_runs": "运行",
   "band_step_web": "搜索网页",
   "band_step_vault": "查询仓库：",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADR",

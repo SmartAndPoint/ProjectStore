@@ -408,6 +408,17 @@ cannot collide).
    by suggesting `/projectstore:kanban` (the status changed) — 6a/6b below
    are the close's ceremony, not the plan's.
 
+   On a `plan`, right after the write, also refresh this session's story and,
+   where the band is on, the WIP count, here in the main thread:
+
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" session refresh "<story-path>" --json --project "${CLAUDE_PROJECT_DIR}"
+   ```
+
+   `<story-path>` is the absolute `path` the compute script returned in
+   step 2. With no session it still updates the WIP count, where the band is
+   on, and exits 0; a non-zero exit is reported and never undoes the plan.
+
 6a. **(close only) Reconcile** the touched derived targets through the core:
    `node "${CLAUDE_PLUGIN_ROOT}/bin/projectstore.mjs" reconcile --write --only kanban` (add
    `indexes=<epic folder>` when the status changed, `codemap` when the refs
@@ -428,8 +439,9 @@ cannot collide).
 
    `<story-path>` is the absolute `path` the compute script returned in
    step 2. The copy went through Bash, which no hook sees, so without this the
-   session's band and status line keep naming the closed story. The core finds
-   the session itself; with none it writes nothing and exits 0. A non-zero
+   session's band and status line keep naming the closed story and, where
+   the band is on, the WIP count keeps counting it. The core finds
+   the session itself; with none it writes no pointer and exits 0. A non-zero
    exit is reported and never undoes the close.
 
    On the delegated path, run beside it the same record as in step 5a:

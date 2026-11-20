@@ -39,7 +39,15 @@ import {
 import { storyCloseFindings, scanArtifacts, runVaultChecks } from "../scripts/doctor.mjs";
 import { parseStatusLog, appendLogLine, logLine, setFm } from "../scripts/status-log.mjs";
 import { storyFacts, windowCounts, windowOf } from "../scripts/flow-counts.mjs";
-import { loadLayout, loadTemplate, renderTemplate, parseFrontmatter, headingLineRe, today } from "../scripts/lib.mjs";
+import {
+  loadLayout,
+  loadTemplate,
+  renderTemplate,
+  parseFrontmatter,
+  headingLineRe,
+  today,
+  layoutPaths,
+} from "../scripts/lib.mjs";
 import { storyText, flowVault, commitsSeam, withLine, git as gitIn, gitCommit } from "./fixtures/flow.mjs";
 import { ghStub } from "./fixtures/gh-stub.mjs";
 import { run } from "../scripts/cli.mjs";
@@ -692,6 +700,41 @@ test("verb: a marked review story whose pull request merged is closed with the n
     [["PS-X/story-a", URL]],
   );
   for (const k of ["code", "story", "pr", "message"]) assert.ok(k in notes[0], k);
+});
+
+// [band-wip#7]
+test("verb: follow --write that closes a story of the binding's default_author writes the band's new WIP count; a bare run does not; the vault is as after the same run with the writer off", async () => {
+  const before = '{"assignee":"Test","count":1,"awaiting_close":0,"limit":3}\n';
+  // The instants a run stamps differ between two runs a moment apart.
+  const timeless = (snap) =>
+    Object.fromEntries(Object.entries(snap).map(([k, v]) => [k, v.replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, "<t>")]));
+  const vaults = [];
+  for (const band of [true, false]) {
+    const fx = flowVault({
+      vaultCfg: { ...POLICY, flow: { people: { Test: { wip: 3 } } } },
+      stories: { "PS-X/story-a": setFm(linked(reviewOf(readyStory()), 7), "assignee", '"Test"') },
+    });
+    if (!band)
+      writeFileSync(
+        join(fx.proj, ".projectstore", "projectstore.json"),
+        JSON.stringify({ ...fx.cfg, band: { enabled: false } }),
+      );
+    spec(fx.vault);
+    const wip = layoutPaths(fx.proj).wip;
+    mkdirSync(dirname(wip), { recursive: true });
+    writeFileSync(wip, before);
+    const stub = stubOf({ prs: [mergedPr(7)] });
+    const bare = await follow(fx, stub);
+    assert.equal(bare.code, 0, bare.out + bare.err);
+    assert.equal(read(wip), before, "a bare run leaves the file as it was");
+    const r = await follow(fx, stub, ["--write"]);
+    assert.equal(r.code, 0, r.out + r.err);
+    assert.equal(fm(read(pathOf(fx, "story-a"))).status, "done");
+    if (band) assert.equal(read(wip), '{"assignee":"Test","count":0,"awaiting_close":0,"limit":3}\n');
+    else assert.equal(read(wip), before, "the gate shut: the file as it was");
+    vaults.push(timeless(snapshot(fx)));
+  }
+  assert.deepEqual(vaults[0], vaults[1], "the vault is byte-identical with and without the writer");
 });
 
 // [follow#1]

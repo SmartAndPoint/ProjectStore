@@ -298,6 +298,8 @@ const ROWS = {
       ["inside Claude Code's own process, not in Node", "The module runs with no Node", read("hooks/band.tsx")],
       ["`.projectstore/state/sessions/`", "const SESSIONS = '.projectstore/state/sessions'", read("hooks/band.tsx")],
       ["`.band-<session id>.json`", ".band-${sid}.json", read("hooks/band.tsx")],
+      // [band-wip#1] The WIP count it reads, written by the core.
+      ["`.projectstore/state/wip.json`", "const WIP = '.projectstore/state/wip.json'", read("hooks/band.tsx")],
       ["starts no program and makes no request", "./band.tsx", read("hooks/hooks.json")],
       // What it hooks, which the directory reports as a policy event: passed
       // on unchanged, the result returned as it came.
@@ -961,6 +963,16 @@ test("disclosure: the section's writes and the directory report, and no key-shap
   assert.ok(code("hooks/session-start.mjs").includes("cleanupStaleSessions(cfg.vault_path, 24,"));
   assert.ok(writes.includes("`harness/`, meant to be committed"), "the overlays are meant to be committed");
   assert.ok(writes.includes("the band's heartbeat"), "the band's heartbeat");
+  // [band-wip#1] The WIP file: who writes it, what it holds, machine-local.
+  assert.ok(writes.includes("`state/wip.json`"), "the band's WIP file");
+  for (const s of [
+    "with the person's name (the band shows only the numbers)",
+    "only when a number changed",
+    "it is machine-local",
+  ])
+    assert.ok(writes.includes(s), `the WIP file: ${s}`);
+  assert.ok(code("scripts/harness.mjs").includes('wip: "wip.json"'), "the resolver names it");
+  assert.ok(read("README.md").includes(".projectstore/state/wip.json\n```"), "the uninstall list removes it");
   const reports = sub(REPORTS);
   assert.ok(reports !== null, `README has "${REPORTS}"`);
   assert.ok(

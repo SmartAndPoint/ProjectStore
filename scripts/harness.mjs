@@ -738,6 +738,8 @@ export const LAYOUT = Object.freeze({
   state: "state",
   sessions: "sessions",
   entryLog: "entry-log.jsonl",
+  // The band's WIP count, written by the core, read by the band (the band-wip spec, contract 1).
+  wip: "wip.json",
   worktrees: "worktrees", // reserved for the worktree ADR's records (planned); no reader yet
   launcher: "statusline.mjs",
   welcomed: "welcomed",
@@ -771,6 +773,7 @@ export function layoutPaths(projectDir, { harnessDir = null, dir = MANIFEST_DIR 
     launcher: (id) => join(state, id, LAYOUT.launcher),
     welcomed: (id) => join(state, id, LAYOUT.welcomed),
     entryLog: join(state, LAYOUT.entryLog),
+    wip: join(state, LAYOUT.wip),
     worktrees: join(state, LAYOUT.worktrees),
     legacy: {
       dir: legacyDir,

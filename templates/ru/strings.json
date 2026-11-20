@@ -31,6 +31,7 @@
   "band_step_runs": "запускает",
   "band_step_web": "ищет в сети",
   "band_step_vault": "спрашивает хранилище:",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADR",

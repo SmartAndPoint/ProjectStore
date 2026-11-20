@@ -76,7 +76,7 @@ export function planLayout(ctx) {
             },
             {
               kind: "note",
-              why: ".projectstore/state/ (sessions, the entry log, the dashboard's clone) and the binding stay: the hooks' records, the page's clone and bind's file, not install's — to disown fully, delete .projectstore/state/sessions/, .projectstore/state/entry-log.jsonl, .projectstore/state/claude-code/, .projectstore/state/codex/ and the binding by hand; .projectstore/state/dashboard/ holds commits not yet sent, so look at its kept branches before you delete it",
+              why: ".projectstore/state/ (sessions, the entry log, the dashboard's clone) and the binding stay: the hooks' records, the page's clone and bind's file, not install's — to disown fully, delete .projectstore/state/sessions/, .projectstore/state/entry-log.jsonl, .projectstore/state/wip.json, .projectstore/state/claude-code/, .projectstore/state/codex/ and the binding by hand; .projectstore/state/dashboard/ holds commits not yet sent, so look at its kept branches before you delete it",
             },
           ],
         },
