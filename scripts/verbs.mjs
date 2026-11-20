@@ -396,7 +396,7 @@ export const VERBS = Object.freeze([
     requiresBinding: true,
     mcp: Object.freeze(["neighbors", "lineage"]),
     options: [
-      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its five)", true),
+      opt("kind", "<edge-kind>", "only edges of this kind (lineage: one of its six)", true),
       opt("direction", DIRECTIONS.join("|"), "neighbors: which edges"),
       opt("depth", "<n>", `lineage: how far (default ${LINEAGE_DEFAULT_DEPTH})`),
       opt("limit", "<n>", `neighbors: cap per direction (at most ${GRAPH_EDGE_CAP})`),
@@ -510,8 +510,9 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
-  // The one change of status no gate makes, planned ↔ todo (SPEC-001
-  // contract 7, as amended 2026-11-10: the ready step). --reason is required;
+  // The one change of status no gate makes for a named story, planned ↔
+  // todo (SPEC-001 contract 7, as amended 2026-11-10: the ready step; groom
+  // also makes todo → planned, as amended 2026-11-15). --reason is required;
   // the handler says so, as agents and codemap check their own.
   Object.freeze({
     verb: "move",
@@ -530,6 +531,109 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // An initiative's decision, or its title, owner and priority (the
+  // initiative spec, contracts 9, 10 and 12): bare, the plan; --write applies
+  // it, asking at a terminal. The slash command of the same name creates one.
+  Object.freeze({
+    verb: "initiative",
+    summary: "Decide an initiative, or edit its title, owner and priority.",
+    usage: Object.freeze(["<id> [<decision>]"]),
+    module: "./initiative-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("reason", "<text>", "why it was decided, one line (required with a decision): it goes into Outcome"),
+      opt("title", "<text>", "a new title; the file name stays"),
+      opt("owner", "<name>", "a new owner, as a name"),
+      opt("priority", "<p>", "a new priority, p and digits, such as p1"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // An epic's initiative (the initiative spec, contracts 11 and 12): bare, the
+  // plan; --write applies it. The slash command of the same name creates one.
+  Object.freeze({
+    verb: "epic",
+    summary: "Set or clear the initiative an epic belongs to.",
+    usage: Object.freeze(["<EPIC-ID>"]),
+    module: "./initiative-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("initiative", "<id>", 'the initiative id (required); "" clears it'),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // A story's or an epic's place among its siblings (the rank spec, contracts
+  // 3 to 8): bare, the plan; --write writes only the `rank:` lines, asking at a
+  // terminal. No date moves and no derived view is refreshed.
+  Object.freeze({
+    verb: "rank",
+    summary: "Order an open story in its epic, or an epic in its initiative.",
+    usage: Object.freeze(["story <EPIC-ID>/<story-id>", "epic <EPIC-ID>"]),
+    module: "./rank-verb.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("before", "<sibling>", "put it right before this sibling, named as the item is"),
+      opt("after", "<sibling>", "put it right after this sibling, named as the item is"),
+      opt("first", false, "put it first in its group"),
+      opt("last", false, "put it last in its group"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // A new initiative, epic or story, outside an agent session (the create
+  // spec, contracts 1 to 5): bare, the plan; --write writes it, asking at a
+  // terminal, and marks it not reviewed until a review clears the mark.
+  Object.freeze({
+    verb: "create",
+    summary: "Create an initiative, an epic or a story, marked not reviewed.",
+    usage: Object.freeze(["initiative <title>", "epic <EPIC-ID> <title>", "story <EPIC-ID> <title>"]),
+    module: "./item-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("priority", "<p>", "the priority, p and digits, such as p1"),
+      opt("owner", "<name>", "an initiative's owner, as a name"),
+      opt("initiative", "<id>", "the initiative an epic belongs to"),
+      opt("assignee", "<name>", "a story's assignee, as a name"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // A review read a file a verb wrote: its mark is cleared (the create spec,
+  // contract 6). Bare, the plan; --write clears it, asking at a terminal.
+  Object.freeze({
+    verb: "reviewed",
+    summary: "Clear the not-reviewed mark of a file a review has read.",
+    usage: Object.freeze(["<path>"]),
+    module: "./item-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [opt("write", false, "clear it (asks at a terminal; without one, --write is the confirmation)"), JSON_OPT],
+  }),
   // A story's status that follows its pull request (the follow spec,
   // contract 1): bare, the plan; --write applies it, asking at a terminal.
   Object.freeze({
@@ -547,6 +651,30 @@ export const VERBS = Object.freeze([
       opt("story", "<EPIC>/<id>", "only this story: the one it names, resolved as move resolves a story"),
       opt("pr", "<n|url>", "only the stories this pull request closes"),
       opt("write", false, "apply it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // Where a closing story's code_refs come from (the close-refs spec,
+  // contract 1): the pull request's files, the reviewer's line, the commits
+  // since the story started. It writes nothing; it reads the network, so it
+  // has no MCP tool, and its handler is cli.mjs's.
+  Object.freeze({
+    verb: "close-refs",
+    summary: "The code_refs a close would add, and where they come from.",
+    usage: Object.freeze(["<story>"]),
+    module: "./close-refs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt(
+        "reviewer-refs-file",
+        "<path>",
+        "a file holding the reviewer's last code_refs: line, read when the pull request gives no files",
+      ),
       JSON_OPT,
     ],
   }),
@@ -571,6 +699,45 @@ export const VERBS = Object.freeze([
       opt("story", "<EPIC>/<id>", "only this story, resolved as move resolves a story"),
       opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
       JSON_OPT,
+    ],
+  }),
+  // The weekly grooming pass (the groom spec, contract 1): bare, the plan;
+  // --write moves the stale ToDo stories back to the backlog and stamps
+  // flow.groomed_at, asking once at a terminal. No argument.
+  Object.freeze({
+    verb: "groom",
+    summary: "Send stale ToDo back to the backlog and list one-story epics.",
+    usage: NO_FORMS,
+    module: "./groom.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("write", false, "write it and stamp the pass (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
+  // The vault's flow as JSON (the export spec, contract 1): stories, epics,
+  // status transitions and flow counts in one envelope, always printed. It
+  // writes nothing and has no MCP tool; its handler is cli.mjs's, so no MCP
+  // or hook closure reaches it.
+  Object.freeze({
+    verb: "export",
+    summary: "Print stories, epics, status changes and flow counts as JSON.",
+    usage: NO_FORMS,
+    module: "./flow-export.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: false,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("as-of", "<date>", "count the window as of this date or instant, UTC (default: now)"),
+      opt("json", false, "the same envelope; it is printed with or without this flag"),
     ],
   }),
   // The page over this project's vault (the dashboard spec, contracts 3–8):
@@ -750,7 +917,11 @@ const EXAMPLES = {
   orientation: ["{cmd} orientation --json"],
   search: ['{cmd} search "entry rule" --kind spec', "{cmd} search queue --status accepted --limit 5"],
   show: ["{cmd} show adr/README.md", "{cmd} show epics/PS-CORE/epic.md --section acceptance"],
-  graph: ["{cmd} graph neighbors adr/README.md --direction out", "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2"],
+  graph: [
+    "{cmd} graph neighbors adr/README.md --direction out",
+    "{cmd} graph lineage epics/PS-CORE/epic.md --depth 2",
+    "{cmd} graph lineage specs/app.md --kind spec-part-of --depth 3",
+  ],
   codemap: ["{cmd} codemap --for PS-CORE", "{cmd} codemap --for scripts/lib.mjs --reverse"],
   guide: [
     "{cmd} guide spec --section Must",
@@ -778,16 +949,40 @@ const EXAMPLES = {
     '{cmd} move PS-CORE/story-x todo --reason "next up" --write',
     '{cmd} move PS-CORE/story-x planned --reason "not this week" --write',
   ],
+  initiative: [
+    '{cmd} initiative faster-onboarding accepted --reason "groups the onboarding epics"  # the plan; nothing is written',
+    '{cmd} initiative faster-onboarding deferred --reason "after the release" --write',
+    '{cmd} initiative faster-onboarding --owner "First Last" --priority p1 --write',
+  ],
+  epic: ["{cmd} epic PS-CORE --initiative faster-onboarding --write", '{cmd} epic PS-CORE --initiative "" --write'],
+  create: [
+    '{cmd} create story PS-CORE "Faster login"  # the plan; nothing is written',
+    '{cmd} create story PS-CORE "Faster login" --priority p1 --assignee "First Last" --write',
+    '{cmd} create epic PS-AUTH "Sign-in" --initiative faster-onboarding --write',
+    '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
+  ],
+  reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
+  rank: [
+    "{cmd} rank story PS-CORE/story-x --before PS-CORE/story-y  # the plan; nothing is written",
+    "{cmd} rank story PS-CORE/story-x --first --write",
+    "{cmd} rank epic PS-CORE --after PS-AUTH --write",
+  ],
   follow: [
     "{cmd} follow  # the plan from the pull requests; nothing is written",
     "{cmd} follow --write",
     "{cmd} follow --story PS-CORE/story-x --write",
+  ],
+  "close-refs": [
+    "{cmd} close-refs PS-CORE/story-x  # nothing is written",
+    "{cmd} close-refs PS-CORE/story-x --reviewer-refs-file /tmp/reviewer-refs.txt --json",
   ],
   handover: [
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team"  # the plan; nothing is written',
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team" --write',
     '{cmd} handover --from "First Last" --to "Other Person" --reason "on leave" --story PS-CORE/story-x --write',
   ],
+  groom: ["{cmd} groom  # the plan; nothing is written", "{cmd} groom --write", "{cmd} groom --json"],
+  export: ["{cmd} export > flow-export.json", "{cmd} export --as-of 2026-11-16 > flow-export.json"],
   dashboard: ["{cmd} dashboard", "{cmd} dashboard --port 4810 --no-open"],
   mcp: ['{cmd} mcp --project "$PWD"'],
 };
@@ -845,9 +1040,17 @@ const PURPOSE = "project memory for coding agents, in markdown";
 // What a verb's help says beneath its Usage when the summary has no room for
 // it: here, how mcp is told its project.
 const NOTES = {
+  initiative:
+    "With a decision (accepted, rejected or deferred) it sets the status and adds a dated line to Outcome; without one it edits the fields you name. To create an initiative, use create initiative.",
+  epic: "It sets the epic's initiative: field and its Initiative row. To create an epic, use create epic.",
+  rank: "It orders the open stories of one epic, or the epics of one initiative, apart from priority. It writes only a rank: line in each file whose value changes, and moves no date.",
+  create:
+    "What it writes is marked not reviewed (written_by_verb) until a review clears the mark; the story gates run the critic on a marked file. A file that exists is never overwritten.",
   dashboard:
     "It serves the page on 127.0.0.1 until Ctrl+C, so an agent should not start it in a session. A story moved on the page is committed in the page's own clone of the vault, and reaches the vault only when a pull request you send from the page is merged.",
   mcp: "It serves the project --project names, else PROJECTSTORE_PROJECT_DIR or the host session's project; never the directory it was started in.",
+  export:
+    "It prints one JSON envelope, with or without --json, and writes nothing. It is about 1 KB per story, so redirect it to a file. Titles, Status log reasons and actors are printed as the vault has them, and project is this project's full path: review or strip them before you publish the file.",
 };
 
 // The global options, as every verb takes them.

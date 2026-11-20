@@ -49,8 +49,9 @@ report what you saw. Never resolve a surprise on your own; a stopped ceremony
 is a correct outcome.
 
 1. **Race re-check** (shape A). Run the exact invocation you were given —
-   typically `story-section.mjs <gate> "<target>" --check <baseline>` — and
-   require `check.match: true` in its JSON. Anything else → stop, report the
+   typically `story-section.mjs <gate> "<target>" --check <baseline>`, with
+   `--code-refs-file "<refs-file>"` on a close (run it with every flag you
+   were given, never fewer) — and require `check.match: true` in its JSON. Anything else → stop, report the
    JSON verbatim. **Resume rule**: this gate is valid only BEFORE the copy;
    once step 2 has run, the target legitimately differs from the baseline, so a
    resume after step 2 starts at step 3, and step 5's diff becomes the gate.

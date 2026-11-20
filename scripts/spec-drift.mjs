@@ -34,7 +34,6 @@ import {
   listOf,
   sectionOf,
   linesOutsideFences,
-  parseAmendmentMarkers,
   isTestPath,
   SOURCE_IGNORE,
   CITATION_EXAMPLE_KEY,
@@ -43,6 +42,7 @@ import {
   projectRoot,
 } from "./lib.mjs";
 import { gitIn, grepProjectLines, sinceWindow } from "./diff-refs.mjs";
+import { parseSpecMarkers } from "./grammar.mjs";
 import { globRe, globCovers, isGlobRef, normalRef } from "./code-refs.mjs";
 import { scanArtifacts, parseSpecContracts, resolveSpecStory, citationKeys, scanCitations } from "./doctor.mjs";
 
@@ -246,7 +246,9 @@ function contractHeadings(spec) {
 
 const byPath = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-function vaultInside(proj, vault) {
+// The vault's path relative to the project, links resolved, when the vault
+// sits inside it; null otherwise. Also the close-refs normaliser's vault rule.
+export function vaultInside(proj, vault) {
   try {
     const rel = relative(realpathSync.native(proj), realpathSync.native(vault));
     return rel && !rel.startsWith("..") && !rel.startsWith("/") ? rel : null;
@@ -280,24 +282,34 @@ export function buildSpecDrift({
   // Contracts and their markers.
   const parsed = parseSpecContracts(spec) || [];
   const headings = contractHeadings(spec);
-  const allMarkers = parseAmendmentMarkers(spec.body || "");
+  // Both marker kinds: a `checked` marker under a contract, or above the first
+  // contract, anchors that contract too (the spec staleness spec, contract 8).
+  const allMarkers = parseSpecMarkers(spec.body || "");
+  const specWideChecks = allMarkers.filter((m) => m.marker === "checked" && m.valid && m.index === -1);
   const specDate = /^\d{4}-\d{2}-\d{2}/.test(String(spec.fm.date || "")) ? String(spec.fm.date).slice(0, 10) : null;
   const contracts = parsed.map((c, i) => {
     const markers = allMarkers
       .filter((m) => m.index === i)
       .map((m) => {
         const row = { line: m.line, date: m.date, kind: m.kind, ref: m.ref, why: m.why, valid: m.valid };
+        if (m.marker === "checked") row.marker = "checked";
         if (!m.valid) row.form = m.form;
         const r = m.ref ? storyOf(m.ref) : { error: "no ref" };
         row.story = r.story ? { rel: r.story.rel, status: String(r.story.fm.status || "planned") } : null;
         if (r.error) row.story_error = r.error;
         return row;
       });
-    const lastValid = markers.filter((m) => m.valid).at(-1) || null;
+    // The latest valid marker of either kind under this contract or above
+    // contract 1; a tie goes to the later one in the file.
+    const candidates = [
+      ...markers.filter((m) => m.valid),
+      ...specWideChecks.map((m) => ({ line: m.line, date: m.date, marker: "checked" })),
+    ].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.line - b.line));
+    const lastValid = candidates.at(-1) || null;
     const [anchor, anchor_from] = since
       ? [since, "since"]
       : lastValid
-        ? [lastValid.date, "marker"]
+        ? [lastValid.date, lastValid.marker === "checked" ? "checked" : "marker"]
         : [specDate, specDate ? "date" : null];
     return {
       n: c.n,

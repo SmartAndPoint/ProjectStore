@@ -54,6 +54,7 @@ import {
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
 import { buildGraph } from "./graph.mjs";
+import { SPEC_TREE_FILE } from "./spec-tree.mjs";
 import { findStories, statusToColumn } from "./kanban.mjs";
 // status's text screen is drawn with the presentation primitives; term.mjs
 // has no side effect at import, so the MCP server's graph gains nothing it
@@ -73,6 +74,7 @@ export const LINEAGE_KINDS = Object.freeze([
   "spec-implements-adr",
   "epic-contains",
   "amends",
+  "spec-part-of",
 ]);
 export const LINEAGE_DEFAULT_DEPTH = 3;
 export const LINEAGE_NODE_CAP = 50;
@@ -89,10 +91,15 @@ export function vaultOf(cfg) {
   return String(cfg?.vault_path || "").replace(/\/+$/, "");
 }
 
-// The derived views by name: the board's file is a layout value, the other
-// two are fixed by their generators.
+// The derived views by name: the board's file is a layout value, the code
+// map, the graph and spec-tree.md are fixed by their generators, and the flow
+// page, when the layout has its view block, is one that no freshness row reads
+// (the flow-view spec, contract 11).
 export function derivedViews(layout) {
-  return [(layout && layout.kanban && layout.kanban.file) || "kanban.md", "code-map.md", "graph.md"];
+  const views = [(layout && layout.kanban && layout.kanban.file) || "kanban.md", "code-map.md", "graph.md"];
+  if (layout && layout.flow) views.push(layout.flow.file || "flow.md");
+  views.push(SPEC_TREE_FILE);
+  return views;
 }
 
 // A path argument as the vault knows it: absolute paths are normalised first
@@ -669,11 +676,14 @@ export function renderNeighbors(r) {
 }
 
 // The typed ancestry and descent of one artifact: supersedes, spec-covers,
-// spec-implements-adr, epic-contains and amends, both directions, breadth-first,
-// depth- and node-capped, cycle-safe. Body wikilinks are deliberately not
-// lineage — walking them returns most of the vault, so `kinds` is validated
-// against LINEAGE_KINDS — and containment is not walked from an epic down to
-// its stories unless the epic is the root.
+// spec-implements-adr, epic-contains, amends and spec-part-of, both
+// directions, breadth-first, depth- and node-capped, cycle-safe. Body
+// wikilinks are deliberately not lineage — walking them returns most of the
+// vault, so `kinds` is validated against LINEAGE_KINDS — and containment is
+// not walked from an epic down to its stories unless the epic is the root.
+// A spec tree (the spec tree spec, contract 3) is walked up from any node and
+// down only from a spec root and its descendants, however the walk first
+// reached them: from a leaf, its ancestors and no sibling.
 export function lineage(
   cfg,
   path,
@@ -691,6 +701,21 @@ export function lineage(
   if (!index.has(rel)) throw usageError(`${rel} is not a node of the graph`);
   const kindSet = new Set(kinds && kinds.length ? kinds : LINEAGE_KINDS);
   const typed = g.edges.filter((e) => kindSet.has(e.kind) && index.has(e.to));
+  // The root's descendants in the spec tree, from the tree itself.
+  const below = new Set();
+  if (index.get(rel)?.type === "spec") {
+    const kids = new Map();
+    for (const e of typed) if (e.kind === "spec-part-of") kids.set(e.to, [...(kids.get(e.to) ?? []), e.from]);
+    const todo = [rel];
+    while (todo.length) {
+      for (const c of kids.get(todo.pop()) ?? []) {
+        if (c !== rel && !below.has(c)) {
+          below.add(c);
+          todo.push(c);
+        }
+      }
+    }
+  }
   const seen = new Map([[rel, 0]]);
   const edges = [];
   const edgeKeys = new Set();
@@ -706,6 +731,8 @@ export function lineage(
         // from a story, its epic is lineage; the epic's other stories are
         // siblings, and a depth of 3 would return the whole epic.
         if (e.kind === "epic-contains" && e.from === p && p !== rel) continue;
+        // A spec tree is walked down only from the root and its descendants.
+        if (e.kind === "spec-part-of" && e.to === p && p !== rel && !below.has(p)) continue;
         if (!seen.has(other)) {
           if (seen.size >= cap) {
             truncated = true;

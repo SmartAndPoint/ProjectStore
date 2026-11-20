@@ -45,7 +45,10 @@ spec still in `draft` as a blocker under `spec_policy: required` (vault's
 `.projectstore.json`). When the story edited a spec's contracts, check that
 each edit carries an amendment marker (`> amended YYYY-MM-DD by <ref>: <KIND> —
 <why>` under the contract): from the vault's git history when the vault has
-one, else from the story's own account; an unmarked edit is a finding.
+one, else from the story's own account; an unmarked edit is a finding. A story
+may instead add a `checked` marker (`> checked YYYY-MM-DD by <ref>: <why>`) to
+say a contract was read against its code and still holds; report as a finding
+any `checked` marker whose `<why>` does not say what was compared with what.
 
 **A declared opt-out, at close.** A story with `no_spec: "<reason>"` has no
 covering spec on purpose. Compute its files (Output 4). If it touches three
@@ -76,7 +79,9 @@ Self-audit do.
    with `--since <date>` when the caller names one (it overrides every
    anchor). It prints facts as JSON: the contracts with their markers (each
    with its story's status), removed state and anchor (the date of the
-   contract's last valid marker, else the spec's `date:`); the covered
+   contract's latest valid marker of either kind, `amended` or `checked`,
+   including a `checked` marker above the first contract, else the spec's
+   `date:`; `anchor_from` says which); the covered
    stories with their status and `code_refs`, empty and missing refs listed;
    the refs expanded to files classed `source`, `tests` or `surface`, with
    line counts and the commits since each anchor (`changed_since`: a count
@@ -193,11 +198,20 @@ say so plainly.
    (story-scoped range; the script filters lockfiles/generated). When the
    result looks implausible (`fallback: true`, empty, or obviously
    over/under-attributed — shared branch, direct-to-main), say so and ask for
-   an explicit `--range` instead of guessing. State whether the parent epic's
-   footprint needs widening — the write happens in the approval-gated
-   `/projectstore:codemap set`, never here.
+   an explicit `--range` instead of guessing. The close writes them, behind
+   the person's approval, and widens the epic's footprint; you never write
+   them.
 5. **Open Questions** — low-confidence findings, surfaced not blocking.
 6. **Good** — genuine strengths, one line each. Skip if none.
+
+The story-conformance report's last line (not the spec-drift report's) is
+the proposed refs in one fixed form, files only, each path relative to the
+project root, as one JSON list:
+
+    code_refs: ["scripts/a.mjs", "README.md"]
+
+(`code_refs: []` when the story changed no file.) The close copies that line
+verbatim and reads it when the pull request's files cannot be used.
 
 No sycophancy, no rubber-stamping, no severity inflation. Read-only: report as
 text; never edit vault files, never stage or commit.

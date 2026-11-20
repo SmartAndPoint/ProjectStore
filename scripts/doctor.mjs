@@ -49,7 +49,7 @@ import {
   sectionOf,
   indexHeaderRe,
   evidenceSuffixRe,
-  storiesAttributionRe,
+  storyIdsOf,
   citationTokenRe,
   contractNumberAscii,
   parseAmendmentMarkers,
@@ -142,8 +142,27 @@ import { effortSpec } from "./model-spec.mjs";
 // story "The prompt surface asks the shell for a variable the host would have
 // substituted"; harness neutrality is unaffected, an absolute path carries no
 // brand, and --harness still carries the target.
-import { uncommittedProjectFiles, lastCommitMs, grepProjectLines, commitsSince, gitRun } from "./diff-refs.mjs";
+import {
+  uncommittedProjectFiles,
+  lastCommitMs,
+  grepProjectLines,
+  commitsSince,
+  gitRun,
+  trackedFiles,
+  trunkHistory,
+} from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { checkFlowView } from "./flow-view.mjs";
+import { checkInitiatives } from "./initiative.mjs";
+import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
+import { checkSpecCode } from "./spec-code.mjs";
+import { prefixCovers } from "./code-refs.mjs";
+import { checkSpecStale, checkParentStale } from "./spec-stale.mjs";
+import { buildSpecTreeView, checkSpecTreeView } from "./spec-tree-view.mjs";
+import { parseSpecMarkers } from "./grammar.mjs";
+import { checkRankTies } from "./rank.mjs";
+import { readFlowStories } from "./flow-stories.mjs";
+import { checkVerbMarks } from "./verb-mark.mjs";
 import { storyState } from "./stages.mjs";
 import { resolveBinding, mainCheckoutOfProject } from "./worktree.mjs";
 import { missingScaffoldRequirements, kindsOf } from "./scaffold.mjs";
@@ -2353,28 +2372,19 @@ function buildSpecResolver(artifacts, layout = null) {
 }
 
 // Parse a spec's Acceptance section into items:
-// { checked, text, stories: [bare story ids] | null (unattributed) }
+// { checked, text, stories: [story ids, bare or qualified] | null (unattributed) }
 export function parseSpecAcceptance(spec) {
   const sec = sectionOf(spec.body, "spec_acceptance");
   if (sec === null) return null;
-  const attrRe = storiesAttributionRe();
   const items = [];
   for (const line of linesOutsideFences(sec)) {
     const m = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
     if (!m) continue;
     const checked = m[1].toLowerCase() === "x";
     const text = m[2];
-    // Full-width colon accepted for the same reason as the evidence suffix: a zh
-    // spec writing `— stories：PS-X/story-foo` must attribute the item to that
-    // story, not silently fall through to "applies to every covered story".
-    const attr = text.match(attrRe);
-    const stories = attr
-      ? attr[1]
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : null;
-    items.push({ checked, text, stories });
+    // The marker and its id list (SPEC-001 contract 6): the full-width colon
+    // and the zh separators are read, and text after the ids is not an id.
+    items.push({ checked, text, stories: storyIdsOf(text) });
   }
   return items;
 }
@@ -2478,6 +2488,10 @@ export function checkSpecLinks(cfg, layout, artifacts) {
 //   amendment-date  (warn)  not a calendar date, before the spec's `date:`,
 //                           after tomorrow, or before the previous marker
 //                           under the same contract.
+//   checked-form    (warn)  a `checked` marker not in its grammar; the date
+//                           and story rules read `checked` markers too, the
+//                           link rule does not (the spec staleness spec,
+//                           contract 7).
 // One finding per spec and fact: two markers of one unlinked story warn once.
 export function checkAmendments(layout, artifacts, now = new Date().toISOString()) {
   const out = [];
@@ -2486,7 +2500,9 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
   const t = Date.parse(now);
   const tomorrow = new Date((Number.isFinite(t) ? t : Date.now()) + 86400000).toISOString().slice(0, 10);
   for (const spec of artifacts.filter((a) => a.kind === "spec")) {
-    const markers = parseAmendmentMarkers(spec.body);
+    // Both marker kinds: a `checked` marker shares the date and story rules,
+    // not the link rule (the spec staleness spec, contract 7).
+    const markers = parseSpecMarkers(spec.body);
     if (!markers.length) continue;
     const seen = new Set();
     const once = (key, f) => {
@@ -2498,13 +2514,15 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
     const prevDate = new Map();
     for (const m of markers) {
       const where = m.contract === null ? `line ${m.line}` : `contract ${m.contract} (line ${m.line})`;
+      const checked = m.marker === "checked";
+      const label = checked ? "Checked marker" : "Amendment marker";
       if (!m.valid) {
         out.push(
           finding(
             "vault",
             "warn",
-            "amendment-form",
-            `Amendment marker at ${where} counts for nothing: ${m.form}.`,
+            checked ? "checked-form" : "amendment-form",
+            `${label} at ${where} counts for nothing: ${m.form}.`,
             spec.rel,
           ),
         );
@@ -2512,13 +2530,7 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
       }
       if (!isCalendarDate(m.date)) {
         out.push(
-          finding(
-            "vault",
-            "warn",
-            "amendment-date",
-            `Amendment marker at ${where}: ${m.date} is not a date.`,
-            spec.rel,
-          ),
+          finding("vault", "warn", "amendment-date", `${label} at ${where}: ${m.date} is not a date.`, spec.rel),
         );
       } else {
         const prev = prevDate.get(m.index);
@@ -2528,13 +2540,7 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
         else if (prev && m.date < prev) why = `before the previous marker under the same contract (${prev})`;
         if (why) {
           out.push(
-            finding(
-              "vault",
-              "warn",
-              "amendment-date",
-              `Amendment marker at ${where} is dated ${m.date}, ${why}.`,
-              spec.rel,
-            ),
+            finding("vault", "warn", "amendment-date", `${label} at ${where} is dated ${m.date}, ${why}.`, spec.rel),
           );
         }
         prevDate.set(m.index, m.date);
@@ -2544,17 +2550,18 @@ export function checkAmendments(layout, artifacts, now = new Date().toISOString(
         : { error: "the layout has no epic folder" };
       if (r.error) {
         once(
-          `story ${m.ref}`,
+          `${m.marker} story ${m.ref}`,
           finding(
             "vault",
             "issue",
             "amendment-story",
-            `Amendment marker at ${where} names "${m.ref}", which resolves to no single story: ${r.error}.`,
+            `${label} at ${where} names "${m.ref}", which resolves to no single story: ${r.error}.`,
             spec.rel,
           ),
         );
         continue;
       }
+      if (checked) continue; // no link rule: a story with no_spec may check a spec
       const storyListsSpec = listOf(r.story.fm, "specs").some((ref) => resolveSpec(ref) === spec);
       const specListsStory = listOf(spec.fm, "stories").some(
         (e) => resolveSpecStory(e, artifacts, epicFolder.path).story === r.story,
@@ -2641,9 +2648,9 @@ export function checkSpecCoverage(artifacts, vaultCfg, layout = null) {
 }
 
 // Additive acceptance oracle (ADR-007 Decision 3): a done story requires every
-// spec acceptance item ATTRIBUTED to it (bare ids resolved against that spec's
-// own stories list) — plus every UNATTRIBUTED item — checked, in every
-// covering spec.
+// spec acceptance item ATTRIBUTED to it (bare or qualified ids, resolved
+// against that spec's own stories list; SPEC-001 contract 6) — plus every
+// UNATTRIBUTED item — checked, in every covering spec.
 export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   if ((vaultCfg.spec_policy || "optional") !== "required") return [];
   const out = [];
@@ -2652,6 +2659,15 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
   if (!epicFolder) return out;
   const resolveSpec = buildSpecResolver(artifacts, layout);
   const ambiguousReported = new Set(); // spec-scoped: one finding per spec+item
+  // The stories each spec's own list resolves to — per spec, not per story.
+  const listedBySpec = new Map();
+  const listedOf = (spec) => {
+    if (!listedBySpec.has(spec.rel)) {
+      const stories = listOf(spec.fm, "stories").map((e) => resolveSpecStory(e, artifacts, epicFolder.path).story);
+      listedBySpec.set(spec.rel, new Set(stories.filter(Boolean)));
+    }
+    return listedBySpec.get(spec.rel);
+  };
 
   for (const story of artifacts.filter((a) => a.kind === "story")) {
     if (String(story.fm.status || "").toLowerCase() !== "done") continue;
@@ -2676,34 +2692,45 @@ export function checkSpecAcceptance(layout, artifacts, vaultCfg) {
         continue;
       }
       const coveredEntries = listOf(spec.fm, "stories");
+      const entryParts = coveredEntries.map((e) => String(e).match(/^([^/]+)\/(.+)$/));
+      // A qualified id counts only when it lands on a story this list holds.
+      const listed = listedOf(spec);
       for (const item of items) {
         let applies;
         if (item.stories === null) {
           applies = true; // unattributed → applies to all covered stories
         } else {
-          // Bare ids resolve against THIS spec's own stories list.
-          applies = item.stories.some((bare) =>
-            coveredEntries.some((e) => {
-              const m = String(e).match(/^([^/]+)\/(.+)$/);
-              return m && m[1] === epicId && bare === m[2] && storyMatchesEntry(bare, { id: story.fm.id, stem }) > 0;
-            }),
-          );
-          const ambiguous = item.stories.some(
-            (bare) =>
-              coveredEntries.filter((e) => {
-                const m = String(e).match(/^([^/]+)\/(.+)$/);
-                return m && bare === m[2];
-              }).length > 1,
-          );
+          applies = item.stories.some((sid) => {
+            if (sid.includes("/")) {
+              // Qualified: resolved as an amendment marker's ref is (contract 5).
+              const r = resolveSpecStory(sid, artifacts, epicFolder.path).story;
+              return r === story && listed.has(story);
+            }
+            // Bare: the story part of an entry in this story's epic, as written.
+            return entryParts.some(
+              (m) => m && m[1] === epicId && sid === m[2] && storyMatchesEntry(sid, { id: story.fm.id, stem }) > 0,
+            );
+          });
+          // Only a bare id can be ambiguous; the warning names the entries
+          // it could mean, so one of them can be pasted back as it is.
+          const ambiguous = item.stories
+            .filter((sid) => !sid.includes("/"))
+            .map((sid) => ({
+              sid,
+              entries: [...new Set(coveredEntries.filter((e, i) => entryParts[i] && entryParts[i][2] === sid))],
+            }))
+            .filter((a) => a.entries.length > 1);
           const ambKey = `${spec.rel}|${item.text}`;
-          if (ambiguous && !ambiguousReported.has(ambKey)) {
+          if (ambiguous.length && !ambiguousReported.has(ambKey)) {
             ambiguousReported.add(ambKey);
+            const named = ambiguous.map((a) => `"${a.sid}" (one of: ${a.entries.join(", ")})`).join("; ");
+            const noun = ambiguous.length > 1 ? "bare ids" : "bare id";
             out.push(
               finding(
                 "vault",
                 "warn",
                 "ambiguous-attribution",
-                `Spec "${id}" acceptance item attributes bare id(s) "${item.stories.join(", ")}" that match more than one covered epic — qualify as <epic-id>/<story-id>.`,
+                `Spec "${id}" acceptance item names the ${noun} ${named}, the story part of entries in more than one covered epic — qualify it as one of them.`,
                 spec.rel,
               ),
             );
@@ -3907,9 +3934,8 @@ export function checkCodeRefs(artifacts, proj) {
           ),
         );
       } else {
-        const norm = (r) => r.replace(/\/+$/, "");
         for (const ref of refs) {
-          if (!parent.some((p) => norm(ref).startsWith(norm(p)))) {
+          if (!parent.some((p) => prefixCovers(p, ref))) {
             out.push(
               finding(
                 "vault",
@@ -4179,6 +4205,23 @@ export async function runInstallChecks(cfg, proj, opts = {}) {
   return foldIntoMove(out);
 }
 
+// `rank-tie` (the rank spec, contract 10): the rule and the text live in
+// rank.mjs; doctor reads the stories through the flow reader, so the groups
+// are the ones the rank verb orders, and the epics from its own scan.
+function rankTieFindings(cfg, layout, artifacts) {
+  const epicFolder = layout.folders.find((f) => f.kind === "epic");
+  if (!epicFolder) return [];
+  const { stories } = readFlowStories(cfg.vault_path, epicFolder.path);
+  const epics = artifacts
+    .filter((a) => a.kind === "epic")
+    .map((a) => ({ id: epicIdOf(a.rel, epicFolder.path), rel: a.rel, fm: a.fm }));
+  const initiatives = artifacts.filter((a) => a.kind === "initiative");
+  return checkRankTies(
+    { stories, epics, initiatives },
+    { finding: (level, check, message, file) => finding("vault", level, check, message, file) },
+  );
+}
+
 export function runVaultChecks(
   cfg,
   {
@@ -4187,6 +4230,8 @@ export function runVaultChecks(
     policy = null,
     now = new Date().toISOString(),
     commits = commitsSince,
+    lsFiles = trackedFiles,
+    history = trunkHistory,
   } = {},
 ) {
   let layout;
@@ -4228,6 +4273,16 @@ export function runVaultChecks(
       const scan = scanCitations(cfg, artifacts, proj, grep);
       return [...checkContractCitations(artifacts, scan), ...checkEvidenceCitations(artifacts, vaultCfg, scan)];
     },
+    () => {
+      const epicFolder = layout.folders.find((f) => f.kind === "epic");
+      const epicPath = epicFolder ? epicFolder.path : "epics";
+      return checkInitiatives(layout, artifacts, {
+        finding: (level, check, message, file) => finding("vault", level, check, message, file),
+        resolveStory: (entry) => resolveSpecStory(entry, artifacts, epicPath),
+        epicIdOf: (a) => epicIdOf(a.rel, epicPath),
+      });
+    },
+    () => rankTieFindings(cfg, layout, artifacts),
   ];
   for (const step of guarded) {
     try {
@@ -4238,9 +4293,67 @@ export function runVaultChecks(
     }
   }
   const vaultFiles = walkVaultFiles(cfg.vault_path); // one walk, three consumers
+  const nodeIndex = buildNodeIndex(cfg, layout);
+  // The spec tree, once per run (the spec tree spec, contracts 4 to 6).
+  const specParents = resolveSpecParents(nodeIndex, vaultFiles);
+  const specTree = analyseSpecTree(nodeIndex, specParents);
+  // What the parent checks and the view's check share (the spec staleness
+  // spec, contracts 5 and 6; the spec tree spec, contract 9).
+  const keys = citationKeys(artifacts);
+  const epicFolder = layout.folders.find((f) => f.kind === "epic");
+  const behindOpts = {
+    layout,
+    files: vaultFiles,
+    keyPath: (k) => keys.get(k)?.rel ?? null,
+    resolveStory: (ref) => resolveSpecStory(ref, artifacts, epicFolder ? epicFolder.path : "epics"),
+  };
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
-    ...checkWikilinks(cfg, artifacts, vaultFiles, buildNodeIndex(cfg, layout)),
+    ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
+    ...checkSpecTree(nodeIndex, specParents, specTree, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
+    // The code a spec in the tree owns (the spec-owned-code spec, contracts 1 to 4).
+    ...checkSpecCode(nodeIndex, specTree, {
+      layout,
+      proj,
+      vault: cfg.vault_path,
+      lsFiles,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
+    // A parent behind its children (the spec staleness spec, contracts 5 and 6).
+    ...checkParentStale(nodeIndex, specTree, {
+      ...behindOpts,
+      now,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
+    // spec-tree.md (the spec tree spec, contract 9): in process, no spawn.
+    ...checkSpecTreeView({
+      vault: cfg.vault_path,
+      hasTree: specTree.hasTree,
+      build: () => buildSpecTreeView(nodeIndex, specTree, behindOpts).content,
+      where: fromTerminalIn(proj),
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+    }),
+    // Code newer than its spec (the spec staleness spec, contracts 1 to 4).
+    ...checkSpecStale(nodeIndex, specTree, {
+      layout,
+      proj,
+      vault: cfg.vault_path,
+      now,
+      history,
+      resolveStory: behindOpts.resolveStory,
+      finding: (level, check, message, file, extra) => ({
+        ...finding("vault", level, check, message, file ?? undefined),
+        ...extra,
+      }),
+    }),
     ...checkArtifactIdentity(layout, vaultFiles, artifacts),
     ...checkArtifactNames(vaultFiles),
     ...checkExternalRefsForm(artifacts),
@@ -4248,6 +4361,10 @@ export function runVaultChecks(
     ...checkNoSpec(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkNoSpecShare(artifacts, vaultCfg, proj, cfg.vault_path),
     ...checkReviewBy(artifacts, now),
+    ...checkVerbMarks(artifacts, {
+      finding: (level, check, message, file) => finding("vault", level, check, message, file),
+      reviewCommand: (rel) => commandForm("review", { args: rel }),
+    }),
     // The flow group (PS-FLOW): advice, warn or info only; never in
     // runStartupChecks below (the flow-findings spec, contract 11).
     ...checkFlow({ cfg, layout, vaultCfg, proj, now, commits }),
@@ -4256,6 +4373,7 @@ export function runVaultChecks(
     ...checkWorkWithoutStory(cfg, proj),
     ...checkCodeMap(cfg),
     ...checkGraph(cfg),
+    ...checkFlowView(cfg, layout, proj),
     // The dashboard's kept branches: git reads, so never in runStartupChecks.
     ...checkDashboardKept(cfg, proj),
   );

@@ -5,7 +5,7 @@
 // (distribution ADR decisions 3 and 5). No logic lives here: the verb table,
 // the envelope and the per-verb parse are verbs.mjs's, the read verbs'
 // handlers are read-verbs.mjs's, and this module holds the handlers of the
-// verbs that write (and of mcp, dashboard and next, which no MCP tool or hook
+// verbs that write (and of mcp, dashboard, next and export, which no MCP tool or hook
 // reaches), and run(), which dispatches every verb of the one table through
 // both halves. It re-exports what it exported before
 // the split — the table is a CONTRACT that packaging/shells.mjs and the
@@ -25,7 +25,7 @@
 // same way: its write set is one story, its epic row and the derived views.
 // There is no --yes.
 //
-// The install verbs, setup, configure, move, follow, handover, next, dashboard, reconcile and the MCP server are
+// The install verbs, setup, configure, move, initiative, epic, create, reviewed, rank, follow, handover, groom, next, export, dashboard, reconcile and the MCP server are
 // imported lazily, on the run that needs them: hooks never import this module
 // (the suite asserts it), and a verb that runs none of them loads none.
 // Pure node, no external deps.
@@ -468,8 +468,9 @@ async function runBand(ctx) {
 }
 
 // `session refresh <path>`: this session's pointer from a story file, after a
-// write no hook saw (the close ceremony's copy). Machine-local state, like the
-// hooks' own writes — no confirmation. No session: nothing written, exit 0.
+// write no hook saw (the plan and close ceremonies' copy), and the band's WIP
+// count. Machine-local state, like the hooks' own writes — no confirmation.
+// No session: no pointer written, exit 0.
 async function runSession(ctx) {
   const { row, values, positionals, cfg, project, env, stdout, stderr } = ctx;
   const usage = (m) => usageFail(Object.assign(new Error(m), { code: "USAGE" }), { verb: row.verb, ...ctx });
@@ -482,6 +483,12 @@ async function runSession(ctx) {
     );
   const r = refreshSessionPointer(project, cfg, positionals[1], { env });
   const ok = !r.refusal;
+  // The band's WIP count too, with or without a session id; refused, nothing
+  // (the band-wip spec, contract 7). It prints nothing and adds nothing to --json.
+  if (ok) {
+    const { refreshWip } = await import("./band-wip.mjs");
+    refreshWip({ project, cfg, env });
+  }
   const result = ok ? r : { error: r.refusal.message, code: r.refusal.code };
   if (values.json) stdout.write(JSON.stringify(envelope("session refresh", project, ok, result), null, 2) + "\n");
   else if (!ok) stderr.write(`${r.refusal.message}\n`);
@@ -697,6 +704,111 @@ async function runHandoverVerb(ctx) {
   return r.code;
 }
 
+// initiative and epic (the initiative spec, contracts 9 to 12): one module,
+// loaded on first use, with move's question asked once — a terminal is asked,
+// and without one, or under --json, --write is the confirmation. No hook and
+// no MCP module reaches it.
+function initiativeVerb(name) {
+  return async (ctx) => {
+    const mod = await import("./initiative-verbs.mjs");
+    const runVerb = name === "epic" ? mod.runEpic : mod.runInitiative;
+    const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+    const r = await runVerb({
+      ...ctx,
+      ownEnv: (p) => ownEnv(env, p),
+      confirm: async (preview) => {
+        const interactive =
+          !values.json &&
+          (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+        if (!interactive) return true;
+        stdout.write(preview);
+        return term.askApply(1, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+      },
+    });
+    if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+    else (r.ok ? stdout : stderr).write(r.text);
+    return r.code;
+  };
+}
+
+// create and reviewed (the create spec, contracts 1 to 6): one module,
+// loaded on first use, with move's question asked once — a terminal is asked,
+// and without one, or under --json, --write is the confirmation. No hook and
+// no MCP module reaches it.
+function itemVerb(name) {
+  return async (ctx) => {
+    const mod = await import("./item-verbs.mjs");
+    const runVerb = name === "reviewed" ? mod.runReviewed : mod.runCreate;
+    const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+    const r = await runVerb({
+      ...ctx,
+      ownEnv: (p) => ownEnv(env, p),
+      confirm: async (preview) => {
+        const interactive =
+          !values.json &&
+          (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+        if (!interactive) return true;
+        stdout.write(preview);
+        return term.askApply(1, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+      },
+    });
+    if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+    if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+    else (r.ok ? stdout : stderr).write(r.text);
+    return r.code;
+  };
+}
+
+// groom (the groom spec, contract 1): its own module, loaded on first use,
+// with move's question asked once for the whole run, naming the stories plus
+// the stamp — a terminal is asked, and without one, or under --json, --write
+// is the confirmation. No hook and no MCP module reaches it.
+async function runGroomVerb(ctx) {
+  const { runGroom } = await import("./groom.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runGroom({
+    ...ctx,
+    ownEnv: (p) => ownEnv(env, p),
+    confirm: async (preview, n) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(n, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
+// rank (the rank spec, contracts 3 to 8): its own module, loaded on first
+// use, with move's question asked once — a terminal is asked, and without one,
+// or under --json, --write is the confirmation. No hook and no MCP module
+// reaches it.
+async function runRankVerb(ctx) {
+  const { runRank } = await import("./rank-verb.mjs");
+  const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
+  const r = await runRank({
+    ...ctx,
+    confirm: async (preview, n) => {
+      const interactive =
+        !values.json &&
+        (ask ? true : (await import("./install-harness.mjs")).isInteractive({ stdin, stdout, env, json: false }));
+      if (!interactive) return true;
+      stdout.write(preview);
+      return term.askApply(n, { stdin, stdout, ask, caps: term.caps(stdout, env) });
+    },
+  });
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
 // next (the next verb's spec, contract 1): its own module, loaded on first
 // use. It writes nothing and asks nothing; it is served here, not by the read
 // runner, so no MCP or hook closure reaches it.
@@ -704,6 +816,38 @@ async function runNextVerb(ctx) {
   const { runNext } = await import("./next.mjs");
   const { row, values, project, stdout, stderr } = ctx;
   const r = await runNext(ctx);
+  if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
+  if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  else (r.ok ? stdout : stderr).write(r.text);
+  return r.code;
+}
+
+// export (the export spec, contract 1): its own module, loaded on first use.
+// It always prints the envelope, with or without --json, and writes nothing;
+// a failure also goes to stderr. It is served here, not by the read runner,
+// so no MCP or hook closure reaches it.
+async function runExportVerb(ctx) {
+  const { runExport } = await import("./flow-export.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runExport(ctx);
+  if (r.usage)
+    return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), {
+      verb: row.verb,
+      ...ctx,
+      values: { ...values, json: true },
+    });
+  stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
+  if (!r.ok) stderr.write(r.text);
+  return r.code;
+}
+
+// close-refs (the close-refs spec, contract 1): its own module, loaded on
+// first use. It writes nothing and asks nothing; it reads the network through
+// gh, so no MCP or hook closure reaches it.
+async function runCloseRefsVerb(ctx) {
+  const { runCloseRefs } = await import("./close-refs.mjs");
+  const { row, values, project, stdout, stderr } = ctx;
+  const r = await runCloseRefs(ctx);
   if (r.usage) return usageFail(Object.assign(new Error(r.usage), { code: "USAGE" }), { verb: row.verb, ...ctx });
   if (values.json) stdout.write(JSON.stringify(envelope(row.verb, project, r.ok, r.result), null, 2) + "\n");
   else (r.ok ? stdout : stderr).write(r.text);
@@ -921,8 +1065,16 @@ export const HANDLERS = Object.freeze({
   init: runBind(true),
   scaffold: runScaffold,
   move: runMoveVerb,
+  initiative: initiativeVerb("initiative"),
+  epic: initiativeVerb("epic"),
+  create: itemVerb("create"),
+  reviewed: itemVerb("reviewed"),
+  rank: runRankVerb,
   follow: runFollowVerb,
+  "close-refs": runCloseRefsVerb,
   handover: runHandoverVerb,
+  groom: runGroomVerb,
+  export: runExportVerb,
   next: runNextVerb,
   dashboard: runDashboardVerb,
   mcp: runMcp,

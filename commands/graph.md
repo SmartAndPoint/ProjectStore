@@ -19,6 +19,9 @@ vault-link-graph-derived-view-and-shared-link-resolver).
 
    The `graph` entry carries `{ path, changed, content?, stats }` — stats:
    node count, edge count, edges by kind.
+   Once `spec-tree.md` exists, a `spectree` entry comes too: every reconcile
+   keeps that view fresh, so when its `changed` is true, show it in the preview
+   as well; the write below rewrites it with the rest.
 
 3. **Nothing changed** (`changed: false`) → report "graph.md already matches
    the vault — nothing to regenerate." and stop.
@@ -51,10 +54,17 @@ vault-link-graph-derived-view-and-shared-link-resolver).
   artifact's full typed neighborhood — outgoing AND incoming edges — in one
   call. Node keys are full vault-relative paths, never short names.
 - Edge kinds: wikilink, mdlink, supersedes, spec-covers, spec-implements-adr,
-  epic-contains, amends, dead, ambiguous, out-of-scope. Nothing resolves
-  silently. `amends` runs from a story to a spec one of its amendment markers
-  (`> amended YYYY-MM-DD by <ref>: <KIND> — <why>` under a contract) changes:
-  one edge per pair; a marker whose ref resolves to no story is a `dead` edge
-  from the spec.
+  spec-part-of, initiative-contains, epic-contains, amends, dead, ambiguous, out-of-scope.
+  Nothing resolves silently. `amends` runs from a story to a spec one of its
+  amendment markers (`> amended YYYY-MM-DD by <ref>: <KIND> — <why>` under a
+  contract) changes: one edge per pair; a marker whose ref resolves to no story
+  is a `dead` edge from the spec. `initiative-contains` runs from an initiative
+  to each epic whose `initiative:` names it; a value that names no initiative,
+  or a list, is a `dead` edge from the epic. `spec-part-of` runs from a spec to
+  the parent spec its `parent:` names; a spec tree is read from its root down
+  with `projectstore graph lineage <root path> --kind spec-part-of --depth <n>`,
+  and from any spec up to its root with `graph lineage <spec path>`.
+  `spec-tree.md` draws the same trees, one diagram per tree; create it with
+  `reconcile --write --only spectree`.
 - Hand-edits to graph.md never stick: doctor flags staleness, reconcile
   repairs. Fix the source artifact, then regenerate.

@@ -1,7 +1,8 @@
 // projectstore — move.mjs: the `move` verb, a story between the backlog and ToDo.
 //
-// `planned` ↔ `todo` is the one change of status no gate makes (the plan gate
-// starts work, the close gate finishes it). `move <story> <status> --reason
+// `planned` ↔ `todo` is the one change of status no gate makes for a named
+// story (the plan gate starts work, the close gate finishes it; `groom
+// --write` also makes `todo → planned`, for the stale ToDo stories). `move <story> <status> --reason
 // "<why>"` makes it, for `todo` and `planned` only: bare, it prints the plan
 // and writes nothing; with --write (a terminal is asked first; without one,
 // --write is the confirmation) it writes the story through the shared status
@@ -222,6 +223,10 @@ export async function runMove(ctx) {
   // a second run finishes what a failed first one left.
   done.status = String(parseFrontmatter(readFileSync(found.path, "utf8")).data.status ?? "").trim();
   done.epic = syncEpicRow(found.path, { onWrite });
+  // The band's WIP count, once per run, before the views; to this run's own
+  // project, never one from the environment (the band-wip spec, contract 7).
+  const { refreshWip } = await import("./band-wip.mjs");
+  refreshWip({ project, cfg, env });
   const { refreshViews } = await import("./reconcile.mjs");
   // The generators find the binding through the project's own environment,
   // never through the caller's working directory.

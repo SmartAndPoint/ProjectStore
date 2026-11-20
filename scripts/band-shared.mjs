@@ -9,7 +9,11 @@
 // by without a host.
 //
 // Spec: the band above the prompt — rows, heartbeat, command and the status
-// line's yield (the contract numbers below are that spec's).
+// line's yield (the contract numbers below are that spec's). The WIP file's
+// bytes and reading rule: "The band's WIP state file: its count, its gate,
+// its writers, and a write only when it changes" (alias `band-wip`),
+// contract 2, added 2026-11-20 by PS-FLOW/story-the-band-above-the-prompt-
+// shows-the-session-assignees-wip-against-their-limit.
 
 import { stageOf } from "./stages.mjs";
 
@@ -59,6 +63,46 @@ export function heartbeatNext(lastRender, wasDrawing, now) {
   return wasDrawing ? heartbeatBody(false, now) : null;
 }
 
+// ─── The WIP file (contracts 4, 10; band-wip contract 2) ───────────────
+// The core counts the session's person's WIP over the whole vault and writes
+// it to <project>/.projectstore/state/wip.json; the band reads it on each
+// tick. The heartbeat in reverse: Node writes, the module reads.
+
+// The file's bytes: the four keys in this order, no spaces, one newline. No
+// timestamp, so the same numbers give the same bytes.
+export function wipBody(view) {
+  const v = view || {};
+  return (
+    JSON.stringify({ assignee: v.assignee, count: v.count, awaiting_close: v.awaiting_close, limit: v.limit }) + "\n"
+  );
+}
+
+const isCount = (n, min) => typeof n === "number" && Number.isSafeInteger(n) && n >= min;
+
+// The band's reading rule: an object for the binding's `default_author`
+// (trimmed, as the writer trims it), a count of 0 or more, a limit of null or
+// 1 or more. {count, limit}, else null: no segment.
+export function wipShown(value, defaultAuthor) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const name = String(defaultAuthor ?? "").trim();
+  if (!name || typeof value.assignee !== "string" || value.assignee !== name) return null;
+  if (!isCount(value.count, 0)) return null;
+  if (value.limit !== null && !isCount(value.limit, 1)) return null;
+  return { count: value.count, limit: value.limit };
+}
+
+// The count's colour: yellow at the limit, red above it, else none (dim).
+export function wipTone(count, limit) {
+  if (limit === null || limit === undefined) return null;
+  if (count > limit) return "red";
+  return count === limit ? "yellow" : null;
+}
+
+// `WIP 2/3`, or `WIP 2` for a person with no limit.
+export function wipText(words, shown) {
+  return `${words.band_wip} ${shown.count}${shown.limit === null ? "" : `/${shown.limit}`}`;
+}
+
 // ─── Words (contract 14) ───────────────────────────────────────────────
 // Every word the band draws that is not a title, an id, a path, a model id
 // or a command token: one `band_` key per word, in every bundled
@@ -93,6 +137,7 @@ export const BAND_STRING_KEYS = Object.freeze([
   "band_step_runs",
   "band_step_web",
   "band_step_vault",
+  "band_wip",
 ]);
 
 // The band's words for a language: the English file's, each overlaid by the
@@ -329,6 +374,23 @@ export function storyLayout(label, title, status, bodyColumns) {
   if (!Number.isFinite(bodyColumns)) return { title: String(title), tail };
   const room = bodyColumns - 2 - 3 - cellWidth(`${label} `) - cellWidth(tail) - 1;
   return { title: cutCells(title, Math.max(1, room)), tail };
+}
+
+// The head row with a WIP segment (contract 4): `<badge><mark> <title> · <why>
+// · <segment>`, at most bodyColumns − 3 cells, the segment whole. The title is
+// cut first, with `…`, beside ` · <why>`; when not even `…` fits there, ` · <why>`
+// goes and the title is cut to the room left (`…` at worst). A row too narrow
+// for that is the host's to cut at its end. Returns {title, why}: the title to
+// draw and whether ` · <why>` stays. Only called with a segment: without one
+// the head is drawn as it always was.
+export function headLayout({ badge = "", mark, title, why, segment }, bodyColumns) {
+  const t = String(title);
+  if (!Number.isFinite(bodyColumns)) return { title: t, why: true };
+  const room = bodyColumns - 3 - cellWidth(badge) - cellWidth(mark) - 1 - cellWidth(` · ${segment}`);
+  const withWhy = room - cellWidth(` · ${why}`);
+  if (cellWidth(t) <= withWhy) return { title: t, why: true };
+  if (withWhy >= 1) return { title: cutCells(t, withWhy), why: true };
+  return { title: cutCells(t, Math.max(1, room)), why: false };
 }
 
 // ─── The agent row (contract 12) ───────────────────────────────────────

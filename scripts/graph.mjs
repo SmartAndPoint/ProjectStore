@@ -29,6 +29,8 @@ import {
   commandForm,
 } from "./lib.mjs";
 import { walkVaultFiles } from "./doctor.mjs";
+import { initiativeIndex, referenceOf, resolveInitiative } from "./initiative.mjs";
+import { resolveSpecParents } from "./spec-tree.mjs";
 
 function die(msg) {
   process.stderr.write(`projectstore/graph: ${msg}\n`);
@@ -72,6 +74,7 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
   const index = buildNodeIndex(cfg, layout);
   const vaultFiles = files ?? walkVaultFiles(cfg.vault_path);
   const epicsPath = folderByKind(layout, "epic")?.path ?? null;
+  const parents = resolveSpecParents(index, vaultFiles);
 
   // Dedup on the (from, kind, to) triple (spec contract 4). The To cell for
   // dead targets is the raw text as written; ambiguous additionally lists
@@ -89,6 +92,9 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
   };
 
   const exists = (rel) => existsSync(join(cfg.vault_path, rel));
+  const initiativeIdx = folderByKind(layout, "initiative")
+    ? initiativeIndex(index.nodes.filter((x) => x.type === "initiative").map((x) => ({ ...x, rel: x.path })))
+    : null;
   for (const n of index.nodes) {
     // Body links — kind-unscoped, extracted ONLY from node files: derived
     // views and READMEs are never link sources, so graph.md can never feed
@@ -127,6 +133,15 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
         if (r.outcome === "node") addEdge(r.node.path, "amends", n.path);
         else addResolved(n.path, r, m.ref);
       }
+      // A spec's parent (the spec tree spec, contract 2): one `spec-part-of`
+      // edge child → parent; a value that resolves to no spec, or is a list,
+      // is a `dead` edge with the value as written; a spec naming itself
+      // draws nothing (doctor's spec-parent says why).
+      const link = parents.get(n.path);
+      if (link?.kind === "node") addEdge(n.path, "spec-part-of", link.path);
+      else if (link?.kind === "ambiguous")
+        addEdge(n.path, "ambiguous", `${link.raw} (matches: ${link.candidates.join(", ")})`);
+      else if (link?.kind === "dead" || link?.kind === "list") addEdge(n.path, "dead", link.raw);
     }
     if (n.type === "story") {
       for (const entry of refsOf(n.fm, "specs")) {
@@ -156,6 +171,18 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
         if (s.type === "story" && s.path.startsWith(epicDirPrefix)) {
           addEdge(n.path, "epic-contains", s.path);
         }
+      }
+      // An epic names its initiative (the initiative spec, contract 7): one
+      // `initiative-contains` edge from the initiative, by the one id rule;
+      // a string or a list that is no initiative is a `dead` edge carrying
+      // the key's raw text. A layout with no initiative kind draws nothing.
+      if (initiativeIdx) {
+        const ref = referenceOf(n.fm.initiative);
+        if (ref.kind === "id") {
+          const hit = resolveInitiative(initiativeIdx, ref);
+          if (hit) addEdge(hit.path, "initiative-contains", n.path);
+          else addEdge(n.path, "dead", ref.value);
+        } else if (ref.kind === "list") addEdge(n.path, "dead", ref.raw);
       }
     }
   }

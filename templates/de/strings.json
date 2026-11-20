@@ -31,6 +31,7 @@
   "band_step_runs": "führt aus",
   "band_step_web": "sucht im Web",
   "band_step_vault": "fragt den Vault:",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADRs",
@@ -39,6 +40,10 @@
     "spec": {
       "name": "Specs",
       "description": "Normatives „Wie“ je Subsystem — ADR-Verweise, nummerierte Verhaltensverträge, Abnahme zusätzlich zu den abgedeckten Stories."
+    },
+    "initiative": {
+      "name": "Initiativen",
+      "description": "Initiativen — Ergebnisse, denen mehrere Epics dienen, mit der getroffenen Entscheidung: vorgeschlagen, angenommen, abgelehnt oder zurückgestellt."
     },
     "epic": {
       "name": "Epics",

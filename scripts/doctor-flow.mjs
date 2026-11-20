@@ -16,12 +16,16 @@
 // Spec: "Doctor's flow findings: local git activity, idle work and people,
 // the policy gate, levels and privacy" (alias `flow-findings`), contracts 1
 // to 11, "Flow counts…" (alias `flow-counts`), the findings of its
-// contracts 2 to 8, and "The handover verb…" (alias `handover`), contract 6:
-// `assignee-left`. Registered by doctor.mjs runVaultChecks, never by
+// contracts 2 to 9, "The handover verb…" (alias `handover`), contract 6:
+// `assignee-left`, and "The groom verb…" (alias `groom`), contract 6:
+// `grooming-due`, `epic-single-story` and `active-epics-over-cap`, and "Cycle
+// time and epics without movement…" (alias `cycle-time`), contracts 8 and 9:
+// `flow-cycle-time` and `epic-idle`, counted by flow-counts.mjs alone
+// (its contract 10). Registered by doctor.mjs runVaultChecks, never by
 // runStartupChecks (ADR-005 decision 4). Imports nothing of doctor.mjs, which
 // imports this module.
 
-import { folderByKind, fromTerminalIn, listOf } from "./lib.mjs";
+import { folderByKind, fromTerminalIn, listOf, commandForm } from "./lib.mjs";
 import { packageCommand, shellQuote } from "./harness.mjs";
 import {
   flowValue,
@@ -34,7 +38,7 @@ import {
   leftDateOf,
   refusedName,
 } from "./flow-policy.mjs";
-import { readFlowStories } from "./flow-stories.mjs";
+import { readFlowStories, readFlowEpics } from "./flow-stories.mjs";
 import {
   DAY_MS,
   storyFacts,
@@ -48,6 +52,9 @@ import {
   capacityVerdict,
   oldestFirst,
   openStoriesOf,
+  epicCounts,
+  cycleTime,
+  idleEpics,
 } from "./flow-counts.mjs";
 import { stampMs } from "./status-log.mjs";
 import { refCovers } from "./code-refs.mjs";
@@ -62,6 +69,8 @@ export const FLOW_LEVELS = Object.freeze({
   "assignee-left": "warn",
   "intake-over-close": "warn",
   "todo-over-capacity": "warn",
+  "active-epics-over-cap": "warn",
+  "epic-idle": "warn",
   "flow-policy-invalid": "warn",
   "flow-checks-failed": "warn",
   "todo-aged": "info",
@@ -70,6 +79,9 @@ export const FLOW_LEVELS = Object.freeze({
   "flow-window-young": "info",
   "status-unstamped": "info",
   "closed-unstamped": "info",
+  "grooming-due": "info",
+  "epic-single-story": "info",
+  "flow-cycle-time": "info",
   "flow-policy-unset": "info",
   "flow-person-unknown": "info",
   "flow-activity-unknown": "info",
@@ -112,6 +124,9 @@ function named(facts) {
 // The handover a finding offers (the handover spec, contract 6; the
 // flow-findings spec, contract 5): the core's form, the person's name quoted
 // as shellQuote quotes it, the receiver and the reason left for the reader.
+// The grooming pass a finding offers (the groom spec, contract 6).
+export const groomCommand = () => packageCommand([], "groom");
+
 export const handoverCommand = (name) =>
   packageCommand([], "handover", { args: `--from ${shellQuote(name)} --to <name> --reason '<why>'` });
 
@@ -183,24 +198,40 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
   const idleDays = flowValue(vaultCfg, "idle_days");
   const weeks = flowValue(vaultCfg, "window_weeks");
   const bounds = flowValue(vaultCfg, "capacity_weeks");
+  const groomDays = flowValue(vaultCfg, "grooming_days");
+  const epicsMax = flowValue(vaultCfg, "active_epics_max");
+  const epicIdle = flowValue(vaultCfg, "age_days.epic_idle");
   const people = flowPeople(vaultCfg);
   const listed = vaultCfg.flow?.people;
   const peopleSet = listed !== null && typeof listed === "object" && !Array.isArray(listed);
-  const anyCheck = [review, todoDays, ipIdle, idleDays, weeks].some((v) => v !== null) || people.size > 0;
+  const anyCheck =
+    [review, todoDays, ipIdle, idleDays, weeks, groomDays, epicsMax, epicIdle].some((v) => v !== null) ||
+    people.size > 0;
   if (!anyCheck) return out;
 
   const epics = folderByKind(layout, "epic");
-  const read = epics
-    ? readFlowStories(cfg.vault_path, epics.path, readFile ? { read: readFile } : {})
-    : { stories: [], unread: 0 };
+  const seam = readFile ? { read: readFile } : {};
+  const read = epics ? readFlowStories(cfg.vault_path, epics.path, seam) : { stories: [], unread: 0 };
+  // The epics are read only for the epic findings (Flow counts, contract 9;
+  // the cycle-time spec, contract 9); an epic.md that cannot be read is
+  // counted with the stories.
+  const epicRead =
+    epics && (epicsMax !== null || epicIdle !== null)
+      ? readFlowEpics(cfg.vault_path, epics.path, seam)
+      : { epics: [], unread: 0 };
   const facts = read.stories.map(storyFacts);
-  if (read.unread > 0)
+  const unread = read.unread + epicRead.unread;
+  if (unread > 0) {
+    const what = epicRead.unread
+      ? plural(unread, "story or epic file or folder", "story or epic files or folders")
+      : plural(unread, "story file or folder", "story files or folders");
     out.push(
       finding(
         "flow-stories-unread",
-        `${plural(read.unread, "story file or folder", "story files or folders")} could not be read and ${read.unread === 1 ? "is" : "are"} left out, so the flow counts can be low.`,
+        `${what} could not be read and ${unread === 1 ? "is" : "are"} left out, so the flow counts can be low.`,
       ),
     );
+  }
 
   // Flow counts, contract 5: WIP per person against the limit rule.
   const wip = wipByPerson(facts);
@@ -331,6 +362,7 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
           { stories: oldestFirst(counts.closedUnstamped).map((f) => f.rel) },
         ),
       );
+    if (!young) out.push(cycleFinding(cycleTime(counts.closed), weeks, win));
     if (bounds !== null && !young) {
       const todo = facts.filter((f) => f.column === "ToDo").length;
       const v = capacityVerdict({ todo, closed: counts.closed.length, weeks, bounds });
@@ -359,6 +391,71 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
     }
   }
 
+  // The groom spec, contract 6: the grooming pass is due when its stamp is
+  // absent, does not read, or is at least flow.grooming_days old. The value
+  // of a stamp that does not read is never named.
+  if (groomDays !== null) {
+    const raw = vaultCfg.flow?.groomed_at;
+    const at = raw === undefined || raw === null ? null : stampMs(raw);
+    const age = at === null ? null : ageDays(at, asOf);
+    let why = null;
+    if (raw === undefined || raw === null)
+      why = `No grooming pass is recorded yet: flow.groomed_at holds no stamp, and a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
+    else if (at === null)
+      why = `flow.groomed_at does not read as a date, so the date of the last grooming pass is unknown; a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
+    else if (meets(age, groomDays))
+      why = `The last grooming pass, on ${day(at)}, was ${plural(age, "day")} ago, and a pass is due every ${plural(groomDays, "day")} (flow.grooming_days)`;
+    if (why)
+      out.push(
+        finding(
+          "grooming-due",
+          `${why}. The pass sends stale ToDo stories back to the backlog and lists the one-story epics; run it ${fromTerminalIn(proj)}:\n${groomCommand()}`,
+        ),
+      );
+  }
+
+  // The groom spec, contract 6: one-story epics and the active epics over
+  // the cap, both under flow.active_epics_max (Flow counts, contract 9).
+  if (epicsMax !== null) {
+    const counts = epicCounts(epicRead.epics, facts);
+    for (const e of counts.singleStory)
+      out.push(
+        finding(
+          "epic-single-story",
+          `${e.epic} is an active epic with one story, ${refOf(e.story)} (${e.story.status || "no status"}). A one-story epic is often a story in the wrong place: the grooming pass, ${commandForm("groom")}, hands it to the librarian agent, which suggests an epic it could join and changes nothing.`,
+          { file: e.rel },
+        ),
+      );
+    if (counts.active.length > epicsMax) {
+      const names = counts.active.map((e) => e.epic);
+      const shown =
+        names.length > NAMED_MAX
+          ? `${names.slice(0, NAMED_MAX).join(", ")} and ${names.length - NAMED_MAX} more`
+          : names.join(", ");
+      out.push(
+        finding(
+          "active-epics-over-cap",
+          `${counts.active.length} epics are active, ${counts.active.length - epicsMax} more than the cap of ${epicsMax} (flow.active_epics_max): ${shown}. An epic is active while it holds an open story; a done, parked, deferred or superseded epic is not.`,
+        ),
+      );
+    }
+  }
+
+  // The cycle-time spec, contract 9: in-progress epics whose stories have
+  // not changed status for flow.age_days.epic_idle days, at doctor's clock.
+  if (epicIdle !== null) {
+    const idle = idleEpics(epicRead.epics, facts, epicIdle, asOf);
+    const watched = `${plural(idle.watched, "epic")} in progress ${idle.watched === 1 ? "is" : "are"} watched by this check`;
+    for (const e of idle.epics)
+      out.push(
+        finding(
+          "epic-idle",
+          `${e.epic} is in progress, but none of its stories has changed status for ${plural(e.days, "day")}, since ${day(e.age.at)}${ageFrom(e.age)}. That is at or past flow.age_days.epic_idle of ${epicIdle}; ${watched}. To clear it, move one of its stories, set the epic's status to parked or done in its epic.md, or raise flow.age_days.epic_idle.`,
+          { file: e.rel },
+        ),
+      );
+  }
+
   // The flow-findings spec, contract 8: a listed person no story names,
   // unless they are marked left: someone who left and holds nothing is the
   // expected end of a handover.
@@ -371,6 +468,38 @@ function flowFindings({ cfg, layout, vaultCfg, proj, now, commits, read: readFil
         );
   }
   return out;
+}
+
+// Where an epic's last change was read from, when not a Status log line.
+const ageFrom = (age) =>
+  age.source === "dates"
+    ? ` (read from a story's ${age.field}, since none of its stories has a status line)`
+    : age.source === "created"
+      ? " (read from a story's created date, since none of its stories has a status line, a start or a close)"
+      : "";
+
+// The cycle-time spec, contract 8: one info over the window's closes, from
+// cycleTime alone. The stories left out are named, oldest first.
+function cycleFinding(c, weeks, win) {
+  const span = `the ${plural(weeks, "week")} from ${day(win.from)} to ${day(win.to)}`;
+  if (c.closed === 0)
+    return finding("flow-cycle-time", `No story was closed in ${span}, so there is no cycle time to give.`);
+  const out = c.unplaced.length;
+  if (c.median === null)
+    return finding(
+      "flow-cycle-time",
+      `${plural(c.closed, "story was", "stories were")} closed in ${span}, but every one is left out of the cycle time, since none has a start: no Status log among them has an in-progress or review line, and none has a started_at. So no cycle time is given.`,
+      { stories: c.unplaced.map((f) => f.rel) },
+    );
+  const median = c.median === 0 ? "under 1 day" : plural(c.median, "day");
+  const left = out
+    ? ` ${plural(out, "closed story is", "closed stories are")} left out, since ${out === 1 ? "it has no start: its Status log has no in-progress or review line, and it has no started_at" : "they have no start: their Status logs have no in-progress or review line, and they have no started_at"}.`
+    : " None is left out.";
+  return finding(
+    "flow-cycle-time",
+    `Over ${span}, the cycle time from a story's start to its close has a median (the middle value) of ${median}, over ${plural(c.days.length, "story", "stories")}.${left}`,
+    out ? { stories: c.unplaced.map((f) => f.rel) } : {},
+  );
 }
 
 // The names a person's commits are matched on: their assignee name, as the

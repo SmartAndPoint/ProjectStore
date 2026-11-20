@@ -49,6 +49,15 @@ a covering spec's contracts, name each contract it will amend and the marker's
 kind (`ADDED`, `MODIFIED` or `REMOVED`, in a `> amended YYYY-MM-DD by <ref>: …`
 block under the contract; `guide spec` has the rules).
 
+**Spec owners of the files you plan to change.** When the vault has a spec
+tree (specs that name a `parent:`), run
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/spec-code.mjs" owners <path>… --project "${CLAUDE_PROJECT_DIR}"`
+on the files your plan changes, each path relative to the project root. For each file it names the specs that own it
+and the deepest of them, the most detailed spec that describes it. List those
+deepest owners as the specs the story must carry in its `specs:`, and say which
+of their contracts the change touches. A file whose only owner is a tree's root
+has no detailed spec yet; say so.
+
 **Spec or no spec.** When the story has no covering spec, say whether it
 needs one, and why. Work whose "how" is non-trivial, or that will touch three
 or more source files, needs a spec. A release, a text or site change, or a

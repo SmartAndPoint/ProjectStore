@@ -20,6 +20,13 @@ Every create command follows the same shape:
    session added a moment before; the next regeneration of that folder's index
    restores it.
 
+   A story's Yes also covers its row in the epic's Stories table: after the
+   file lands, `status-change.mjs epic-row <story> --add` links it there, by
+   the table's own columns (a row that already names the story by its title
+   gets the link, else one row is added), re-reading `epic.md` before it
+   replaces it. An epic whose stories are a list is left as it is, with the
+   note `epic-row-missing`; no table is invented.
+
 **Who holds the pen.** Content and the gate never delegate: the session's main
 agent composes the artifact (it holds the conversation the artifact captures)
 and answers to you at the approval gate. What *can* delegate is everything after
@@ -88,8 +95,8 @@ Edits made through the shell are not seen; a Read of the story sets the pointer.
 ### Before a vault commit: whose edits are in a file
 
 Outside the dashboard's page, ProjectStore never commits. (The page commits a
-story's move in a clone of the vault of its own, on a branch of its own, and
-the move reaches the vault only through a pull request a person merges.) Each
+story's move, handover or reorder in a clone of the vault of its own, on a branch of its own, and
+the change reaches the vault only through a pull request a person merges.) Each
 session commits its own vault work, a whole
 file at a time, so when two sessions edit one file, the first to commit takes
 the other's uncommitted edits too. The pre-commit check says which files those
@@ -105,7 +112,7 @@ by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
 hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
 `NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
 `tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
-to it too (`move`, `handover`, the epic row, `configure`'s vault settings, `guide eject`),
+to it too (`move`, `handover`, `groom`, the epic row, `configure`'s vault settings, `guide eject`),
 and the story close brackets the clerk's copy, which no hook sees, with
 `session snapshot <story> --for <scratch>` before the spawn and
 `session record <story> --from <scratch>` after it. Derived views are not
@@ -198,6 +205,14 @@ the base HUD prints as it always does. A band that stops, or never starts
 (an older Claude Code, modules switched off), lets the heartbeat go stale, and
 the line is back on its own.
 
+The band's head row can end with `WIP 2/3`: how many stories the binding's
+`default_author` holds in progress or review across the whole vault, against
+their limit from the vault's `flow` policy. The band cannot read the whole
+vault on each tick, so the core counts and writes `.projectstore/state/wip.json`
+at session start and after `move`, `follow`, `handover` and `session refresh`;
+the band reads that file on each tick. A change made by hand shows at the next
+of those.
+
 ## Doctor and reconcile: the trust layer
 
 The vault's guarantees used to depend on everyone using the gated commands —
@@ -211,11 +226,17 @@ resistance. v0.13 makes that safe instead of forbidden:
   boxes, dead and ambiguous wiki/relative links — resolved by the same shared
   resolver the link graph uses, so the two can never disagree about a body
   link — `code_refs`,
-  code-map and graph staleness). A cheap
+  code-map, graph and flow page staleness). A cheap
   subset runs at session start and prints one line only when something is wrong.
 - **`reconcile`** rebuilds every generated view (kanban, folder indexes,
-  code-map, the link graph) from the vault — the repair partner. Idempotent: a clean vault
-  yields zero changes. Since v0.19 reconcile applies the write itself
+  code-map, the link graph, the flow page) from the vault — the repair partner. Idempotent: a clean vault
+  yields zero changes. The flow page, `flow.md`, shows WIP per person, the
+  date each open story entered its status, the epics in progress where no
+  story has moved for a while, the weekly throughput, the cycle time and the
+  cumulative flow. It is dated by the newest date a story carries, never by
+  the clock, so a run on a later day writes the same bytes. Like `graph.md`,
+  it is made only on request, with `--only flow`; after that, every
+  reconcile keeps it fresh. Since v0.19 reconcile applies the write itself
   (`--write`): each approved target is recomputed from the vault state at
   write time and replaced atomically, so a stale preview is never what lands;
   `--write` is also a sanctioned headless entry point (cron/CI repair job).
@@ -272,6 +293,29 @@ resistance. v0.13 makes that safe instead of forbidden:
   `gh`, and it has no MCP tool. Doctor's `assignee-left` lists the open work
   of each person `flow.people[<name>].left` marks as left, and it and
   `assignee-idle` end with the `handover` command to run.
+- **`groom`** is the weekly grooming pass. Every ToDo story whose age in
+  status meets `flow.age_days.todo` goes back to `planned`, with one Status
+  log line, `status: todo → planned — groomed: in ToDo for <n> days (groom)`,
+  marked `(age read from updated)` or `(age read from created)` when its
+  stamp is not trusted. It lists the one-story epics and the active epics
+  against `flow.active_epics_max`, and stamps the pass in `flow.groomed_at`,
+  also when nothing moved. Bare, it prints the plan; with `--write` it asks
+  once at a terminal, writes each story through the read-again writer `move`
+  uses, the stamp through the vault-config writer, and refreshes the views
+  once. It runs no git and no `gh`, and it has no MCP tool.
+  `/projectstore:groom` shows the plan, asks once, runs the write and then
+  hands the one-story epics to the librarian, under an `Epic list:` prompt,
+  for a merge proposal per epic. Doctor's `grooming-due` says when the next
+  pass is due, and `epic-single-story` and `active-epics-over-cap` read
+  `flow.active_epics_max`. `epic-idle` reads `flow.age_days.epic_idle`: it
+  names an epic in progress where no story has changed status for that many
+  days, counted to today. The page counts to its own date, so on a quiet
+  vault only doctor sees an epic go quiet.
+- **`export`** prints the vault's flow as one JSON envelope: the stories,
+  the epics, each `status:` line of their Status logs, and the counts doctor
+  and `flow.md` give (WIP per person, the window's weeks and totals, the cycle
+  time and the epics without movement), as of the clock or `--as-of`. It
+  writes nothing, runs no git, and has no MCP tool.
 
 The division of labor: deterministic checks catch the mechanical 90% for free;
 the LLM critic that `/projectstore:review` runs is saved for the judgment calls.
@@ -343,13 +387,72 @@ is an unguarded read-modify-write, and a tally incremented on every vault write
 would eventually truncate the ADR-006 statusline pointer out from under an
 unrelated feature.
 
+## Initiatives above the epics
+
+An initiative (`initiatives/<slug>.md`) records an outcome that several epics
+serve and the decision taken on it. Its `status` holds the decision only:
+`proposed`, `accepted`, `rejected` or `deferred`, each decision with a line
+`- YYYY-MM-DD <status>: <reason>` in its Outcome section. What it is doing is
+never written: `initiativeStage` in `scripts/stages.mjs` reads it from the
+stories of the epics that name it (in progress while one is active, done when
+all of them are). An epic names its parent in one frontmatter key,
+`initiative: "<slug>"`; the initiative's file does not list its epics, so the
+two cannot drift. The link graph draws `initiative-contains` from the
+initiative to each such epic, and doctor's `initiative-links`,
+`initiative-status` and `initiative-decision` checks (`scripts/initiative.mjs`)
+report a link that names nothing, a status outside the four, and a decision
+without its epic or its Outcome line.
+
+Two CLI verbs write them (`scripts/initiative-verbs.mjs`), while the slash
+commands of the same names create. `initiative <id> accepted|rejected|deferred
+--reason "<why>"` sets the status and the header's Status row and appends the
+dated line to Outcome; `accepted` needs an epic that names the initiative
+first. `initiative <id> --title|--owner|--priority` edits those fields, and a
+new title keeps the file name. `epic <EPIC-ID> --initiative <id>` sets the
+epic's `initiative:` and an Initiative row that links to the file, and
+`--initiative ""` removes both. Bare, each prints the plan; with `--write`
+it asks at a terminal, writes through the same read-again writer `move` uses,
+and refreshes the derived views, as `move` does. They have no MCP tool.
+
+`create initiative|epic|story` writes a new one outside a session
+(`scripts/item-verbs.mjs`): the file `draft.mjs` renders for the agent
+command of the same kind, with the fields its options name, through
+`createFileExclusive`, so an existing file is never replaced. A story's row
+goes into its epic's Stories table through the same add as `epic-row --add`,
+and the derived views are refreshed. Anyone may run it, an agent too, so the
+file carries `written_by_verb: "create <instant>"` beside `review_status:
+pending`. The story gates print the marked files (`marked`: the story, its
+epic and the epic's initiative on a plan) and the story command reviews each
+first; `/projectstore:review` then runs `reviewed <path> --write`, the one
+writer that clears the mark. Doctor's `verb-mark` lists each open mark, and
+`follow` names a marked story it closes. Neither verb has an MCP tool.
+
+An optional `rank` key orders the open work by hand, apart from priority: the
+open stories of one epic, the epics of one initiative, and the epics of no
+initiative. One comparator, `siblingOrder` in `scripts/rank.mjs`, sorts a
+group: ranked members first by value, then a story's column (Review, In
+Progress, ToDo, Backlog), priority and title, then the id. With no `rank` in
+the vault that is the backlog tree's old order. The `rank` verb
+(`scripts/rank-verb.mjs`) moves an item `--before` or `--after` a sibling, or
+`--first` or `--last`, and writes only the `rank:` line of each file whose
+value changes, with steps of 1048576 so a move rarely writes more than one
+file. It moves no `updated` date, footer or Status log, sets no review mark,
+and refreshes no derived view: kanban, the graph, the code map and `next` do
+not read `rank`. Each file is judged again on its bytes at the time of the
+write, and a failed write puts back the files already written. Doctor's
+`rank-tie` (info) names members of one group that share a value. The verb has
+no MCP tool.
+
 ## The epic ↔ code mapping
 
 Epics and stories carry a `code_refs` frontmatter list — the paths that feature
 actually owns in the codebase (`["src/auth/", "adapters/csv/"]`). The
-`/projectstore:codemap` command is the only writer (`codemap set`), the
-`planner` agent reads them to keep new epics consistent with how old ones
-landed, the `reviewer` proposes updates when a story completes, and
-`code-map.md` is the generated overview. Doctor checks refs status-aware:
+`/projectstore:codemap` command (`codemap set`) and a story's close write
+them, each behind its approval: the close adds the files of the story's pull
+request (the `close-refs` verb reads them through `gh`; the reviewer's last
+`code_refs:` line, then the commits since the story started, are the
+fallbacks) and widens its epic's footprint (`status-change.mjs epic-refs`).
+The `planner` agent reads them to keep new epics consistent with how old ones
+landed, and `code-map.md` is the generated overview. Doctor checks refs status-aware:
 `planned` work may point at code that doesn't exist yet; `in-progress`/`done`
 refs must resolve.

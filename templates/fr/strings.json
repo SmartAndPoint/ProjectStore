@@ -31,6 +31,7 @@
   "band_step_runs": "exécute",
   "band_step_web": "cherche sur le web",
   "band_step_vault": "interroge le vault :",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADR",
@@ -39,6 +40,10 @@
     "spec": {
       "name": "Spécifications",
       "description": "Le « comment » normatif de chaque sous-système — références aux ADR, contrats de comportement numérotés, acceptation en plus de celle des stories couvertes."
+    },
+    "initiative": {
+      "name": "Initiatives",
+      "description": "Initiatives — résultats que servent plusieurs epics, avec la décision prise : proposée, acceptée, rejetée ou différée."
     },
     "epic": {
       "name": "Epics",

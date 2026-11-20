@@ -12,7 +12,9 @@
 // policy-and-configure-writes-it; SPEC-001 contract 4 as amended 2026-11-11,
 // and "Doctor's flow findings…" contracts 7 and 8, by PS-FLOW/story-doctor-
 // checks-the-flow-against-the-vaults-policy-… (refused person keys, small
-// capacity bounds, flowProblems). No key has a default in code: a check whose
+// capacity bounds, flowProblems); `flow.age_days.epic_idle` by PS-FLOW/story-
+// flowmd-and-doctor-count-cycle-time-… (the cycle-time spec, contract 5).
+// No key has a default in code: a check whose
 // key is absent does not run, and a value of the wrong type counts as absent.
 
 import { isCalendarDate } from "./lib.mjs";
@@ -26,6 +28,7 @@ export const FLOW_FIXED = Object.freeze([
   { key: "flow.age_days.review", path: ["age_days", "review"], kind: "days" },
   { key: "flow.age_days.in_progress_idle", path: ["age_days", "in_progress_idle"], kind: "days" },
   { key: "flow.age_days.todo", path: ["age_days", "todo"], kind: "days" },
+  { key: "flow.age_days.epic_idle", path: ["age_days", "epic_idle"], kind: "days" },
   { key: "flow.idle_days", path: ["idle_days"], kind: "days" },
   { key: "flow.window_weeks", path: ["window_weeks"], kind: "weeks" },
   { key: "flow.capacity_weeks", path: ["capacity_weeks"], kind: "range" },
@@ -340,11 +343,16 @@ export function refusedName(name) {
 }
 
 // Whether the vault declares a flow policy at all: `flow` present and not
-// null or an empty object.
+// null, an empty object, or an object holding only the stamp
+// `flow.groomed_at`, which declares nothing (the flow-findings spec,
+// contract 7, as amended 2026-11-15: the groom verb's stamp never turns the
+// flow checks on). Every reader of a declared policy goes through it, `next`
+// among them (the next spec, contract 1).
 export function flowDeclared(vaultCfg) {
   if (!isPlainObject(vaultCfg) || !Object.hasOwn(vaultCfg, "flow")) return false;
   const f = vaultCfg.flow;
-  return !(f === null || (isPlainObject(f) && Object.keys(f).length === 0));
+  if (f === null) return false;
+  return !isPlainObject(f) || Object.keys(f).some((k) => k !== "groomed_at");
 }
 
 const OBJECT_SET = "an object of flow settings";
@@ -355,7 +363,7 @@ const NAMES_SET = `${SET_OF.names}, with no email address`;
 
 // The top-level keys under `flow` this version knows, and the keys under
 // each group: the configure spec's changeable keys and the stamp.
-const GROUPS = Object.freeze({ wip: ["full", "part"], age_days: ["review", "in_progress_idle", "todo"] });
+const GROUPS = Object.freeze({ wip: ["full", "part"], age_days: ["review", "in_progress_idle", "todo", "epic_idle"] });
 const TOP = Object.freeze([...new Set(FLOW_FIXED.map((k) => k.path[0])), "people", "groomed_at"]);
 
 function validLeaf(kind, v) {

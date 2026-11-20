@@ -145,6 +145,7 @@ import {
   analysePortableRegistration,
   registrationRenderRoot,
   registrationPaths,
+  payloadOrigin,
 } from "./surfaces.mjs";
 import { payloadFiles, renderPortableCatalog } from "./portable-registration.mjs";
 import {
@@ -592,8 +593,10 @@ function planPortableRegistration(ctx, key, s) {
 
 // The marketplace manifest we write: the host's catalogue shape (measured), plus
 // our provenance field — contract 2 for a JSON file that is wholly ours — with
-// the payload digest the state ladder checks (contract 4′).
-export function registrationManifest(s, { pkg, projectDir, disabled = [], digest = null }) {
+// the payload digest the state ladder checks (contract 4′), and `origin` only
+// when the copy that lays the payload is a local one (the dashboard spec,
+// contract 21): a registry copy's field is the six keys it always had.
+export function registrationManifest(s, { pkg, projectDir, disabled = [], digest = null, origin = null }) {
   return {
     name: s.marketplace_name,
     description:
@@ -607,8 +610,22 @@ export function registrationManifest(s, { pkg, projectDir, disabled = [], digest
         source: `./${s.plugin_subdir}`,
       },
     ],
-    [s.provenance_key]: { grammar: GRAMMAR_VERSION, pkg, project: projectDir, generator: GENERATOR, disabled, digest },
+    [s.provenance_key]: {
+      grammar: GRAMMAR_VERSION,
+      pkg,
+      project: projectDir,
+      generator: GENERATOR,
+      disabled,
+      digest,
+      ...(origin === "local" ? { origin } : {}),
+    },
   };
+}
+
+// The field without `origin`, every other key as it stands.
+function withoutOrigin(prov) {
+  const { origin: _origin, ...rest } = prov || {};
+  return rest;
 }
 
 // Inside a live session of the host, its CLI and the session both rewrite the
@@ -913,11 +930,36 @@ function planRegistration(ctx, key, s) {
     silenced: ["current", "stale"].includes(a.state) ? a.dir.disabled.filter((k) => a.disabledHere.includes(k)) : [],
   };
 
+  // The origin the field records (the install spec, contract 2; the dashboard
+  // spec, contract 21): `origin: "local"` is written with a payload laid from a
+  // local copy, and dropped, manifest only, by a run from a copy that is not
+  // local over a payload byte-equal to its own: those bytes are this copy's.
+  const ownOrigin = payloadOrigin(root, { home });
+  const dropOrigin =
+    ownOrigin !== "local" && a.dir.prov?.origin === "local" && a.dir.pkg === a.pkg && a.contentDiffers === false;
+  const prov0 = dropOrigin ? withoutOrigin(a.dir.prov) : a.dir.prov;
+  const dropWhy = `the directory's payload is this package's, byte for byte, so its field no longer says a local copy wrote it`;
+
   if (a.state === "current") {
     // A directory and row newer than this package: rung 12, not downgraded,
     // and — when the run proceeds — which case it was (rule 6).
     const newerCase = a.newer ? proceedCase(ctx.convergence, a.dir.pkg) : null;
-    items.push({ ...base, action: "skip", ...(newerCase ? { reason: `${a.reason}; ${newerCase}` } : {}) });
+    if (dropOrigin)
+      items.push({
+        ...base,
+        action: "update",
+        steps: [
+          {
+            kind: "write",
+            path: a.paths.dir,
+            files: 0,
+            manifestOnly: true,
+            manifest: { ...a.dir.manifest, [s.provenance_key]: prov0 },
+            why: dropWhy,
+          },
+        ],
+      });
+    else items.push({ ...base, action: "skip", ...(newerCase ? { reason: `${a.reason}; ${newerCase}` } : {}) });
   } else {
     const steps = [];
     // The directory is rewritten when it is missing, older than this package or
@@ -937,7 +979,7 @@ function planRegistration(ctx, key, s) {
         kind: "write",
         path: a.paths.dir,
         files,
-        manifest: registrationManifest(s, { pkg: a.pkg, projectDir, disabled, digest }),
+        manifest: registrationManifest(s, { pkg: a.pkg, projectDir, disabled, digest, origin: ownOrigin }),
         why: a.dir.present
           ? `the directory is rewritten from this package (${a.dir.pkg} → ${a.pkg}${a.dir.digestOk === false ? ", the payload did not match its digest" : sameVersionDiffers ? ", same version, different content" : ""})`
           : `the marketplace directory is written from this package's ${files} shipped files, staged and renamed into place`,
@@ -947,14 +989,18 @@ function planRegistration(ctx, key, s) {
         kind: "note",
         why: `the directory holds ${a.dir.pkg}${a.writtenBy ? ` (written from ${a.writtenBy})` : ""}, newer than this package (${a.pkg}); this checkout registers ${a.dir.pkg} — not downgraded`,
       });
-    else if (a.others.some((o) => !a.dir.disabled.includes(o.key)))
+    else if (a.others.some((o) => !a.dir.disabled.includes(o.key)) || dropOrigin)
+      // One manifest-only write for both records: two, each built from the
+      // field on disk, would overwrite each other.
       steps.push({
         kind: "write",
         path: a.paths.dir,
         files: 0,
         manifestOnly: true,
-        manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled } },
-        why: "our manifest records what install silences, so uninstall can turn it back on",
+        manifest: { ...a.dir.manifest, [s.provenance_key]: { ...prov0, disabled } },
+        why: a.others.some((o) => !a.dir.disabled.includes(o.key))
+          ? `our manifest records what install silences, so uninstall can turn it back on${dropOrigin ? `; ${dropWhy}` : ""}`
+          : dropWhy,
       });
     steps.push(
       hostStep(
@@ -1054,7 +1100,7 @@ function planRegistration(ctx, key, s) {
         path: a.paths.dir,
         files: 0,
         manifestOnly: true,
-        manifest: { ...a.dir.manifest, [s.provenance_key]: { ...a.dir.prov, disabled: [...a.dir.disabled, o.key] } },
+        manifest: { ...a.dir.manifest, [s.provenance_key]: { ...prov0, disabled: [...a.dir.disabled, o.key] } },
         why: "our manifest records what install silences, so uninstall can turn it back on",
       });
     steps.push(

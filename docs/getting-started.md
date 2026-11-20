@@ -83,7 +83,7 @@ You should see `projectstore` (displayName) with prefix `projectstore`.
    /projectstore:scaffold
    ```
 
-   Creates whichever of `adr/`, `specs/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`, their `README.md` indexes and the top-level `README.md` are missing, in the vault's language, and never rewrites a file that is there. The layout is the binding's. From a terminal:
+   Creates whichever of `adr/`, `specs/`, `initiatives/`, `epics/`, `research/`, `concepts/`, `meetings/`, `ops/`, `diagrams/`, their `README.md` indexes and the top-level `README.md` are missing, in the vault's language, and never rewrites a file that is there. The layout is the binding's. From a terminal:
 
    ```bash
    npx projectstore scaffold --write
@@ -122,6 +122,7 @@ The README's [Configure](../README.md#configure) section lists what each setting
 /projectstore:bar status                                  # the band above the prompt: on/off, a pinned epic, why it is not drawing
 /projectstore:precommit                                   # before a vault commit: which changed files are this session's own
 /projectstore:follow                                      # move stories as their pull requests merge, close or go stale
+/projectstore:groom                                       # weekly pass: stale ToDo back to the backlog, one-story epics to the librarian
 ```
 
 ## How approval works

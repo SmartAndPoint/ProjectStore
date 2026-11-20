@@ -328,6 +328,10 @@ export async function runHandover(ctx) {
 
   // The derived views, once, also when no story was written: a second run
   // finishes what a failed first one left.
+  // The band's WIP count, once per run, before the views; to this run's own
+  // project, never one from the environment (the band-wip spec, contract 7).
+  const { refreshWip } = await import("./band-wip.mjs");
+  refreshWip({ project, cfg, env, read });
   const { refreshViews } = await import("./reconcile.mjs");
   // The generators find the binding through the project's own environment,
   // never through the caller's working directory.

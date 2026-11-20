@@ -1,6 +1,6 @@
 ---
 guide_for: spec
-guide_version: 2
+guide_version: 3
 default_review: true
 ---
 
@@ -22,6 +22,7 @@ The systems analyst who writes the contract a test can be written from before th
 - No contract or step number is reused: ADDED takes the highest number in the file, removed contracts included, plus one; REMOVED keeps the number and heading with the body `Removed, see below.`, and a removed step stays as `N. Removed, see below.`
 - Under MODIFIED the body is rewritten to the text in force, and the block quotes the text it replaced; a change written only in the block, over an unchanged body, fails.
 - The first marker under a contract folds that contract's older blocks into the body without changing their meaning, and quotes them inside its own block.
+- A spec with a `parent:` sits in a spec tree; a parent states a child's rule only by citing the child's contract token (`[<key>#<n>]`), never by restating it.
 
 ## Common mistakes
 

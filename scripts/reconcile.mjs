@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // projectstore — reconcile.mjs
 // Re-derives every derived view from the vault's source of truth:
-// kanban.md, folder-index README tables, code-map.md, graph.md. Hand-edits
-// therefore can never *permanently* desync the views (PS-IMPROVE story-002,
+// kanban.md, folder-index README tables, code-map.md, graph.md, flow.md and,
+// once it exists, spec-tree.md. Hand-edits therefore can never *permanently*
+// desync the views (PS-IMPROVE story-002,
 // ADR-004/005: vault-side repairs belong to reconcile, not doctor --fix).
 //
 // Two modes (spec: atomic-regeneration-of-derived-views):
@@ -19,12 +20,16 @@
 //     iff a selected target failed, so a cron caller notices. Headless use
 //     is sanctioned by ADR-009 ("reconcile as a scheduled repair job").
 //
-// --only <sel>[,…] limits either mode to: kanban | codemap | graph |
-//   indexes | indexes=<folder-path>. Unknown selectors, and explicitly
-//   *named* targets the layout or vault cannot provide, die loudly — a
-//   typo'd cron job must not silently reconcile nothing. Bare invocation
+// --only <sel>[,…] limits either mode to: kanban | codemap | graph | flow |
+//   spectree | indexes | indexes=<folder-path>. Unknown selectors, and
+//   explicitly *named* targets the layout or vault cannot provide, die loudly
+//   — a typo'd cron job must not silently reconcile nothing. Bare invocation
 //   (and the class-wide `indexes`) keeps the silent-skip behaviour for
-//   absent targets.
+//   absent targets; it skips an absent flow.md without building it, as it
+//   skips an absent graph.md (the flow-view spec, contract 9). spectree is
+//   the exception both ways (the spec tree spec, contract 8): only
+//   `--only spectree` creates spec-tree.md, and once it exists every
+//   selection, bare or not, keeps it fresh.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, basename, relative } from "node:path";
@@ -80,6 +85,9 @@ const normalize = (s) =>
 
 const errMsg = (e) => String((e && e.message) || e);
 
+// The spec tree needs a spec folder, as the board needs a kanban.
+const hasSpecs = (layout) => layout.folders.some((f) => f.kind === "spec");
+
 // Which targets does this invocation cover? Pure over the layout so the
 // kanban-less-layout branch is testable without a fake plugin root.
 // Returns {error} on a selector the layout cannot satisfy. `named` marks an
@@ -87,7 +95,15 @@ const errMsg = (e) => String((e && e.message) || e);
 // cannot provide them; the class-wide selectors skip, like bare invocation.
 export function resolveSelection(layout, onlyRaw) {
   const validSelectors = () =>
-    [layout.kanban ? "kanban" : null, "codemap", "graph", "indexes", ...layout.folders.map((f) => `indexes=${f.path}`)]
+    [
+      layout.kanban ? "kanban" : null,
+      "codemap",
+      "graph",
+      layout.flow ? "flow" : null,
+      hasSpecs(layout) ? "spectree" : null,
+      "indexes",
+      ...layout.folders.map((f) => `indexes=${f.path}`),
+    ]
       .filter(Boolean)
       .join(", ");
   if (onlyRaw == null) {
@@ -96,10 +112,20 @@ export function resolveSelection(layout, onlyRaw) {
       kanban: true,
       codemap: true,
       graph: true,
+      flow: true,
+      spectree: false,
       indexes: layout.folders.map((f) => ({ path: f.path, named: false })),
     };
   }
-  const sel = { explicit: true, kanban: false, codemap: false, graph: false, indexes: [] };
+  const sel = {
+    explicit: true,
+    kanban: false,
+    codemap: false,
+    graph: false,
+    flow: false,
+    spectree: false,
+    indexes: [],
+  };
   const parts = String(onlyRaw)
     .split(",")
     .map((s) => s.trim())
@@ -118,6 +144,14 @@ export function resolveSelection(layout, onlyRaw) {
       // Valid on every layout: the graph's node universe is whatever
       // artifact kinds the layout declares — there is no layout without one.
       sel.graph = true;
+    } else if (raw === "flow") {
+      if (!layout.flow) return { error: `layout declares no flow view block — valid: ${validSelectors()}` };
+      sel.flow = true;
+    } else if (raw === "spectree") {
+      if (!hasSpecs(layout)) {
+        return { error: `layout has no spec folder, so there is no spec tree — valid: ${validSelectors()}` };
+      }
+      sel.spectree = true;
     } else if (raw === "indexes") {
       // Merge, never assign: `indexes=adr,indexes` must keep adr's named
       // loudness rather than silently demoting it to a skippable member.
@@ -163,7 +197,7 @@ const SKIP = {
       : null,
 };
 
-// Compute one generator-backed target (kanban, code-map, graph).
+// Compute one generator-backed target (kanban, code-map, graph, flow).
 // `fallbackPath` keeps the report shape ({path, …}) even when the generator
 // itself failed and never told us where its target lives.
 function derivedTarget(script, explicit = false, fallbackPath = null) {
@@ -383,6 +417,38 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
       ? applyDerived("graph.mjs", sel.explicit, graphPath)
       : derivedTarget("graph.mjs", sel.explicit, graphPath);
 
+  // The flow page (the flow-view spec, contract 9): a bare run skips an
+  // absent flow.md before it spawns the generator, so a verb's refresh on a
+  // vault that never made the page builds nothing; --only flow creates it.
+  const flowPath = views.flow ? join(cfg.vault_path, views.flow) : null;
+  if (!sel.flow) out.flow = { skipped: "not selected" };
+  else if (!flowPath) out.flow = { skipped: "layout has no flow" };
+  else if (!sel.explicit && !existsSync(flowPath))
+    out.flow = {
+      path: flowPath,
+      changed: false,
+      ...(write ? { written: false } : {}),
+      skipped: `${views.flow} does not exist yet — create it explicitly (--only flow)`,
+    };
+  else
+    out.flow = write
+      ? applyDerived("flow-view.mjs", sel.explicit, flowPath)
+      : derivedTarget("flow-view.mjs", sel.explicit, flowPath);
+  // spec-tree.md (the spec tree spec, contract 8): named, it is created;
+  // present, it is kept fresh under every selection; else it is left absent.
+  const treePath = join(cfg.vault_path, views.specTree);
+  if (sel.spectree || existsSync(treePath))
+    out.spectree = write
+      ? applyDerived("spec-tree-view.mjs", true, treePath)
+      : derivedTarget("spec-tree-view.mjs", true, treePath);
+  else if (sel.explicit) out.spectree = { skipped: "not selected" };
+  else
+    out.spectree = {
+      path: treePath,
+      changed: false,
+      skipped: `${views.specTree} does not exist yet — create it explicitly (--only spectree)`,
+    };
+
   out.indexes = [];
   for (const { path: folderPath, named } of sel.indexes) {
     const folder = layout.folders.find((f) => f.path === folderPath);
@@ -431,7 +497,7 @@ export function runReconcile({ write = false, only = null, projectDir = null, en
     }
   }
 
-  const all = [out.kanban, out.codemap, out.graph, ...out.indexes];
+  const all = [out.kanban, out.codemap, out.graph, out.flow, out.spectree, ...out.indexes];
   // `failed` is reported in BOTH modes — a compute-mode generator error must
   // be visible in the summary, not buried in a target the prose's "changed
   // targets" preview never lists. Exit-code policy stays write-scoped
@@ -457,7 +523,14 @@ export function refreshViews({ project, env }) {
   } catch (e) {
     rec = { error: errMsg(e) };
   }
-  const failedViews = [rec.kanban, rec.codemap, rec.graph, ...(Array.isArray(rec.indexes) ? rec.indexes : [])]
+  const failedViews = [
+    rec.kanban,
+    rec.codemap,
+    rec.graph,
+    rec.flow,
+    rec.spectree,
+    ...(Array.isArray(rec.indexes) ? rec.indexes : []),
+  ]
     .filter((t) => t && t.error)
     .map((t) => `${t.path ? relative(project, t.path) || t.path : "a view"}: ${t.error}`);
   const error = rec.error || (failedViews.length ? failedViews.join("; ") : null);

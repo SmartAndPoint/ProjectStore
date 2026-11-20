@@ -1,5 +1,5 @@
 ---
-description: Regenerate code-map.md (epic ↔ code overview) from frontmatter code_refs, or set an artifact's code_refs. The command is the write path — planner/reviewer only propose refs.
+description: Regenerate code-map.md (epic ↔ code overview) from frontmatter code_refs, or set an artifact's code_refs. This command and a story's close write refs — planner/reviewer only propose them.
 argument-hint: "[set <epic-id | story-path> <ref> [ref…]]"
 ---
 
@@ -15,6 +15,9 @@ You are managing the epic↔code mapping (ADR-004).
    ```
 
    The `codemap` entry carries `{ path, changed, content?, stats }`.
+   Once `spec-tree.md` exists, a `spectree` entry comes too: every reconcile
+   keeps that view fresh, so when its `changed` is true, show it in the preview
+   as well; the write below rewrites it with the rest.
 3. Show `stats` (epics, epics_with_refs, story_rows) + first ~15 lines of
    `content` when changed.
 4. **Approval** via AskUserQuestion: Yes / No (disclose: content is recomputed
@@ -27,7 +30,7 @@ You are managing the epic↔code mapping (ADR-004).
 
    Explicit selection writes the map even on a vault with no `code_refs` yet.
    Render the report's `codemap` entry; nonzero exit — surface the `error`.
-5. Suggest: "Refs are set via `codemap set`; reviewer proposes updates at story completion."
+5. Suggest: "A story's close writes its refs and widens its epic's; `codemap set` changes or removes them."
 
 ## `codemap set <target> <ref…>` — update frontmatter (the write path)
 
@@ -47,4 +50,7 @@ You are managing the epic↔code mapping (ADR-004).
   overall footprint. Doctor checks story ⊆ epic and path existence
   (status-aware). `reconcile` also regenerates the view.
 - Never write refs without approval; never let an agent edit them directly —
-  planner/reviewer *propose*, this command *writes*.
+  planner/reviewer *propose*; this command and a story's close *write*, each
+  behind its approval (`/projectstore:story close` adds the files of the
+  story's pull request, through `close-refs`, and widens the epic's footprint).
+  A close only adds; this command is the way to change or remove a ref.

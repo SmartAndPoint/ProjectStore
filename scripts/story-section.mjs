@@ -7,9 +7,22 @@
 // plan|close. Pure compute, models reconcile.mjs rebuildIndex: reads the
 // original, splices the managed pieces, returns {path, changed, content,
 // notes} on stdout — the COMMAND writes after approval, never this script.
+// Both gates also print `marked` (the files a create or an edit verb wrote
+// that no review has cleared: on a plan the story, its epic and the epic's
+// initiative, on a close the story; [] with the gates off) and `outside`
+// (the story is not inside the bound vault's folder): the create spec,
+// contract 8.
 //
 //   node story-section.mjs plan  <story-path> [--reason "<why>"] [--actor <actor>] [--over-wip]
 //   node story-section.mjs close <story-path> [--reason "<why>"] [--actor <actor>] [--at <instant>]
+//                                [--code-refs-file <path>]
+//
+// --code-refs-file (close only; the close-refs ADR, decision 1, and SPEC-001
+// contract 7 as amended by PS-SPECTREE/story-every-close-path-writes-the-
+// storys-coderefs): a JSON list of refs appended to the story's code_refs in
+// its order, those it holds skipped, as one JSON line. Given refs, a story's
+// or its epic's non-empty code_refs that is not a one-line JSON list is the
+// finding code-refs-unreadable: exit 1, nothing on stdout.
 //
 // plan  — ensures a `## Implementation Plan` section exists (inserted with a
 //         placeholder; the agent fills it in the preview before approval),
@@ -50,8 +63,8 @@
 // Timestamps are written UNCONDITIONALLY of lifecycle_gates: the gates key
 // controls checks and prompts, never the data that other predicates need.
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   readConfig,
@@ -62,6 +75,10 @@ import {
   today,
   commandForm,
   listOf,
+  lifecycleGatesOn,
+  loadLayout,
+  folderByKind,
+  vaultLocation,
 } from "./lib.mjs";
 import {
   setFm,
@@ -74,9 +91,89 @@ import {
   checkActor,
   sameStatus,
   stampMs,
+  refsLineOf,
+  addRefs,
 } from "./status-log.mjs";
+import { epicFileOf, CODE_REFS_UNREADABLE } from "./status-change.mjs";
 import { wipOnStart } from "./next.mjs";
 import { flowAt, flowPeople } from "./flow-policy.mjs";
+import { isMarked } from "./verb-mark.mjs";
+import { initiativeIndex, referenceOf, resolveInitiative } from "./initiative.mjs";
+
+// ─── The not-reviewed mark (the create spec, contract 8) ──────────────
+
+// A path with symbolic links resolved: its nearest existing ancestor's real
+// path, then the rest as written.
+function realOf(p) {
+  let base = resolve(p);
+  const rest = [];
+  for (;;) {
+    try {
+      return join(realpathSync(base), ...rest.reverse());
+    } catch {
+      const up = dirname(base);
+      if (up === base) return resolve(p);
+      rest.push(basename(base));
+      base = up;
+    }
+  }
+}
+
+const fmOf = (abs) => {
+  try {
+    return parseFrontmatter(readFileSync(abs, "utf8")).data;
+  } catch {
+    return null;
+  }
+};
+
+// The files a gate reviews before it goes on: on a plan the story, its epic
+// and the epic's initiative that hold the mark, on a close the story alone,
+// as paths relative to the vault copy the story lives in; [] when the vault's
+// gates are off. `outside` is true when the story is not inside the bound
+// vault's folder, links resolved in both. Reads, writes nothing.
+export function markedFor(abs, mode, cfg) {
+  const real = realOf(cfg.vault_path || "");
+  const outside = !cfg.vault_path || !realOf(abs).startsWith(real + sep);
+  if (!cfg.vault_path || !lifecycleGatesOn(readVaultConfig(cfg.vault_path))) return { marked: [], outside };
+  const loc = vaultLocation(abs, cfg.vault_path);
+  const root = loc ? loc.root : resolve(cfg.vault_path);
+  const rel = (p) => relative(root, p).split(sep).join("/");
+  const marked = [];
+  if (isMarked(fmOf(abs))) marked.push(rel(abs));
+  if (mode !== "plan") return { marked, outside };
+  // The epic: the nearest epic.md above the story.
+  let dir = dirname(abs);
+  let epic = null;
+  while (dir.startsWith(root) && dir !== root) {
+    if (existsSync(join(dir, "epic.md"))) {
+      epic = join(dir, "epic.md");
+      break;
+    }
+    dir = dirname(dir);
+  }
+  const epicFm = epic ? fmOf(epic) : null;
+  if (epic && isMarked(epicFm)) marked.push(rel(epic));
+  // The initiative the epic names, by the initiative spec's one id rule.
+  let folder = null;
+  try {
+    folder = folderByKind(loadLayout(cfg.layout || "engineering"), "initiative");
+  } catch {}
+  if (epicFm && folder) {
+    const items = [];
+    try {
+      for (const n of readdirSync(join(root, folder.path)).filter(
+        (x) => x.endsWith(".md") && x.toLowerCase() !== "readme.md",
+      )) {
+        const f = fmOf(join(root, folder.path, n));
+        if (f) items.push({ rel: `${folder.path}/${n}`, fm: f });
+      }
+    } catch {}
+    const hit = resolveInitiative(initiativeIndex(items), referenceOf(epicFm.initiative));
+    if (hit && isMarked(hit.fm)) marked.push(hit.rel);
+  }
+  return { marked, outside };
+}
 
 function die(msg) {
   process.stderr.write(`projectstore/story-section: ${msg}\n`);
@@ -128,14 +225,33 @@ const GATE_DEFAULTS = {
 // accepted only from the actor `follow` (the event time of a merge, read by
 // the stamp reader and written in nowIso() form), any other caller closes at
 // the run time. Pure but for that default clock.
+// `codeRefs` (the close-refs ADR, decision 1): the story's code_refs become
+// its own followed by each given ref it does not hold, in the given order, as
+// one JSON line; none given, or an empty list, leaves the line byte-identical.
+// With refs given, a story's or an epic's (`epicText`, when the caller read
+// it) non-empty code_refs that is not a one-line JSON list throws the
+// finding `code-refs-unreadable` (error.code), and nothing is computed.
 // Returns {text, changed, notes}.
-export function computeClose(text, { reason, actor, at, day, lang = "en" } = {}) {
+export { CODE_REFS_UNREADABLE };
+export function computeClose(text, { reason, actor, at, day, lang = "en", codeRefs = null, epicText = null } = {}) {
   const why = reason === undefined || reason === null ? GATE_DEFAULTS.close.reason : oneLine(reason, "--reason");
   const who = actor === undefined || actor === null ? GATE_DEFAULTS.close.actor : checkActor(actor);
   const given = at !== undefined && at !== null;
   if (given && who !== "follow") throw new Error("an event time (--at) is accepted only with --actor follow");
   const ms = given ? stampMs(at) : null;
   if (given && ms === null) throw new Error(`the event time is not an instant: ${JSON.stringify(at)}`);
+  const refs = Array.isArray(codeRefs) ? codeRefs : [];
+  if (refs.length) {
+    const unreadable = (whose) =>
+      Object.assign(
+        new Error(
+          `${CODE_REFS_UNREADABLE}: ${whose} code_refs is not a one-line JSON list, such as code_refs: ["src/a.mjs"], so the refs cannot be added; nothing is written. Write it in that form, then run the close again.`,
+        ),
+        { code: CODE_REFS_UNREADABLE },
+      );
+    if (!refsLineOf(text).readable) throw unreadable("the story's");
+    if (typeof epicText === "string" && !refsLineOf(epicText).readable) throw unreadable("its epic's");
+  }
   const when = given ? new Date(ms).toISOString() : nowIso();
   const fm = parseFrontmatter(text).data;
   const status = String(fm.status || "").toLowerCase();
@@ -157,6 +273,11 @@ export function computeClose(text, { reason, actor, at, day, lang = "en" } = {})
     t = setFm(t, "closed_at", JSON.stringify(when));
     notes.push("stamped closed_at");
   }
+  if (refs.length) {
+    const a = addRefs(t, refs);
+    t = a.text;
+    if (a.added.length) notes.push(`code_refs: added ${a.added.length}`);
+  }
   t = touchStory(t, day === undefined || day === null ? today() : day);
   return { text: t, changed: t !== text, notes };
 }
@@ -171,6 +292,21 @@ function eventTime(at, mode, actor) {
   return new Date(ms).toISOString();
 }
 
+// The refs a close adds, from --code-refs-file: a JSON list of strings, the
+// one file every run of one close passes (the preview, the drift re-run and
+// the clerk's --check). Anything else exits 1.
+function readRefsFile(path) {
+  let list;
+  try {
+    list = JSON.parse(readFileSync(resolve(path), "utf8"));
+  } catch (e) {
+    die(`--code-refs-file ${path} is not readable as JSON: ${e && e.message ? e.message : String(e)}`);
+  }
+  if (!Array.isArray(list) || !list.every((x) => typeof x === "string" && x.trim()))
+    die(`--code-refs-file ${path} is not a JSON list of paths, such as ["src/a.mjs"]`);
+  return list.map((x) => x.trim());
+}
+
 function gate() {
   const argv = process.argv.slice(2);
   let checkPath = null;
@@ -179,6 +315,7 @@ function gate() {
   let actor = null;
   let at = null;
   let overWip = false;
+  let refsFile = null;
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -193,16 +330,21 @@ function gate() {
     else if (a === "--at") at = argv[++i] ?? "";
     else if (a.startsWith("--at=")) at = a.slice("--at=".length);
     else if (a === "--over-wip") overWip = true;
+    else if (a === "--code-refs-file") refsFile = argv[++i] ?? "";
+    else if (a.startsWith("--code-refs-file=")) refsFile = a.slice("--code-refs-file=".length);
     else positional.push(a);
   }
   if (checkPath === undefined || checkPath === "") die("--check requires a value");
   const [mode, storyPath] = positional;
   if (!["plan", "close"].includes(mode) || !storyPath) {
     die(
-      'usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"] [--reason "<why>"] [--actor <actor>] [--at <instant>] [--over-wip]',
+      'usage: story-section.mjs <plan|close> <story-path> [--check <baseline-file>] [--no-spec "<reason>"] [--reason "<why>"] [--actor <actor>] [--at <instant>] [--over-wip] [--code-refs-file <path>]',
     );
   }
   if (overWip && mode !== "plan") die("--over-wip is accepted on plan only");
+  if (refsFile !== null && mode !== "close") die("--code-refs-file is accepted on close only");
+  if (refsFile === "") die("--code-refs-file requires a path");
+  const codeRefs = refsFile === null ? [] : readRefsFile(refsFile);
   // One reason and one actor serve every line this run appends (contract 7).
   let why = reason === null ? GATE_DEFAULTS[mode].reason : oneLine(reason, "--reason");
   const who = actor === null ? GATE_DEFAULTS[mode].actor : checkActor(actor);
@@ -310,7 +452,19 @@ function gate() {
     text = touchStory(text, today());
   } else {
     // The run time, unless follow passed the merge's event time.
-    const c = computeClose(text, { reason: why, actor: who, at: event ?? undefined, day: today(), lang });
+    // The epic is read only when refs are given: its code_refs must be
+    // readable too, or the close is refused (the close-refs ADR, decision 1).
+    const epic = codeRefs.length ? epicFileOf(abs) : null;
+    const epicText = epic && existsSync(epic) ? readFileSync(epic, "utf8") : null;
+    const c = computeClose(text, {
+      reason: why,
+      actor: who,
+      at: event ?? undefined,
+      day: today(),
+      lang,
+      codeRefs,
+      epicText,
+    });
     text = c.text;
     notes.push(...c.notes);
   }
@@ -349,6 +503,7 @@ function gate() {
     }
     check = { baseline: resolve(checkPath), match: a === b, drift };
   }
+  const mark = markedFor(abs, mode, cfg);
 
   process.stdout.write(
     JSON.stringify(
@@ -358,6 +513,8 @@ function gate() {
         changed: text !== original,
         check,
         ...(mode === "plan" ? { wip } : {}),
+        marked: mark.marked,
+        outside: mark.outside,
         notes,
         content: text,
       },

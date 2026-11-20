@@ -31,6 +31,7 @@
   "band_step_runs": "运行",
   "band_step_web": "搜索网页",
   "band_step_vault": "查询仓库：",
+  "band_wip": "WIP",
   "folders": {
     "adr": {
       "name": "ADR",
@@ -39,6 +40,10 @@
     "spec": {
       "name": "规格",
       "description": "各子系统规范性的“如何做” — ADR 引用、编号的行为契约，以及在所覆盖 story 的验收之外追加的验收。"
+    },
+    "initiative": {
+      "name": "倡议",
+      "description": "倡议 — 多个 epic 共同服务的成果，附所作决定：提议、接受、拒绝或搁置。"
     },
     "epic": {
       "name": "Epic",
