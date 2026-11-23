@@ -27,12 +27,16 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { statusToColumn } from "../scripts/stages.mjs";
-import { WRITE_ROUTES, CODE_ROUTE } from "../dashboard/server.mjs";
+import { WRITE_ROUTES, CODE_ROUTE, BASE_ROUTE } from "../dashboard/server.mjs";
 import { WRITE_VERBS } from "../dashboard/lib/write.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = join(REPO, "dashboard");
+// The editor's sources and build tools (dashboard-editor), and the one file they build.
+const EDITOR_SRC = join(PAGE, "editor");
+const EDITOR_BUNDLE = join(PAGE, "public", "editor.bundle.js");
+const EDITOR_NOTICES = join(PAGE, "THIRD-PARTY-NOTICES.txt");
 const SERVER = join(PAGE, "server.mjs");
 const BIN = join(REPO, "bin", "projectstore.mjs");
 
@@ -262,6 +266,7 @@ test("dashboard page: no file of the page but its write module starts a process 
   const walk = (d) => {
     for (const name of readdirSync(d)) {
       const p = join(d, name);
+      if (p === EDITOR_SRC) continue; // the editor's sources and build, not the page's (dashboard-editor)
       if (statSync(p).isDirectory()) walk(p);
       else if (/\.(mjs|js)$/.test(name)) files.push(p);
     }
@@ -304,7 +309,7 @@ test("dashboard page: no file of the page but its write module starts a process 
   }
 });
 
-test("dashboard page: the page imports only the core modules the spec lists, and stays under 512 KiB", () => {
+test("dashboard page: the page imports only the core modules the spec lists, and stays under 512 KiB, the editor's bundle under 768 KiB", () => {
   const LISTED = new Set([
     "lib.mjs",
     "stages.mjs",
@@ -318,14 +323,19 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "follow-plan.mjs",
     "code-refs.mjs",
     "spec-drift.mjs",
+    // The editor (dashboard-editor): the edit verb's own cut and hash.
+    "edit-cut.mjs",
   ]);
   const seen = new Set();
   let size = 0;
+  let bundle = 0;
   const walk = (d) => {
     for (const name of readdirSync(d)) {
       const p = join(d, name);
+      if (p === EDITOR_SRC) continue; // not shipped (dashboard-editor)
       const st = statSync(p);
       if (st.isDirectory()) walk(p);
+      else if (p === EDITOR_BUNDLE || p === EDITOR_NOTICES) bundle += st.size;
       else {
         size += st.size;
         if (!/\.(mjs|js)$/.test(name)) continue;
@@ -349,7 +359,12 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "no core module beyond the list",
   );
   assert.ok(seen.size >= 5, `the bridge names the core's modules (${[...seen].join(", ")})`);
-  assert.ok(size < 512 * 1024, `dashboard/ is ${Math.round(size / 1024)} KiB`);
+  assert.ok(size < 512 * 1024, `dashboard/ is ${Math.round(size / 1024)} KiB, the editor's bundle aside`);
+  // The editor is one built file of its own, with its notices, under a budget of their own (dashboard-editor).
+  assert.ok(
+    bundle > 0 && bundle < 768 * 1024,
+    `public/editor.bundle.js and its notices are ${Math.round(bundle / 1024)} KiB`,
+  );
 });
 
 // [dashboard#11]
@@ -848,6 +863,17 @@ test("dashboard page: write.js sends every POST with the run's token, and only w
       continue;
     }
     assert.ok(!src.includes(CODE_ROUTE), `${f} names ${CODE_ROUTE}`);
+    // [dashboard-editor#6] The editor's base: item.js's one POST, to its own route, with the token.
+    if (f === "item.js") {
+      assert.equal([...src.matchAll(/\bfetch\([^)]*method/g)].length, 1, "item.js has one POST, the base");
+      assert.match(src, /const BASE_ROUTE = "\/api\/base"/);
+      assert.match(
+        src,
+        /fetch\(BASE_ROUTE, \{ method: "POST", headers: \{ "content-type": "application\/json", "x-projectstore-token": token \}/,
+      );
+      continue;
+    }
+    assert.ok(!src.includes(BASE_ROUTE), `${f} names ${BASE_ROUTE}`);
     assert.doesNotMatch(src, /fetch\([^)]*method/, `${f} fetches with a method`);
   }
 });

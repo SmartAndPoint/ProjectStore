@@ -1302,7 +1302,9 @@ const filesUnder = (rel) =>
     : readdirSync(join(ROOT, rel))
         .sort()
         .flatMap((n) => filesUnder(`${rel}/${n}`));
-const readOnlyFiles = () => READ_ONLY_SCOPE.flatMap(filesUnder).filter((f) => !BINARY.test(f));
+// The editor's build tools and the file they build hold CodeMirror's own words, not the page's (dashboard-editor).
+const NOT_TEXT = (f) => f.includes("/node_modules/") || f === "dashboard/public/editor.bundle.js";
+const readOnlyFiles = () => READ_ONLY_SCOPE.flatMap(filesUnder).filter((f) => !BINARY.test(f) && !NOT_TEXT(f));
 const READ_ONLY_LINES = () => JSON.parse(readFileSync(join(ROOT, "tests", "fixtures", "read-only-lines.json"), "utf8"));
 // Every line of `files` ([rel, text]) the rule finds that `allowed` does not
 // list, and every listed line no file holds any more.

@@ -732,14 +732,14 @@ function initiativeVerb(name) {
   };
 }
 
-// create and reviewed (the create spec, contracts 1 to 6): one module,
+// create, edit and reviewed (the create spec, contracts 1 to 6; the edit spec): one module,
 // loaded on first use, with move's question asked once — a terminal is asked,
 // and without one, or under --json, --write is the confirmation. No hook and
 // no MCP module reaches it.
 function itemVerb(name) {
   return async (ctx) => {
     const mod = await import("./item-verbs.mjs");
-    const runVerb = name === "reviewed" ? mod.runReviewed : mod.runCreate;
+    const runVerb = name === "reviewed" ? mod.runReviewed : name === "edit" ? mod.runEdit : mod.runCreate;
     const { row, values, project, env, stdin, stdout, stderr, ask } = ctx;
     const r = await runVerb({
       ...ctx,
@@ -1069,6 +1069,7 @@ export const HANDLERS = Object.freeze({
   epic: initiativeVerb("epic"),
   create: itemVerb("create"),
   reviewed: itemVerb("reviewed"),
+  edit: itemVerb("edit"),
   rank: runRankVerb,
   follow: runFollowVerb,
   "close-refs": runCloseRefsVerb,

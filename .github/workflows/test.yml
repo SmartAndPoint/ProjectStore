@@ -95,3 +95,30 @@ jobs:
 
       - name: Formatting
         run: npm run format:check
+
+  # The dashboard's editor (the spec "The dashboard's editor…"): CodeMirror and
+  # esbuild pinned in dashboard/editor/, a package of its own with its own
+  # committed lockfile, so neither the plugin root nor the published dashboard
+  # package carries one. The committed bundle must be what its sources build to,
+  # and the editor's own checks (the list keys and the change marks) run here,
+  # since they import CodeMirror and the test job above installs nothing.
+  editor:
+    runs-on: ubuntu-latest
+    name: dashboard editor (node 24)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install the editor's build tools (npm ci in dashboard/editor)
+        run: npm ci --prefix dashboard/editor
+
+      - name: The committed bundle is what the sources build to
+        run: npm run check --prefix dashboard/editor
+
+      - name: The editor's checks (list keys, change marks)
+        run: npm test --prefix dashboard/editor

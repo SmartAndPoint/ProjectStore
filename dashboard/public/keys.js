@@ -109,6 +109,7 @@ function rootLevel(q) {
     cmd("Choose my name…", null, { group: "Settings", kw: "who am i me person", children: () => [...new Set([...S.people.filter((p) => p.kind === "person").map((p) => p.name), ...(S.me ? [S.me] : [])])].map((n) => cmd(n, () => setMe(n), { mark: n === ui.me })) }),
     cmd("Read the vault again", load, { group: "Settings", key: "R" }),
     cmd("Keyboard shortcuts", showKeys, { group: "Settings", key: "?" }),
+    ...(typeof selfTestDialog === "function" ? [cmd("Check the editor", selfTestDialog, { group: "Settings", hint: "types, pastes and removes text in the open item, then puts it back; nothing is saved", kw: "test self check" })] : []),
   );
   if (q.trim().length >= 2) {
     // The same word for a state as the tree and the panel use.

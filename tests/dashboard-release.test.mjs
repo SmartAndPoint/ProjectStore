@@ -72,7 +72,7 @@ test("dashboard release: dashboard/package.json is a public package of the core'
   assert.equal(PKG.name, PAGE_PACKAGE);
   assert.equal(PKG.version, ROOT_PKG.version, "one version");
   assert.equal(PKG.private, undefined, "not private");
-  assert.deepEqual(PKG.files, ["server.mjs", "lib/", "public/"]);
+  assert.deepEqual(PKG.files, ["server.mjs", "lib/", "public/", "THIRD-PARTY-NOTICES.txt"]);
   for (const k of [
     "bin",
     "dependencies",
@@ -104,7 +104,9 @@ test("dashboard release: npm pack in dashboard/ lists exactly the fixture, and a
   assert.deepEqual(now.files, FIXTURE, "npm run packlist rewrites the fixture");
   for (const f of ["package.json", "README.md", "LICENSE", "server.mjs"]) assert.ok(FIXTURE.includes(f), f);
   assert.ok(
-    FIXTURE.every((f) => /^(package\.json|README\.md|LICENSE|server\.mjs|lib\/.+|public\/.+)$/.test(f)),
+    FIXTURE.every((f) =>
+      /^(package\.json|README\.md|LICENSE|THIRD-PARTY-NOTICES\.txt|server\.mjs|lib\/.+|public\/.+)$/.test(f),
+    ),
     "nothing else",
   );
   // The edge: a new file under public/ is packed, so the comparison fails.

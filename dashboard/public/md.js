@@ -187,5 +187,59 @@ const MD = (() => {
     return out;
   }
 
-  return { render, kindOf };
+  // Text copied from a page comes into the editor as Markdown (dashboard-editor, contract 11).
+  function fromHtml(html) {
+    if (!/<(a|ul|ol|h[1-6]|strong|b|em|i|table|img|pre|blockquote)[\s>]/i.test(html)) return null;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = (n) => n.textContent.replace(/\s+/g, " ");
+    const walk = (node, depth = 0) => {
+      let out = "";
+      for (const n of node.childNodes) {
+        if (n.nodeType === 3) {
+          out += n.textContent.replace(/\s+/g, " ");
+          continue;
+        }
+        if (n.nodeType !== 1) continue;
+        const tag = n.tagName.toLowerCase();
+        const inner = () => walk(n, depth).trim();
+        if (/^h[1-6]$/.test(tag)) out += `\n\n${"#".repeat(Math.max(2, Number(tag[1])))} ${text(n).trim()}\n\n`;
+        else if (tag === "p" || tag === "div" || tag === "section" || tag === "article") out += `\n\n${walk(n, depth)}\n\n`;
+        else if (tag === "br") out += "\n";
+        else if (tag === "strong" || tag === "b") out += inner() ? `**${inner()}**` : "";
+        else if (tag === "em" || tag === "i") out += inner() ? `*${inner()}*` : "";
+        else if (tag === "code" && n.parentElement?.tagName !== "PRE") out += `\`${n.textContent}\``;
+        else if (tag === "pre") out += `\n\n\`\`\`\n${n.textContent.replace(/\n$/, "")}\n\`\`\`\n\n`;
+        else if (tag === "a") out += /^https?:/i.test(n.getAttribute("href") || "") ? `[${inner() || n.getAttribute("href")}](${n.getAttribute("href")})` : inner();
+        else if (tag === "img") out += /^https?:/i.test(n.getAttribute("src") || "") ? `![${n.getAttribute("alt") || ""}](${n.getAttribute("src")})` : "";
+        else if (tag === "blockquote") out += `\n\n${inner().split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
+        else if (tag === "ul" || tag === "ol") {
+          let k = 0;
+          out += "\n";
+          for (const li of n.children) {
+            if (li.tagName !== "LI") continue;
+            const box = li.querySelector(':scope > input[type="checkbox"]');
+            const mark = tag === "ol" ? `${++k}.` : "-";
+            const body = walk(li, depth + 1).trim().replace(/\n{2,}/g, "\n");
+            out += `${"  ".repeat(depth)}${mark} ${box ? (box.checked ? "[x] " : "[ ] ") : ""}${body}\n`;
+          }
+          out += "\n";
+        } else if (tag === "table") {
+          const rows = [...n.querySelectorAll("tr")].map((tr) => [...tr.children].map((c) => text(c).trim().replace(/\|/g, "\\|")));
+          if (rows.length) {
+            const w = Math.max(...rows.map((r) => r.length));
+            const row = (r) => `| ${Array.from({ length: w }, (_, c) => r[c] || "").join(" | ")} |`;
+            out += `\n\n${row(rows[0])}\n|${" --- |".repeat(w)}\n${rows.slice(1).map(row).join("\n")}\n\n`;
+          }
+        } else if (tag === "script" || tag === "style" || tag === "head" || tag === "meta") continue;
+        else out += walk(n, depth);
+      }
+      return out;
+    };
+    const md = walk(doc.body)
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    return md || null;
+  }
+  return { render, kindOf, fromHtml };
 })();

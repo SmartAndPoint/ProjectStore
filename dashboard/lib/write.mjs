@@ -68,8 +68,8 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
-import { hostname } from "node:os";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 // The budgets of contract 9, in milliseconds. A test passes smaller ones.
@@ -161,16 +161,32 @@ export const WRITE_VERBS = freezeDeep([
       ["before", "after"],
     ],
   },
+  // The editor's save (the spec dashboard-editor, contract 9): the core's edit
+  // verb replaces the body of a story, an epic or an initiative when the file's
+  // body still has the hash the editor's text was taken from.
+  {
+    verb: "edit-doc",
+    label: "Save",
+    subject: "edit {path}",
+    fields: {
+      path: { kind: "vaultpath", label: "File" },
+      text: { kind: "text", max: 500000, label: "Text" },
+      base: { kind: "hash", label: "Opened as" },
+    },
+  },
 ]);
 // How each verb's fields reach the core's CLI: positionals after `--`, options
 // as `--name=value`. `word` names fields of which the one a request gives
 // reaches the CLI as that literal word of the verb's form, then its value,
-// before the positionals (`rank story <EPIC>/<id>`). The table-vs-core test
-// holds these against the core's own verb table.
+// before the positionals (`rank story <EPIC>/<id>`). `cli` names the core
+// verb when it is not the page's own name; `file` names the one field that
+// reaches it as a file, `--from=<file>`, written outside the clone for the run.
+// The table-vs-core test holds these against the core's own verb table.
 export const VERB_ARGV = freezeDeep({
   move: { positionals: ["story", "to"], options: ["reason"] },
   handover: { positionals: [], options: ["story", "from", "to", "reason"] },
   rank: { word: ["story", "epic"], positionals: [], options: ["before", "after"] },
+  "edit-doc": { cli: "edit", positionals: ["path"], options: ["base"], file: "text" },
 });
 // The positionals a checked request gives the CLI: the literal word and its
 // value first, when the verb has one, then the positionals in order.
@@ -250,6 +266,20 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       const n = [...t].length;
       if (kind.max && n > kind.max) return no(`${name} is ${n} characters long; it takes at most ${kind.max}: say it in a shorter line`);
       fields[name] = t;
+    } else if (kind.kind === "vaultpath") {
+      // A markdown file inside the vault, named relative to it, `/`-separated.
+      const t = v.trim();
+      if (!/\.md$/.test(t) || t.startsWith("/") || t.split("/").some((p) => p === ".." || p === "." || p === "" || p.startsWith(".")) || CONTROL.test(t)) return no(`${name} names a markdown file inside the vault, such as epics/X/epic.md; ${JSON.stringify(v)} is not that`);
+      fields[name] = t;
+    } else if (kind.kind === "text") {
+      // A document's whole text, line breaks kept.
+      if (kind.max && v.length > kind.max) return no(`${name} is ${v.length} characters long; it takes at most ${kind.max}`);
+      if (v.includes("\u0000")) return no(`${name} holds a NUL character`);
+      fields[name] = v;
+    } else if (kind.kind === "hash") {
+      // The edit verb's base hash: 16 lowercase hex digits.
+      if (!/^[0-9a-f]{16}$/.test(v)) return no(`${name} is the hash of the text the editor opened, 16 hex digits; ${JSON.stringify(v)} is not that`);
+      fields[name] = v;
     } else return no(`${name} has a kind the page does not know: ${kind.kind}`);
   }
   return { ok: true, verb: entry.verb, fields };
@@ -1320,22 +1350,36 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   async function runVerb(req, { write, via }) {
     writeBindingFolder(known.prefix);
     const call = VERB_ARGV[req.verb];
+    const verb = call.cli || req.verb;
     const options = { project: paths.binding, json: true, write: write || null };
     for (const k of call.options) options[k] = req.fields[k];
-    const r = await proc.cli(req.verb, { options, positionals: positionalsOf(req), cwd: paths.binding }, { need: true, via });
+    // A whole text goes in a file of its own, outside the clone, removed after the run.
+    let dir = null;
+    if (call.file) {
+      dir = mkdtempSync(join(tmpdir(), "projectstore-edit-"));
+      const from = join(dir, "text.md");
+      writeFileSync(from, req.fields[call.file], { encoding: "utf8", mode: 0o600 });
+      options.from = from;
+    }
+    let r;
+    try {
+      r = await proc.cli(verb, { options, positionals: positionalsOf(req), cwd: paths.binding }, { need: true, via });
+    } finally {
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    }
     const env = r.envelope;
     if (!env || typeof env !== "object" || !("result" in env)) {
       const said = String(r.stderr || "").trim().split("\n")[0] || `it exited ${r.status} with no answer`;
-      return { status: 500, ok: false, error: shown(`projectstore ${req.verb} gave no --json answer: ${said}`) };
+      return { status: 500, ok: false, error: shown(`projectstore ${verb} gave no --json answer: ${said}`) };
     }
     const result = shown(env.result);
     const message = result && typeof result === "object" && typeof result.error === "string" ? result.error : null;
     // Exit 2 is the core's usage error, and also its catch-all for a failure
     // it did not expect, which says "<verb> failed:" on stderr: that one is
     // no usage error of the page's, so it answers 500.
-    if (r.status === 2 && String(r.stderr || "").trimStart().startsWith(`${req.verb} failed:`)) return { status: 500, ok: false, result, error: `projectstore ${req.verb} failed inside the core: ${message || shown(String(r.stderr).trim())}` };
-    if (r.status === 2) return { status: 400, ok: false, result, error: message || `projectstore ${req.verb}: usage error` };
-    if (r.status !== 0 || env.ok !== true) return { status: 200, ok: false, result, error: message || `projectstore ${req.verb} exited ${r.status}` };
+    if (r.status === 2 && String(r.stderr || "").trimStart().startsWith(`${verb} failed:`)) return { status: 500, ok: false, result, error: `projectstore ${verb} failed inside the core: ${message || shown(String(r.stderr).trim())}` };
+    if (r.status === 2) return { status: 400, ok: false, result, error: message || `projectstore ${verb}: usage error` };
+    if (r.status !== 0 || env.ok !== true) return { status: 200, ok: false, result, error: message || `projectstore ${verb} exited ${r.status}` };
     return { status: 200, ok: true, result };
   }
 
@@ -1370,6 +1414,23 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     return { branch, batch: { branch, started_at: stampOf(branch), commits: Number(lines(c.stdout)[0]) || 0, pull_request: prFor(branch) } };
   }
   const batchAt = (via) => batchOn(known.base, via);
+
+  // A vault file as it was where this person's changes start (the spec
+  // dashboard-editor, contract 6): the commit the clone's HEAD shares with the
+  // default branch. "" when the file was not there; null when the page cannot
+  // write or git cannot answer. Three calls, each reading the clone only.
+  async function baseText(rel) {
+    if (!known || !readable || typeof rel !== "string" || !rel || rel.split("/").includes("..")) return null;
+    const mb = await git(paths.clone, ["merge-base", "--end-of-options", known.base, "HEAD"], { via: "base" });
+    const at = mb.ok ? lines(mb.stdout)[0] : null;
+    if (!at) return null;
+    const path = known.prefix ? `${known.prefix}/${rel}` : rel;
+    const has = await git(paths.clone, ["cat-file", "-e", "--end-of-options", `${at}:${path}`], { via: "base", edit: (e) => Object.assign(e, { LC_ALL: "C", LANGUAGE: "" }) });
+    // Not at that commit: a new document, told by git's own words, in the C locale. Any other failure leaves the base unknown.
+    if (!has.ok) return has.status === 128 && /does not exist in|exists on disk, but not in/.test(String(has.stderr || "")) ? "" : null;
+    const text = await git(paths.clone, ["show", "--end-of-options", `${at}:${path}`], { via: "base" });
+    return text.ok ? text.stdout : null;
+  }
 
   // A batch branch for now that the clone does not have yet: the same second
   // taken, the next free one (an action, a Discard and an action in one second).
@@ -1918,6 +1979,9 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     discard,
     view,
     readCtx: () => readable ?? ctx,
+    // The bound vault, as Obsidian shows it on disk (the spec dashboard-editor, contract 7).
+    boundCtx: () => ctx,
+    baseText,
     writeBindingFolder,
     // The Code block's calls, in the project (dashboard-code, contract 9).
     reader: proc.readerFor(project, { windows }),

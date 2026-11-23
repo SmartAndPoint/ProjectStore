@@ -833,7 +833,19 @@ test("directory guard: the real tree passes under the packed set, and under the 
   for (const set of g.SETS) {
     const entries = g.trackedSet(ROOT, { set });
     const r = g.check(entries);
-    const waived = set === "repository" ? ["file-count"] : [];
+    // main is past the directory's file count already, so the directory tracks the
+    // `directory` branch (the packed set). main also holds the dashboard editor's
+    // build, which ships in the dashboard's own package and never in the plugin:
+    // that one file, and no other, may be over 256 KiB there.
+    const waived = set === "repository" ? ["file-count", "file-size"] : [];
+    if (set === "repository")
+      assert.deepEqual(
+        r.rows
+          .filter((x) => x.id === "file-size")
+          .flatMap((x) => x.findings)
+          .map((f) => f.split(":")[0]),
+        ["dashboard/public/editor.bundle.js"],
+      );
     assert.deepEqual(
       r.failed.filter((id) => !waived.includes(id)),
       [],

@@ -1,0 +1,30 @@
+{
+  "name": "projectstore-dashboard-editor",
+  "private": true,
+  "description": "The sources of the dashboard's editor and the build of dashboard/public/editor.bundle.js from them. Its own folder, so neither the plugin root nor the published dashboard package carries a lockfile or a dependency; npm ci here installs the build's tools.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "node check-bundle.mjs --write",
+    "check": "node check-bundle.mjs",
+    "test": "node test/test-keys.mjs && node test/test-changes.mjs"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "6.20.4",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lang-markdown": "6.5.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/legacy-modes": "6.5.5",
+    "@codemirror/merge": "6.12.3",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@lezer/highlight": "1.2.5",
+    "esbuild": "0.28.2"
+  }
+}
