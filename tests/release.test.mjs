@@ -62,6 +62,21 @@ const code = (text) =>
 
 // ─── The workflows ──────────────────────────────────────────────────────
 
+// The registry keeps a package's readme up to 65,536 characters and npmjs.com shows it cut
+// past that (0.30.21's README, 70,136 bytes, ended at "for ever"). A published version's readme
+// never changes, so the length is held here, before a tag, for each package's README.
+test("release: every published package's README is at most 65,536 characters, so npm shows it whole", () => {
+  for (const f of [
+    "README.md",
+    "dashboard/README.md",
+    "packaging/shells/projectstore-claude/README.md",
+    "packaging/shells/projectstore-codex/README.md",
+  ]) {
+    const text = readFileSync(join(ROOT, f), "utf8");
+    assert.ok(text.length <= 65536, `${f}: ${text.length} characters, over npm's 65,536`);
+  }
+});
+
 test("release AC: release.yml makes the GitHub Release after every publish, from the notes, with one of the two write scopes", () => {
   const yml = workflow("release.yml");
   const j = jobs(yml);
