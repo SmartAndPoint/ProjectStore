@@ -239,7 +239,11 @@ function makeEditor(item) {
   let base = null; // where your changes start: asked of POST /api/base, null until it answers
   let saving = false;
   const ctx = docCtx(rel);
-  const draftKey = `draft:${rel}`;
+  // Unsaved text is kept per project, vault and file (contract 12): pages of different projects,
+  // started one after another on one port, share this browser's storage, as the viewer's name
+  // knows (views.js, meKey). A text kept by 0.30.22 under `draft:<path>` alone is not read, since
+  // nothing in it names its project, and not removed, since a 0.30.22 page at this address reads it.
+  const draftKey = `draft:${JSON.stringify([S.project.dir, S.vault, rel])}`;
   const tools = h("div", { class: "ed-tools" });
   const notice = h("div", { class: "ed-draft" });
   // The file reads otherwise in the vault folder (Obsidian, or not pulled yet): said once, above the text.

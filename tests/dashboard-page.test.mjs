@@ -1971,3 +1971,128 @@ test("dashboard page: item.js asks for the Code block in fetchItem and draws it 
   ].map((m) => m[1] || m[2]);
   assert.deepEqual(names, ["codeUi"], "code.js declares one top-level name, codeUi");
 });
+
+// ── the editor's kept text (dashboard/public/item.js; the spec alias `dashboard-editor`, contract 12) ──
+// item.js in a context of its own, as write.js and code.js above, over a storage two pages share:
+// pages of different projects, started one after another on one port, have one browser storage.
+// The page's start at the foot of item.js waits on a fetchState that never answers; the editor
+// is a stub that holds its text as a string, and Discard's dialog takes its first button.
+function loadEditor(dir, vault, storage) {
+  const h = (tag, attrs, ...kids) => Object.assign(new FakeEl(tag, attrs, kids), { style: {} });
+  const saves = [];
+  const ctx = {
+    S: { project: { dir, name: "proj" }, vault, write: { batch: null } },
+    ui: { view: "backlog" },
+    h,
+    fill: (el, ...kids) => el.replaceChildren(...kids),
+    toast: () => {},
+    dialog: (title, body, buttons) => buttons[0].run(),
+    load: async () => {},
+    fetchState: () => new Promise(() => {}),
+    MOD: "⌘",
+    MD: { render: () => null, fromHtml: () => "", kindOf: () => "file" },
+    // app.js's store, over the shared storage: `ws:` before every key, JSON values.
+    store: {
+      get: (k, d) => (storage.has(`ws:${k}`) ? JSON.parse(storage.get(`ws:${k}`)) : d),
+      set: (k, v) => (v === null ? storage.delete(`ws:${k}`) : storage.set(`ws:${k}`, JSON.stringify(v)), true),
+    },
+    writeUi: { saveDoc: async (fields) => (saves.push(fields), { ok: true, result: { hash: "h2" } }) },
+    window: { addEventListener() {}, removeEventListener() {} },
+    document: { addEventListener() {}, querySelector: () => null, activeElement: null },
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    fetch: async () => ({ status: 200, json: async () => ({ ok: true, base: null, disk: null }) }),
+    WSEditor: {
+      create: ({ doc, onChange }) => {
+        let text = doc;
+        return {
+          live: true,
+          baseline: null,
+          text: () => text,
+          replaceAll: (t) => (text = t),
+          type: (t) => ((text = t), onChange()),
+          setBaseline(b) {
+            this.baseline = b;
+          },
+          changes: () => 0,
+          destroy() {},
+        };
+      },
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor;`, ctx, {
+    filename: "item.js",
+  });
+  return { open: (item) => ctx.makeEditor(item), saves };
+}
+const EDIT_ITEM = {
+  rel: "epics/PS-X/stories/story-a.md",
+  title: "A",
+  edit: { body: "Saved.\n", hash: "h1", head: "" },
+};
+const keptNote = (ed) => /This is your text from/.test(ed.host.text);
+const buttonOf = (ed, label) => ed.host.buttons.find((b) => b.text === label);
+
+test("dashboard page: [dashboard-editor#12] a text left unsaved in one project opens in that project only, though another project on the same port has the file with the same body", () => {
+  const storage = new Map();
+  const a = loadEditor("/work/a", "/vaults/one", storage).open(EDIT_ITEM);
+  a.ed.type("Mine, not saved.\n");
+  a.destroy(); // the drawer closes: the text is kept
+  const keys = [...storage.keys()];
+  // The project's folder, the vault's folder and the file's path, as one JSON array.
+  assert.deepEqual(keys, [`ws:draft:${JSON.stringify(["/work/a", "/vaults/one", EDIT_ITEM.rel])}`]);
+
+  // Project B, a copy of the vault: the same path, the same body, the same hash.
+  const b = loadEditor("/work/b", "/vaults/copy", storage).open(EDIT_ITEM);
+  assert.equal(b.ed.text(), "Saved.\n", "B holds its own saved text");
+  assert.equal(b.dirty(), false);
+  assert.equal(keptNote(b), false, "B shows no note of a kept text");
+  b.destroy(); // nothing unsaved in B: its closing removes only its own entry
+  assert.deepEqual([...storage.keys()], keys, "A's text is still kept");
+
+  // The same project folder bound to a copy of the vault is another vault.
+  const rebound = loadEditor("/work/a", "/vaults/copy", storage).open(EDIT_ITEM);
+  assert.equal(rebound.ed.text(), "Saved.\n");
+  assert.equal(keptNote(rebound), false);
+  // Another project folder bound to the same vault is another project.
+  const c = loadEditor("/work/c", "/vaults/one", storage).open(EDIT_ITEM);
+  assert.equal(c.ed.text(), "Saved.\n");
+  assert.equal(keptNote(c), false);
+  // Another file of project A, with the same body, is another file.
+  const other = loadEditor("/work/a", "/vaults/one", storage).open({
+    ...EDIT_ITEM,
+    rel: "epics/PS-X/stories/story-b.md",
+  });
+  assert.equal(other.ed.text(), "Saved.\n");
+  assert.equal(keptNote(other), false);
+
+  const again = loadEditor("/work/a", "/vaults/one", storage).open(EDIT_ITEM);
+  assert.equal(again.ed.text(), "Mine, not saved.\n", "A gets its text back");
+  assert.ok(again.dirty());
+  assert.ok(keptNote(again), "with the note that it is not saved");
+});
+
+test("dashboard page: [dashboard-editor#12] a text kept by 0.30.22 under the path alone is not read, and stays after the item is opened, discarded and saved", async () => {
+  const OLD = `ws:draft:${EDIT_ITEM.rel}`;
+  const old = JSON.stringify({ body: "Someone's, from 0.30.22.\n", saved: "Saved.\n", hash: "h1", at: 1 });
+  const storage = new Map([[OLD, old]]);
+  const page = loadEditor("/work/a", "/vaults/one", storage);
+  const ed = page.open(EDIT_ITEM);
+  assert.equal(ed.ed.text(), "Saved.\n", "the old text does not open, though its hash is the file's");
+  assert.equal(keptNote(ed), false);
+
+  ed.ed.type("Typed.\n");
+  buttonOf(ed, "Discard").click(); // the dialog's first button: throw it away
+  assert.equal(ed.ed.text(), "Saved.\n");
+  assert.equal(storage.get(OLD), old, "Discard leaves the old entry");
+
+  ed.ed.type("Typed and saved.\n");
+  await ed.save();
+  assert.deepEqual(JSON.parse(JSON.stringify(page.saves)), [
+    { path: EDIT_ITEM.rel, text: "Typed and saved.\n", base: "h1" },
+  ]);
+  ed.destroy();
+  assert.deepEqual([...storage.keys()], [OLD], "Save and closing leave the old entry, and only it");
+  assert.equal(storage.get(OLD), old);
+});
