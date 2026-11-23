@@ -1,7 +1,6 @@
 {
   "README.md": [
     "To pick the next task, `next` lists your started work first, and offers stories from ToDo only while you are under your WIP limit. It only reads the vault:",
-    "- **The plugin registers an MCP server** (eight read-only tools over the",
     "**25 commands** · **6 agents** — critic, planner, reviewer, librarian, archaeologist (the advisors: read-only, fresh-context) and clerk (the sole write-capable one — it executes approved writes, post-gate, and composes nothing) · **6 languages** — en, ru, es, de, fr, zh · zero runtime dependencies"
   ],
   "docs/contracts-and-tests.md": [
@@ -42,5 +41,8 @@
   ],
   "dashboard/public/views.js": [
     "if (small) small.textContent = S.write?.can ? S.project.name : `${S.project.name} · read only`; // two dashboards side by side must not look the same"
+  ],
+  "docs/upgrading.md": [
+    "- **The plugin registers an MCP server** (eight read-only tools over the"
   ]
 }
