@@ -255,12 +255,24 @@ const ROWS = {
       ["No git hook runs in the clone", "core.hooksPath=${NO_HOOKS}", code(WRITE_MODULE)],
       ["no call can stop to ask for a password", "GIT_TERMINAL_PROMPT", code(WRITE_MODULE)],
       [
-        "ProjectStore's own `move`, `handover` and `rank` in the clone through the same Node",
+        "ProjectStore's own `move`, `handover`, `rank` and `edit` in the clone through the same Node",
         'verb: "move"',
         code(WRITE_MODULE),
       ],
-      ["ProjectStore's own `move`, `handover` and `rank` in the clone", 'verb: "handover"', code(WRITE_MODULE)],
-      ["ProjectStore's own `move`, `handover` and `rank` in the clone", 'verb: "rank"', code(WRITE_MODULE)],
+      ["ProjectStore's own `move`, `handover`, `rank` and `edit` in the clone", 'verb: "handover"', code(WRITE_MODULE)],
+      ["ProjectStore's own `move`, `handover`, `rank` and `edit` in the clone", 'verb: "rank"', code(WRITE_MODULE)],
+      // The editor's save and its base (dashboard-editor, contracts 6 and 9).
+      ["ProjectStore's own `move`, `handover`, `rank` and `edit` in the clone", 'verb: "edit-doc"', code(WRITE_MODULE)],
+      [
+        "for `edit` it writes the text you save to a file of its own in your system's temporary folder",
+        'mkdtempSync(join(tmpdir(), "projectstore-edit-"))',
+        code(WRITE_MODULE),
+      ],
+      [
+        "runs `git merge-base` and `git cat-file -e` and `git show` in the page's own clone, to find where your changes started",
+        '["cat-file", "-e", "--end-of-options"',
+        code(WRITE_MODULE),
+      ],
       // The Code block's read in the project's repository (dashboard-code, contracts 2 and 9).
       [
         "When you open a story or a spec, the page reads its code there and changes nothing",

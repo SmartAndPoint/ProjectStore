@@ -21,7 +21,9 @@
 // run's token (the meta tag of `/`) and the page's own Origin (contract 8).
 // `POST /api/code`, the Code block's read (the spec "The dashboard's Code
 // block…", alias `dashboard-code`, contract 1), takes the same guard, writes
-// nothing and takes no lock. Only lib/write.mjs starts a process or writes a
+// nothing and takes no lock. `POST /api/base`, the editor's base read (the spec
+// "The dashboard's editor…", alias `dashboard-editor`, contract 6), takes the
+// same guard and reads the clone. Only lib/write.mjs starts a process or writes a
 // file; lib/code.mjs names the read's calls and hands them to it.
 
 import { createServer } from "node:http";
@@ -51,7 +53,13 @@ const BODY_ROUTES = new Set(["/api/preview", "/api/action"]);
 // The Code block's read (dashboard-code, contract 1): a POST of the page's own,
 // answered whether or not the page can write.
 export const CODE_ROUTE = "/api/code";
-const BODY_LIMIT = 64 * 1024;
+// The editor's base for its change marks (the dashboard-editor spec, contract 6), read from git,
+// so a POST of the page's own:
+// no GET starts a process.
+export const BASE_ROUTE = "/api/base";
+// A request's body (the dashboard-editor spec, contract 9): a document's text is up to 500,000
+// characters, which JSON may spell in up to six bytes each.
+const BODY_LIMIT = 16 * 1024 * 1024;
 const TOKEN_META = /<meta name="projectstore-token" content="[^"]*"/;
 
 // The page shows text people typed: scripts, styles, pictures and media come
@@ -220,9 +228,45 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
     }
   }
 
+  // The editor's base (the guard, the body, then the read). The change marks compare
+  // with the file where this person's changes start: the commit the clone shares with the default
+  // branch, so an edit made in Obsidian meanwhile is not drawn as the page's own. The same file
+  // in the bound vault on disk only says whether Obsidian shows something else (`disk`).
+  // `base` is the body as the edit verb cuts it, "" for a file not there yet, null when unknown.
+  async function baseRoute(req, res) {
+    try {
+      if (!ownRequest(req)) {
+        req.resume();
+        return send(req, res, 403, { ok: false, error: "this route runs only for the page's own requests: the run's token and the page's own Origin" });
+      }
+      const got = await readBody(req);
+      if (!got.ok) return send(req, res, 400, { ok: false, error: got.error });
+      const rel = typeof got.value.rel === "string" ? got.value.rel : "";
+      const ctx = writer.readCtx();
+      const bound = writer.boundCtx?.();
+      const item = readItem(ctx, rel);
+      if (!item) return send(req, res, 404, { ok: false, error: "no such artifact" });
+      // Only the three kinds the edit verb writes have a base (the ADR "Create and edit verbs…").
+      const { EDIT_KINDS, splitForEdit } = ctx.editCut;
+      if (!bound || bound === ctx || !EDIT_KINDS.includes(item.type)) return send(req, res, 200, { ok: true, base: null, disk: null });
+      const from = await writer.baseText?.(rel);
+      if (typeof from !== "string") return send(req, res, 200, { ok: true, base: null, disk: null });
+      if (!from) return send(req, res, 200, { ok: true, base: "", disk: null }); // a new document
+      // Bodies compared as the editor cuts them: the base, the clone's file, the vault folder's.
+      const cut = (body) => splitForEdit(body).body;
+      const base = cut(ctx.lib.parseFrontmatter(from).body);
+      const there = readItem(bound, rel);
+      const onDisk = there ? cut(there.body) : null;
+      const disk = onDisk !== base && onDisk !== cut(item.body) ? { differs: true, exists: onDisk !== null } : null;
+      return send(req, res, 200, { ok: true, base, disk });
+    } catch (e) {
+      return send(req, res, 500, { ok: false, error: String(e?.message || e) });
+    }
+  }
+
   // A write route (contract 8): the guard, then whether the page can write
   // (409), then the body of the preview and the action (400: no JSON object,
-  // over 64 KiB, or a verb or field outside write.verbs), then the step.
+  // over 16 MiB, or a verb or field outside write.verbs), then the step.
   // Every answer past the guard is { ok, result?, error?, write }.
   async function writeRoute(req, res, p) {
     const shape = (status, fields) => send(req, res, status, { ...fields, write: writer.view() });
@@ -262,9 +306,10 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       const raw = String(req.url || "");
       const p = pathOf(raw);
       const writing = WRITE_ROUTES.includes(p);
-      const posting = writing || p === CODE_ROUTE;
+      const posting = writing || p === CODE_ROUTE || p === BASE_ROUTE;
       if (req.method === "POST" && writing) return await writeRoute(req, res, p);
       if (req.method === "POST" && p === CODE_ROUTE && code) return await codeRoute(req, res);
+      if (req.method === "POST" && p === BASE_ROUTE) return await baseRoute(req, res);
       // OPTIONS too: no preflight is answered, so no Access-Control-Allow-* header is sent.
       if (req.method !== "GET" && req.method !== "HEAD") {
         req.resume();
@@ -281,8 +326,17 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       if (p === "/api/state") return send(req, res, 200, { ...readState(ctx), write: writer.view() });
       if (p === "/api/artifacts") return send(req, res, 200, readArtifacts(ctx));
       if (p === "/api/item") {
-        const item = readItem(ctx, url.searchParams.get("rel") || "");
-        return item ? send(req, res, 200, item) : send(req, res, 404, { error: "no such artifact" });
+        const rel = url.searchParams.get("rel") || "";
+        const item = readItem(ctx, rel);
+        if (!item) return send(req, res, 404, { error: "no such artifact" });
+        // The part of the text the editor holds, cut by the edit verb's own module, and its hash for the
+        // save. The base for its change marks comes from POST /api/base (git runs there).
+        const { EDIT_KINDS, splitForEdit, bodyHash } = ctx.editCut;
+        if (EDIT_KINDS.includes(item.type)) {
+          const cut = splitForEdit(item.body);
+          item.edit = { head: cut.head, body: cut.body, hash: bodyHash(cut.body) };
+        }
+        return send(req, res, 200, item);
       }
       if (p === "/api/related") {
         const r = related(ctx, url.searchParams.get("rel") || "");

@@ -11,7 +11,9 @@
 // flow-stories, flow-policy, flow-counts, graph and binding; and for the Code
 // block (the spec "The dashboard's Code block…", alias `dashboard-code`),
 // follow-plan, code-refs and spec-drift, whose git and grep seams the read
-// replaces, so they start nothing. Layouts are read
+// replaces, so they start nothing; and for the editor (the spec "The
+// dashboard's editor…", alias `dashboard-editor`), edit-cut, the edit verb's
+// own cut and hash of a file, so the page holds no copy. Layouts are read
 // from `core` by name. The core's other in-process reads (the headings
 // registry) find their root as the core always does: the harness's plugin-root
 // variable when the launcher's environment sets it, else the core these
@@ -22,7 +24,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const OWN_PACKAGE = new URL("../package.json", import.meta.url);
-const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs", "follow-plan.mjs", "code-refs.mjs", "spec-drift.mjs"];
+const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs", "follow-plan.mjs", "code-refs.mjs", "spec-drift.mjs", "edit-cut.mjs"];
 
 function versionAt(file) {
   try {
@@ -59,7 +61,7 @@ export async function openCore({ core, project } = {}) {
     throw new Error(`version mismatch: the core at ${root} is ${theirs}, the dashboard is ${mine ?? "unknown"}. The two ship together; run the dashboard of that core.`);
 
   const load = (name) => import(pathToFileURL(join(root, "scripts", name)).href);
-  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank, followPlan, codeRefs, specDrift] = await Promise.all(CORE_MODULES.map(load));
+  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank, followPlan, codeRefs, specDrift, editCut] = await Promise.all(CORE_MODULES.map(load));
 
   const bound = lib.readConfigAt(dir);
   if (!bound || typeof bound !== "object") throw new Error(`${dir} is not bound to a vault: it has no readable .projectstore/projectstore.json. Bind it first (projectstore bind <vault>).`);
@@ -86,5 +88,6 @@ export async function openCore({ core, project } = {}) {
     followPlan,
     codeRefs,
     specDrift,
+    editCut,
   };
 }

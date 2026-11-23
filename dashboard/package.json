@@ -32,7 +32,8 @@
   "files": [
     "server.mjs",
     "lib/",
-    "public/"
+    "public/",
+    "THIRD-PARTY-NOTICES.txt"
   ],
   "publishConfig": {
     "access": "public"

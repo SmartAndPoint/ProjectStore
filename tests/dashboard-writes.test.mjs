@@ -1269,7 +1269,7 @@ test("dashboard writes: GET / in two runs holds the meta tag with two different 
 });
 
 // [dashboard-writes#8] [dashboard-writes#1]
-test("dashboard writes: while write.can is false, the refresh runs and the other four routes get 409 with write.reason, before a body's 400 (no JSON object, over 64 KiB, a verb outside write.verbs); Send and Discard read no body", async () => {
+test("dashboard writes: while write.can is false, the refresh runs and the other four routes get 409 with write.reason, before a body's 400 (no JSON object, a body too large, a verb outside write.verbs); Send and Discard read no body", async () => {
   await withWorld({ plainVault: true }, async (w) => {
     const page = await w.start();
     const token = await tokenOf(page);
@@ -1305,7 +1305,7 @@ test("dashboard writes: while write.can is false, the refresh runs and the other
 });
 
 // [dashboard-writes#8] [dashboard-writes#6]
-test("dashboard writes: while write.can is true, a body that is no JSON object or is over 64 KiB, or a verb or field outside write.verbs, gets 400 and starts no process, and Send or Discard with no open batch gets 409", async () => {
+test("dashboard writes: while write.can is true, a body that is no JSON object or is over 16 MiB, or a verb or field outside write.verbs, gets 400 and starts no process, and Send or Discard with no open batch gets 409", async () => {
   await withWorld({}, async (w) => {
     const page = await w.start();
     const token = await tokenOf(page);
@@ -1313,10 +1313,13 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
     const from = w.record.length;
     const big = JSON.stringify({
       verb: "move",
-      fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(70000) },
+      fields: { story: "PS-X/story-a", to: "todo", reason: "x".repeat(16 * 1024 * 1024 + 10) },
     });
     const bodies = [
-      [JSON.stringify({ verb: "groom" }), /not a verb the page may run \(write\.verbs: move, handover, rank\)/],
+      [
+        JSON.stringify({ verb: "groom" }),
+        /not a verb the page may run \(write\.verbs: move, handover, rank, edit-doc\)/,
+      ],
       [JSON.stringify({}), /not a verb the page may run/],
       [
         JSON.stringify({ verb: "move", fields: { story: "PS-X/story-a", to: "done", reason: "r" } }),
@@ -1328,7 +1331,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
       ],
       ["{oops", /no JSON object/],
       ["[]", /no JSON object/],
-      [big, /over 65536 bytes/],
+      [big, /over 16777216 bytes/],
     ];
     for (const path of ["/api/preview", "/api/action"])
       for (const [body, why] of bodies) {
@@ -1650,11 +1653,13 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
   );
   assert.deepEqual(
     WRITE_VERBS.map((v) => v.verb),
-    ["move", "handover", "rank"],
-    "the page offers move, handover and rank",
+    ["move", "handover", "rank", "edit-doc"],
+    "the page offers move, handover, rank and the editor's save",
   );
   for (const entry of WRITE_VERBS) {
-    const row = VERBS.find((r) => r.verb === entry.verb);
+    // [dashboard-editor#9] edit-doc is the core's edit verb; its text reaches it as --from <file>.
+    const call0 = VERB_ARGV[entry.verb];
+    const row = VERBS.find((r) => r.verb === (call0.cli || entry.verb));
     assert.ok(row, `the core has ${entry.verb}`);
     assert.equal(row.writes, true, `${entry.verb} writes`);
     const write = row.options.find((o) => o.name === "write");
@@ -1665,9 +1670,14 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
     );
     const call = VERB_ARGV[entry.verb];
     assert.deepEqual(
-      [...(call.word || []), ...call.positionals, ...call.options].sort(),
+      [...(call.word || []), ...call.positionals, ...call.options, ...(call.file ? [call.file] : [])].sort(),
       Object.keys(entry.fields).sort(),
     );
+    if (call.file)
+      assert.ok(
+        row.options.some((o) => o.name === "from" && typeof o.arg === "string"),
+        `${row.verb} takes --from <file>`,
+      );
     for (const name of call.options) {
       const o = row.options.find((x) => x.name === name);
       assert.ok(o && typeof o.arg === "string", `--${name} is an option of ${entry.verb} that takes a value`);

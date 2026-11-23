@@ -13,11 +13,14 @@ const store = {
       return d;
     }
   },
+  // true when kept; false when the browser keeps nothing (a private window, a full or blocked storage).
   set: (k, v) => {
     try {
-      localStorage.setItem(`ws:${k}`, JSON.stringify(v));
+      if (v === null) localStorage.removeItem(`ws:${k}`);
+      else localStorage.setItem(`ws:${k}`, JSON.stringify(v));
+      return true;
     } catch {
-      /* private window: the page works without it */
+      return false; /* the page works without it */
     }
   },
 };

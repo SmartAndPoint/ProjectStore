@@ -24,8 +24,11 @@ changes nothing in the core. Where it cannot write (on Windows, or with no git r
 `origin` or no git identity for the vault), it shows the vault, changes nothing, and says why.
 
 This package's version is always its core's: one release, from one tag, publishes both, and the
-server refuses a core of another version. It has no dependencies and no build step: plain Node
-(20 or newer) on the server, plain HTML, CSS and classic scripts in the page.
+server refuses a core of another version. It has no dependencies: plain Node (20 or newer) on
+the server, plain HTML, CSS and classic scripts in the page. The one built file is the editor,
+`public/editor.bundle.js`, built from `editor/src/` (CodeMirror 6) by `npm run build --prefix
+dashboard/editor` and committed with its licence notices, `THIRD-PARTY-NOTICES.txt`; CI builds it
+again and fails when either differs by a byte.
 
 ## The launcher protocol
 
@@ -75,10 +78,16 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   a path that names no story or spec, and a GET or HEAD of it gets 404. `lib/code.mjs` reads the
   project's repository as last fetched and one `gh pr list` of its pull requests, kept for 10
   minutes; the spec "The dashboard's Code block…" (alias `dashboard-code`) holds the rules.
+- `POST /api/base` (`{ rel }`) reads, for the editor, a story's, an epic's or an initiative's
+  text where your changes started, under the same token and `Origin` check: `git merge-base`,
+  `git cat-file -e` and `git show` in the page's own clone. The editor saves through the action
+  `edit-doc`, which runs the core's `edit` verb; the spec "The dashboard's editor…" (alias
+  `dashboard-editor`) holds the rules.
 - A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
   `move`, with `story`, `to` as `todo` or `planned`, and `reason`; `handover`, with `story`, `from`
   as the story's assignee, `to` and `reason`; `rank`, with one of `story` and `epic` and one of
-  `before` and `after`, offered by a drop or a key, never a button) and gives every required field
+  `before` and `after`, offered by a drop or a key, never a button; `edit-doc`, the editor's Save,
+  with `path`, `text` and `base`, run as the core's `edit`) and gives every required field
   of it as a value. Each entry also carries the labels and the commit subject (or a list of
   subjects, one for each set of fields) the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400).
@@ -196,6 +205,8 @@ keeps it for a while), so look before you delete.
 
 ```
 package.json      the page's package: no dependencies, the core's version
+THIRD-PARTY-NOTICES.txt  the licence texts of the packages built into the editor
+editor/           the editor's sources, its pinned build tools and checks (not published)
 LICENSE           the core's MIT license, the same file
 server.mjs        the HTTP server and the command line above; startServer() for a caller in-process
 lib/core.mjs      openCore({ core, project }): the version check, the core's modules, the binding
@@ -209,7 +220,9 @@ public/           the page: index.html, styles.css and classic scripts that shar
   app.js          helpers, the dialog, the backlog tree
   views.js        the shell; filters, lanes and the address; board, list, My work, Initiatives
   write.js        writeUi: a move with its preview, the batch strip, Send, Discard, kept branches
-  item.js         the item pane: the document, its fields, the address bar
+  item.js         the item pane: the document, its fields, the address bar; the editor's drawer
+  editor.bundle.js  the editor, built from editor/src/
+  selftest.js     "Check the editor", from the palette
   related.js      Related: short in the side panel, in full beside the text
   code.js         codeUi: the Code block in the side panel, links apart from leads
   keys.js         the command palette (⌘K), the selection and the keys

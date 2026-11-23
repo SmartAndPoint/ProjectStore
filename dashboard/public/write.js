@@ -1096,5 +1096,7 @@ const writeUi = (() => {
     refresh();
   }
 
-  return { post, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  // The editor's save (dashboard-editor, contract 9): the core's edit verb as edit-doc, through the one POST.
+  const saveDoc = (fields) => post("/api/action", { verb: "edit-doc", fields });
+  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();
