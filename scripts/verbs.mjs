@@ -619,6 +619,28 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // An item's text outside an agent session (the edit spec, contracts 1 to
+  // 7): with no --from, the body and its hash; with --from and --base, the
+  // plan; --write replaces the body, asking at a terminal, and marks the file
+  // not reviewed until a review clears the mark.
+  Object.freeze({
+    verb: "edit",
+    summary: "Rewrite an initiative, epic or story text, marked not reviewed.",
+    usage: Object.freeze(["<path>", "<path> --from <file> --base <hash>"]),
+    module: "./item-verbs.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("from", "<file>", "a file with the new text of the sections under the title"),
+      opt("base", "<hash>", "the hash of the body the text was written over, as the bare edit prints it"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   // A review read a file a verb wrote: its mark is cleared (the create spec,
   // contract 6). Bare, the plan; --write clears it, asking at a terminal.
   Object.freeze({
@@ -962,6 +984,11 @@ const EXAMPLES = {
     '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
   ],
   reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
+  edit: [
+    "{cmd} edit epics/PS-CORE/stories/story-faster-login.md  # the body and its hash; nothing is written",
+    "{cmd} edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef  # the plan",
+    "{cmd} edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef --write",
+  ],
   rank: [
     "{cmd} rank story PS-CORE/story-x --before PS-CORE/story-y  # the plan; nothing is written",
     "{cmd} rank story PS-CORE/story-x --first --write",

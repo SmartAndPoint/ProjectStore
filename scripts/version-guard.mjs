@@ -274,6 +274,7 @@ export const NOT_SHIPPED = new Set([
   LAYOUT.root, // this project's own binding, overlays and state (the layout ADR)
   ".omc",
   ".gitignore",
+  ".gitattributes", // marks the editor's built file as generated (the dashboard-editor spec)
   ".DS_Store",
   "node_modules",
   // `packaging/shells.mjs --build --out dist` writes here, and the release

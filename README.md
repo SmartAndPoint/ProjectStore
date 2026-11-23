@@ -253,6 +253,12 @@ npx projectstore initiative faster-onboarding accepted --reason "groups the onbo
 npx projectstore create story PS-CORE "Faster login" --write
 ```
 
+`edit` rewrites the sections under a story's, an epic's or an initiative's title, only if the file has not changed since its hash was read, and marks it not reviewed; it refuses a change to the Status log, an Outcome or a checked criterion:
+
+```
+npx projectstore edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef --write
+```
+
 `rank` orders the open work by hand, apart from priority: an open story among the open stories of its epic, or an epic among the epics of its initiative. It writes only a `rank:` line in each file whose rank value changes, and moves no date, so the age of a story does not reset. Bare, it prints the plan, each file with its old and new value; `--write` asks at a terminal:
 
 ```
@@ -312,7 +318,7 @@ node bin/projectstore.mjs dashboard <project dir>
 - **My work**: your stories that are not done. The page starts with the binding's default author as your name; choose another under **Your name** at the foot of the sidebar, and this browser remembers it.
 - **Initiatives**: the same board, with initiatives for cards.
 
-Click a story, an epic or an initiative to open it: its document, its fields, and what is related to it (its specs, its ADRs, the documents that link to it). The address keeps the view and the open item, so a bookmark brings you back to them. The page reads the vault when it loads, and R reads it again. While the page cannot write, it reads the bound vault itself, so R shows a change made there. While it can write, it reads its own clone instead: the default branch as last fetched, with your batch on top. R then reads the clone again without fetching; the clone is fetched from `origin` when `dashboard` starts, when the page is opened, and when you choose "Get the latest backlog" in the ⌘K palette.
+Click a story, an epic or an initiative to open it: its document (while the page can write, its text is an editor: Save runs `edit`, and text not saved yet stays in this browser), its fields, and what is related to it (its specs, its ADRs, the documents that link to it). The address keeps the view and the open item, so a bookmark brings you back to them. The page reads the vault when it loads, and R reads it again. While the page cannot write, it reads the bound vault itself, so R shows a change made there. While it can write, it reads its own clone instead: the default branch as last fetched, with your batch on top. R then reads the clone again without fetching; the clone is fetched from `origin` when `dashboard` starts, when the page is opened, and when you choose "Get the latest backlog" in the ⌘K palette.
 
 | Key | What it does |
 |---|---|
@@ -416,95 +422,7 @@ npm install -g projectstore@latest
 projectstore upgrade
 ```
 
-A project bound before 0.28 needs one more command. What an existing project sees afterwards, and why:
-
-- **The project's files move to `.projectstore/`.** `.claude/projectstore.json`
-  and `.claude/.projectstore/` become `.projectstore/projectstore.json`,
-  `.projectstore/harness/claude-code.json` and `.projectstore/state/`. Nothing
-  breaks before you move them: every reader falls back to the old paths through
-  0.30, and the startup line names the command until the move is done. Close
-  every Claude Code session in the project, run that command from a terminal in
-  the project, then restart. The command depends on how you installed. From the
-  git marketplace (every 0.27.x install), it is the installed copy's own
-  `bin/projectstore.mjs`, with its path spelled out in the startup line:
-
-  ```
-  node "<plugin cache>/bin/projectstore.mjs" upgrade --harness claude-code --no-register
-  ```
-
-  From npm:
-
-  ```
-  npx projectstore@<version> upgrade --harness claude-code --no-register
-  ```
-
-  `--no-register` leaves your plugin registration as it is: both forms move
-  only the project's files. The same run re-stamps the status-line launcher at
-  its new path and re-registers the agents block, whose template is now v4. An
-  upgrade without `--no-register` on a git-marketplace install does more: it
-  also registers the plugin from npm for this checkout and turns the
-  git-marketplace copy off here, so that copy's updates stop reaching the
-  checkout. The 0.28.0-rc.1 and rc.2 startup lines named that form, without
-  `--no-register`, so on those, update first and run what the new startup line
-  names. If it already happened, this turns the git-marketplace copy back on
-  (0.28.0 or later), from a terminal in the project:
-
-  ```
-  npx projectstore@<version> uninstall --harness claude-code --surface plugin
-  ```
-
-  That copy must be 0.28 or later — an older one reads a moved project as
-  unbound — so update it first if it is not. Restart, then in the new session,
-  to re-stamp the status line against that copy:
-
-  ```
-  /projectstore:doctor --fix
-  ```
-- **The status line keeps rendering.** A launcher written by an earlier version
-  still works, but it carries no file stamp and its embedded fallback root is
-  frozen at the old version; the move above re-stamps it. Nothing rewrites that
-  file behind your back any more: first wiring and refresh are `install`'s,
-  behind a preview.
-- **`/projectstore:status` and `/projectstore:search` answer differently:**
-  facts from artifact frontmatter and the derived views' freshness instead
-  of an `mtime` walk; a literal, bounded, grouped search instead of a shell
-  `grep`. Every other command prints what it printed before.
-- **`/projectstore:doctor` has new lines** — the state of each installed
-  surface, a version-drift check across plugin versions, and one permanent
-  info line saying the MCP read tools are registered. Its exit code now
-  carries the verdict (1 = findings), so a red Bash result is findings, not
-  a crash.
-- **The plugin registers an MCP server** (eight read-only tools over the
-  vault). Claude Code may ask you to approve it once.
-- **The agents block stays where Claude Code reads it.** In a project with an
-  `AGENTS.md`, the block goes there and `CLAUDE.md` carries a one-line
-  `@AGENTS.md` import; otherwise the block goes into `CLAUDE.md`. A project with
-  an `AGENTS.md` and no `CLAUDE.md` now gains that one-line `CLAUDE.md`.
-- **The passive skills are published under the `projectstore-` prefix**
-  (`projectstore-decision-detector`, `projectstore-peer-reviewer`,
-  `projectstore-story-completion`, `projectstore-vault-communication`). Nothing
-  in a project names them; only a skill listing shows the new names.
-- **Rolling back** to 0.27.x before the move: everything keeps working, since
-  0.27.x still reads the old layout. It rewrites the status-line launcher in its
-  own form, as it always did; coming forward again, the startup line names the
-  move once more, and the move re-stamps the launcher. If a session already
-  re-stamped the status line or re-registered the agents block before the move
-  (rc.2's `/projectstore:doctor --fix` did both), 0.27.x reports a foreign
-  status line and a v4 block and leaves both alone — unless you run
-  `/projectstore:agents register` in it, which rewrites the block; the status
-  line still renders, and the move settles both.
-- **Rolling back** to 0.27.x after the move: 0.27.x looks for its binding under
-  `.claude/`, finds none and offers `bind`. Do not accept. A re-bind writes
-  `.claude/projectstore.json` again, and 0.28's `install` and `upgrade` refuse
-  while two bindings exist. To come forward again, delete
-  `.claude/projectstore.json`, then run the command the startup line names
-  once more: a 0.27.x session writes its welcome marker back under `.claude/`.
-- **Installed from npm?** Then Claude Code's plugin update has nothing to
-  fetch: the package itself refreshes the registration. The upgrade at the top of this
-  section, run from a terminal outside the session, rewrites the local
-  marketplace and runs the host's `plugin update` for this checkout.
-  `/projectstore:doctor` says when the registration is behind the package, and
-  names the command.
+A project bound before 0.28 needs one more command first: [docs/upgrading.md](docs/upgrading.md).
 
 ## When an agent starts a task, it can find its way
 
@@ -549,7 +467,7 @@ ProjectStore has no account and no telemetry, and no server other than the local
 - **Node.js.** The hooks, the MCP server, the status line and the `projectstore` command are Node.js scripts in the plugin. They start other scripts of the plugin through the same Node. When setup keeps a project on its git-marketplace copy, it runs that copy's own `bin/projectstore.mjs` to read the copy's plan and, once you confirm, to apply it.
 - **git**, on this machine only, outside the dashboard's page. Outside that page, ProjectStore never commits, pushes, pulls or fetches; the row **The dashboard and your browser** below says what the page runs. The SessionStart hook runs `git rev-parse` in a project that is not bound, to see whether it is a worktree of a bound checkout; no other hook starts a program. Bind, init and setup run `git rev-parse --show-toplevel` to find the repository and `git init` to give a new vault its own repository. They run `git config --get user.name` to propose the default author; the binding keeps it, and each new artifact names it as its author. Doctor runs `git check-ignore` and `git ls-files` to check what git ignores and tracks, `git diff --name-only` and `git log` to see what has changed, and `git grep --untracked` to find the tests that cite a spec's contracts. Doctor also runs `git for-each-ref` and `git rev-list --count` in each clone the dashboard keeps under `.projectstore/state/dashboard/`, local reads, to name the batch branches kept there and count the commits on each that the fetched default branch lacks. Its flow checks run `git rev-parse --is-shallow-repository` to see whether older commits are cut off, then one `git log` over the project's recent local commits and read their author and committer names, times and changed paths, never an email address. The reviewer's list of the files a story touched comes from `git diff` and `git log` too. The pre-commit check (the `/projectstore:precommit` command) runs `git rev-parse` and `git status` and `git cat-file` in the vault's repository and nothing else, to read it. Optional locks are off, so `git status` never refreshes the index, and `git cat-file --filters` applies the filters your repository configures, as a checkout does. `close-refs`, which a story's close runs, runs `git rev-parse --show-prefix` to find where the project sits in its repository, `git merge-base --is-ancestor` to see whether a pull request's merge commit is in this checkout, and `git log` for the files of the commits since the story started. When `follow --write` writes stories, it runs `git worktree list` and `git merge-base` and `git cat-file` in the vault's repository, local reads, to leave alone a story that a linked worktree's branch changed. The reviewer and archaeologist agents read the project's git history (`git status` and `git diff` or `git log` among others) through the agent's own tools, as any command the agent runs.
 - **gh**, the GitHub CLI, started only by `follow`, by `close-refs` and by the dashboard's page. `follow` reads pull requests from your code host over the network with your own `gh` login: `gh pr view` for a story's linked pull request, `gh pr list` for the `Closes-story:` lines in their descriptions, and `gh repo view` for the repository's default branch. `close-refs`, which a story's close runs, reads the files of the story's pull request with the same login: a bare `gh repo view --json url` for the project's own repository, `gh pr view` for the pull request's files, and `gh api …/pulls/<n>/files` when it changed more files than `gh pr view` gives. The page runs `gh pr list` and `gh pr create` and `gh pr close` for its own pull request, with the same login, as its row below says. When you open a story or a spec on the page, it also runs `gh pr list` in your project's repository for up to 1000 of its pull requests; their descriptions are read in the page's server, in memory, for a story's title and its `Closes-story:` lines, and are never written to a file or sent to the page. ProjectStore reads no token, and nothing is written to the code host except by the page: the branch and the pull request you send from it, and the closing of that pull request when you discard the batch. `follow` changes a story's status in the vault only with `--write`.
-- **The dashboard and your browser**, started only by `dashboard`. It runs the page's own server, `dashboard/server.mjs` of the same copy, or in a copy installed from npm the `server.mjs` of the page's package in ProjectStore's cache (a variable meant for tests, `PROJECTSTORE_DASHBOARD_ROOT`, names another folder), through the same Node, on `127.0.0.1`, for as long as the command runs. The server answers no other machine. Apart from the refresh it runs once at its own start, before it answers anything, it starts a program only for a request from the page itself, one that carries the run's token and the page's own address as its origin. When it starts, when the page is opened, and when you ask for it in the page's ⌘K palette, it runs `git fetch` in its own clone of the vault and asks `gh pr list` about its own pull request; Send and Discard ask `gh pr list` first too. After a click, or a drop or a key that reorders the backlog tree, it commits on its own branch in that clone. Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it; with no `gh` to ask, Send pushes and opens no pull request, and Discard ends the batch on this machine and leaves an open pull request open. In the vault's repository it changes nothing: `git rev-parse` and `git remote get-url` find the repository and its `origin`, `git config --get` and `git config --get-regexp` read the settings the clone copies, and `git var` reads the author and committer git gives there. In the project's repository, `git rev-parse` finds its main checkout, where the clone lives under `.projectstore/state/dashboard/<you>/clone/`. When you open a story or a spec, the page reads its code there and changes nothing: `git rev-parse` and `git rev-list` find the default branch as the repository last fetched it and how far the checkout is behind it, `git log` reads the commits that touch the story's code paths and which pull request brought each one in, and `git show` and `git diff` list a pull request's files. The page never fetches that repository, and it keeps git from fetching an object a partial clone lacks (on a git too old for that, a clone without trees may still fetch them). It asks `gh pr list` for the project's pull requests, as the gh row says; their descriptions stay on this machine, in the server's memory, never in a file and never sent to the page. In the clone, `git clone` makes it from `origin`, borrowing objects from the vault's repository while it downloads and then keeping its own copy; `git config` copies those settings and your identity into the clone's own `.git/config`, as "What it writes" below lists them; `git ls-remote` and `git remote set-head` and `git symbolic-ref` learn the default branch of `origin`, and `git remote get-url` checks the clone's own; `git for-each-ref` and `git rev-list` and `git rev-parse` and `git status` read its branches, commits and files; `git switch` and `git add` and `git commit` make a move's commit; Send first runs `git fetch` of the batch's branch as `origin` holds it and, only when that branch is ahead of the clone's, `git merge` to take it in, before `git push` pushes `refs/heads/dashboard/<you>/<time>` and nothing else; after a merge, `git cherry-pick` carries the commits made after Send onto the default branch, and `git branch --delete` drops a batch branch whose commits are all merged or carried; `git reset --hard` and `git clean -d -x` put the clone back at its branch's last commit at the start of every step and after every action, and since `-x` removes ignored files too, an edit made by hand in the clone is lost at the next step; `git ls-files` and `git diff` tell a stopped cherry-pick from an empty one. `git clone` and `git fetch` and `git ls-remote` and `git push` reach `origin` over the network. No git hook runs in the clone, and no call can stop to ask for a password: one that would need a prompt fails with git's message. The page also runs ProjectStore's own `move`, `handover` and `rank` in the clone through the same Node. Then it opens the page's address in your default browser, only when you run it at a terminal: `open` on macOS, `xdg-open` on Linux, `rundll32` on Windows. `--no-open` opens nothing.
+- **The dashboard and your browser**, started only by `dashboard`. It runs the page's own server, `dashboard/server.mjs` of the same copy, or in a copy installed from npm the `server.mjs` of the page's package in ProjectStore's cache (a variable meant for tests, `PROJECTSTORE_DASHBOARD_ROOT`, names another folder), through the same Node, on `127.0.0.1`, for as long as the command runs. The server answers no other machine. Apart from the refresh it runs once at its own start, before it answers anything, it starts a program only for a request from the page itself, one that carries the run's token and the page's own address as its origin. When it starts, when the page is opened, and when you ask for it in the page's ⌘K palette, it runs `git fetch` in its own clone of the vault and asks `gh pr list` about its own pull request; Send and Discard ask `gh pr list` first too. After a click, or a drop or a key that reorders the backlog tree, it commits on its own branch in that clone. Send pushes that branch to `origin` and then runs `gh pr create` to open the pull request, and Discard runs `gh pr close` to close it; with no `gh` to ask, Send pushes and opens no pull request, and Discard ends the batch on this machine and leaves an open pull request open. In the vault's repository it changes nothing: `git rev-parse` and `git remote get-url` find the repository and its `origin`, `git config --get` and `git config --get-regexp` read the settings the clone copies, and `git var` reads the author and committer git gives there. In the project's repository, `git rev-parse` finds its main checkout, where the clone lives under `.projectstore/state/dashboard/<you>/clone/`. When you open a story or a spec, the page reads its code there and changes nothing: `git rev-parse` and `git rev-list` find the default branch as the repository last fetched it and how far the checkout is behind it, `git log` reads the commits that touch the story's code paths and which pull request brought each one in, and `git show` and `git diff` list a pull request's files. The page never fetches that repository, and it keeps git from fetching an object a partial clone lacks (on a git too old for that, a clone without trees may still fetch them). It asks `gh pr list` for the project's pull requests, as the gh row says; their descriptions stay on this machine, in the server's memory, never in a file and never sent to the page. In the clone, `git clone` makes it from `origin`, borrowing objects from the vault's repository while it downloads and then keeping its own copy; `git config` copies those settings and your identity into the clone's own `.git/config`, as "What it writes" below lists them; `git ls-remote` and `git remote set-head` and `git symbolic-ref` learn the default branch of `origin`, and `git remote get-url` checks the clone's own; `git for-each-ref` and `git rev-list` and `git rev-parse` and `git status` read its branches, commits and files; `git switch` and `git add` and `git commit` make a move's commit; Send first runs `git fetch` of the batch's branch as `origin` holds it and, only when that branch is ahead of the clone's, `git merge` to take it in, before `git push` pushes `refs/heads/dashboard/<you>/<time>` and nothing else; after a merge, `git cherry-pick` carries the commits made after Send onto the default branch, and `git branch --delete` drops a batch branch whose commits are all merged or carried; `git reset --hard` and `git clean -d -x` put the clone back at its branch's last commit at the start of every step and after every action; `git ls-files` and `git diff` tell a stopped cherry-pick from an empty one. Opening a story, an epic or an initiative to edit, and saving it or getting the latest, runs `git merge-base` and `git cat-file -e` and `git show` in the page's own clone, to find where your changes started; they read the clone and write nothing. `git clone` and `git fetch` and `git ls-remote` and `git push` reach `origin` over the network. No git hook runs in the clone, and no call can stop to ask for a password: one that would need a prompt fails with git's message. The page also runs ProjectStore's own `move`, `handover`, `rank` and `edit` in the clone through the same Node; for `edit` it writes the text you save to a file of its own in your system's temporary folder, readable by you alone, and removes it when the verb ends. Then it opens the page's address in your default browser, only when you run it at a terminal: `open` on macOS, `xdg-open` on Linux, `rundll32` on Windows. `--no-open` opens nothing.
 - **The agent CLIs, `claude` and `codex`.** Setup, install, upgrade and uninstall run their plugin commands, such as `plugin marketplace add` and `plugin install` to register ProjectStore or `plugin uninstall` to remove it. Each one runs after you confirm the plan, which shows it verbatim. The model menu of `configure` also runs `codex debug models` to read Codex's model list, which Codex refreshes over the network with its own login.
 - **npm**, from setup, install and upgrade, and from `dashboard` in a copy installed from npm. They run `npm config get registry` to learn which registry your npm uses. When setup, install and upgrade set up Codex, they also run `npm install` with `--ignore-scripts` to fetch the `projectstore-codex` package at the running version into a folder in ProjectStore's cache, because the Codex plugin ships in that package. The first `dashboard` run at a version runs `npm install` with `--ignore-scripts` the same way, once, to fetch the page's package, `projectstore-dashboard`, at the running version. No install script of either package runs.
 - **The band above the prompt** (Claude Code) is a module that runs inside Claude Code's own process, not in Node. It reads the binding, the session's pointer, its epic's files and the WIP count ProjectStore keeps in `.projectstore/state/wip.json`, and writes a heartbeat, `.band-<session id>.json` under `.projectstore/state/sessions/`, while it draws; it starts no program and makes no request. It watches agent starts (`agent.spawn`), each agent's requests and tool calls, and each turn's end, only to show a ProjectStore agent's row. It passes each of these on unchanged, and it changes no agent, permission or setting.
@@ -563,7 +481,7 @@ Opening a project that is not bound writes nothing into it: the first-run welcom
 
 - **In a bound project**: `.projectstore/`, with the binding (`projectstore.json`, machine-local and git-ignored), the agents' models (`harness/`, meant to be committed), `state/` (each session's state, the band's heartbeat, the welcome marker and the status line's launcher, machine-local) and its own `.gitignore`; in Claude Code with the band on, a `default_author` and a `flow` policy in the vault, `state/wip.json`: how many stories that person holds in progress or review, how many of them wait to be closed, and their WIP limit, with the person's name (the band shows only the numbers). Session start writes it (nothing when `auto_inject` is `false`), and so do `move`, `follow` and `handover` with `--write` and `session refresh`, only when a number changed; it is machine-local, and it is removed when the vault has no `flow` policy; in Claude Code, `state/sessions/<session id>.writes/`, each session's record of the vault files it wrote, with the file's contents before and after each write, kept by hash (a file over 512 KiB keeps its hashes only), the tool and the time, machine-local, which the pre-commit check reads. A record is deleted at the next session start once it has been inactive for 24 hours, except the starting session's own; the agents block between the `projectstore:agents` markers in `AGENTS.md` and `CLAUDE.md`; and `.claude/settings.local.json`, which gets the status line only when you turn it on, and this checkout's plugin registration when setup or install registers the npm copy, or turns the git-marketplace copy off here, through Claude Code's own CLI.
 - **In the vault**: the artifacts, each one after you approve it; the views generated from them (the kanban, the folder indexes, the code map, the graph and, once you create it, the flow page); `.projectstore.json`, the vault's own settings; `guides/`, only when you run `guide eject --write` to override a kind's authoring guide; and `.projectstore/sessions/`, one small git-ignored file per session with its id, start time, project path, host name, process id and the vault files it read or edited last, with the tool and the time. A session's file is deleted at the next session start once it has been inactive for 24 hours. A new vault also gets its own git repository.
-- **From the dashboard's page**, in the main checkout of your project's code repository: `.projectstore/state/dashboard/<you>/`, machine-local and ignored by git; the page first makes sure that `.projectstore/.gitignore` lists `state/`. It holds the page's clone of the vault's repository (`clone/`, made in `clone.tmp/` and renamed once `git clone` ends well), a binding folder that points ProjectStore's `move` and `handover` at the vault inside that clone (`project/`), and the lock file that one step of the page holds at a time (`projectstore-dashboard.lock`). Into the clone's own `.git/config` the page copies these keys as git resolves them in the vault's repository, from any of its configuration files: `credential.*`, `url.*.insteadOf` and `url.*.pushInsteadOf`, `remote.origin.pushurl`, `core.sshCommand`, `ssh.variant`, `commit.gpgsign`, `user.signingkey` and `gpg.format`, and your identity there as `author.name`, `author.email`, `committer.name` and `committer.email`. Some of these can carry a credential, a token in an `insteadOf` address for one; the copies stay in the clone until you remove it. In the clone, the page commits each change you approve on your batch branch, `dashboard/<you>/<time>`, and keeps the batch branches it no longer works on. On the code host, Send creates that branch on the `origin` of the vault's repository and opens one pull request from it, and Discard closes the pull request and leaves the branch there. Nothing of this reaches the vault's default branch until a person merges the pull request. The page writes no file of the vault and changes no setting of the vault's repository.
+- **From the dashboard's page**, in the main checkout of your project's code repository: `.projectstore/state/dashboard/<you>/`, machine-local and ignored by git; the page first makes sure that `.projectstore/.gitignore` lists `state/`. It holds the page's clone of the vault's repository (`clone/`, made in `clone.tmp/` and renamed once `git clone` ends well), a binding folder that points ProjectStore's `move`, `handover`, `rank` and `edit` at the vault inside that clone (`project/`), and the lock file that one step of the page holds at a time (`projectstore-dashboard.lock`). Into the clone's own `.git/config` the page copies these keys as git resolves them in the vault's repository, from any of its configuration files: `credential.*`, `url.*.insteadOf` and `url.*.pushInsteadOf`, `remote.origin.pushurl`, `core.sshCommand`, `ssh.variant`, `commit.gpgsign`, `user.signingkey` and `gpg.format`, and your identity there as `author.name`, `author.email`, `committer.name` and `committer.email`. Some of these can carry a credential, a token in an `insteadOf` address for one; the copies stay in the clone until you remove it. In the clone, the page commits each change you approve on your batch branch, `dashboard/<you>/<time>`, and keeps the batch branches it no longer works on. On the code host, Send creates that branch on the `origin` of the vault's repository and opens one pull request from it, and Discard closes the pull request and leaves the branch there. Nothing of this reaches the vault's default branch until a person merges the pull request. The page writes no file of the vault and changes no setting of the vault's repository.
 - **In your home directory**: `~/.cache/projectstore/`, or `$XDG_CACHE_HOME/projectstore/` when that is set. It holds the newest version the npm registry named (`registry.json`, kept for 24 hours), the model lists (`models/`, kept for a day: model names, labels, descriptions and families, never a key), which agent has shown its first-run welcome in a project that is not bound (`welcomed/`, one marker per agent for the machine), the Codex package and the dashboard's package while a run fetches them (`fetch/`, removed when the run ends), and the dashboard's page, one folder per version (`dashboard/<version>/`, kept until you delete it; deleting it any time is safe, and the next `dashboard` run fetches it again). Setup and install from npm also write a folder of their own, `projectstore/`, under Claude Code's home (`~/.claude`, or `$CLAUDE_CONFIG_DIR`) or Codex's (`~/.codex`, or `$CODEX_HOME`), holding the marketplace the agent installs ProjectStore from, and the agent's own CLI records the plugin in that agent's plugin registry.
 
 ProjectStore never changes Claude Code's or Codex's permission settings.
@@ -681,17 +599,9 @@ One formatting-only commit is listed in `.git-blame-ignore-revs`. GitHub skips i
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
-A branch opened before that commit rebases in two steps, so that the lint fixes before it are kept. First onto the commit before it, resolving real conflicts as usual:
+A branch opened before that commit rebases in two steps: [docs/extending.md](docs/extending.md#rebasing-over-the-formatting-commit).
 
-```sh
-git rebase <the commit before it>
-```
-
-Then onto the formatting commit itself, where every conflict is formatting only: take your side, format the file with `npm run format` and `git add` it, then continue.
-
-```sh
-git rebase --onto <it> <the commit before it>
-```
+The dashboard's editor is built from `dashboard/editor/` (`npm ci` and `npm run build` there); CI fails when the committed build differs from its sources.
 
 ## License
 

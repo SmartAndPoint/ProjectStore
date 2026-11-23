@@ -288,6 +288,11 @@ each key activates.
   command alike. The mark's key and the one predicate every reader asks,
   `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
   the key, and only its `reviewed` removes it.
+- `edit` (`scripts/item-verbs.mjs`) cuts a file and guards its text through
+  `scripts/edit-cut.mjs`, which reads sections with `sectionOf` and checkboxes
+  with `checklistItems`, as the gates do; a new section a gate writes needs a
+  guard there. The dashboard's page imports the same module, so the page and
+  the verb cut and hash a file one way.
 - `rank` is ranked only as a string the frontmatter parser returns that
   matches `^-?[0-9]{1,15}$`; any other value is unranked, never an error.
   `siblingOrder` in `scripts/rank.mjs` is the one comparator of a group: the
@@ -355,3 +360,17 @@ each key activates.
 PRs welcome at https://github.com/SmartAndPoint/ProjectStore. Prefer one
 focused PR per layout / template / skill. Include a sample output in your PR
 description.
+
+## Rebasing over the formatting commit
+
+A branch opened before that commit rebases in two steps, so that the lint fixes before it are kept. First onto the commit before it, resolving real conflicts as usual:
+
+```sh
+git rebase <the commit before it>
+```
+
+Then onto the formatting commit itself, where every conflict is formatting only: take your side, format the file with `npm run format` and `git add` it, then continue.
+
+```sh
+git rebase --onto <it> <the commit before it>
+```
