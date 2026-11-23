@@ -628,7 +628,7 @@ test("no hook entry and no MCP module reaches item-verbs.mjs, both rows write wi
   const { VERBS } = await import("../scripts/cli.mjs");
   const { READ_HANDLERS } = await import("../scripts/read-verbs.mjs");
   const { closure, hookEntries, verbModuleSpecifiers } = await import("./fixtures/imports.mjs");
-  for (const verb of ["create", "reviewed"]) {
+  for (const verb of ["create", "reviewed", "edit"]) {
     assert.ok(!Object.hasOwn(READ_HANDLERS, verb), `the read runner does not serve ${verb}`);
     const row = VERBS.find((v) => v.verb === verb);
     assert.equal(row.writes, true, verb);

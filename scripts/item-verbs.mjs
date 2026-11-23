@@ -8,7 +8,10 @@
 // pending`. A story's row then goes into its epic's Stories table through the
 // same add `epic-row --add` runs, and the derived views are refreshed with a
 // bare reconcile --write, as `move` does. `reviewed <path>` clears the mark
-// once a review has read the file.
+// once a review has read the file. `edit <path> --from <file> --base <hash>`
+// replaces the `## ` sections of an initiative, epic or story when its body
+// still has that hash, through the guards of edit-cut.mjs, and marks it
+// `edit <instant>` (spec "The edit verb…", alias `edit`).
 //
 // Bare, each verb prints its plan and writes nothing; with --write it asks
 // once at a terminal, and without one, or under --json, --write is the
@@ -43,6 +46,7 @@ import { replaceWithRetry, syncEpicRow, CHANGED_MEANWHILE, EPIC_ROW_MISSING } fr
 import { applyFields, applyEpicInitiative, initiativeTarget } from "./initiative-verbs.mjs";
 import { nodeWriteRecorder } from "./write-record.mjs";
 import { MARK_KEY, isMarked } from "./verb-mark.mjs";
+import { EDIT_KINDS, splitForEdit, bodyHash, guardEdit, changedSections, normalise } from "./edit-cut.mjs";
 
 const KINDS = Object.freeze(["initiative", "epic", "story"]);
 // The options each kind takes, beside --write and --json.
@@ -89,6 +93,22 @@ export function withMark(text, value) {
   if (!f) throw new Error("the file has no frontmatter block");
   const { lines, end } = f;
   const mark = `${MARK_KEY}: ${JSON.stringify(value)}`;
+  // A file that holds the key already (a create, then an edit; two edits) has
+  // its value replaced in place: a file never holds the key twice (the edit
+  // spec, contract 6).
+  const held = keyAt(lines, end, MARK_KEY);
+  if (held !== -1) {
+    lines[held] = mark;
+    const added = [];
+    const rs0 = keyAt(lines, end, "review_status");
+    if (rs0 !== -1) lines[rs0] = "review_status: pending";
+    else added.push("review_status: pending");
+    const ra0 = keyAt(lines, end, "reviewed_at");
+    if (ra0 !== -1) lines[ra0] = "reviewed_at: null";
+    else added.push("reviewed_at: null");
+    if (added.length) lines.splice(held + 1, 0, ...added);
+    return lines.join("\n");
+  }
   const rs = keyAt(lines, end, "review_status");
   if (rs !== -1) {
     lines[rs] = "review_status: pending";
@@ -517,5 +537,227 @@ export async function runReviewed(ctx) {
     code: 0,
     result: result({ path: abs, rel, marked: true, written: Boolean(r.written) }),
     text: `reviewed: ${rel} written\n  ${MARK_KEY}: removed\n  review_status: reviewed, reviewed_at: ${day}\n`,
+  };
+}
+
+// ─── edit ──────────────────────────────────────────────────────────────
+
+// The most UTF-16 code units a text may hold, counted before its line endings
+// are made LF (the edit spec, contract 1).
+export const EDIT_TEXT_LIMIT = 500000;
+const HASH = /^[0-9a-f]{16}$/;
+
+// The text as a body: a leading byte-order mark and leading blank lines
+// dropped, its trailing white space replaced by the file body's own.
+function bodyFrom(text, was) {
+  const kept = was.trimEnd();
+  const tail = was.slice(kept.length) || "\n";
+  let t = normalise(text).replace(/^\uFEFF/, "");
+  let k = 0;
+  // Leading blank lines: whole lines of spaces and tabs only.
+  for (let nl = t.indexOf("\n"); nl !== -1 && !t.slice(k, nl).trim(); nl = t.indexOf("\n", k)) k = nl + 1;
+  t = t.slice(k);
+  return `${t.trimEnd()}${tail}`;
+}
+
+export async function runEdit(ctx) {
+  const { values, positionals, cfg, project, env, confirm, afterCompute = null } = ctx;
+  const now = ctx.now ?? null;
+  const [arg, ...extra] = positionals;
+  if (!arg || extra.length) return { usage: "edit takes one path: a story, an epic or an initiative in the vault" };
+  const from = values.from;
+  const base = values.base;
+  if (given(from) !== given(base))
+    return {
+      usage: "edit takes --from and --base together: the new text and the hash of the body it was written over",
+    };
+  if (!given(from) && values.write) return { usage: "edit --write needs --from <file> and --base <hash>" };
+  if (given(base) && !HASH.test(String(base)))
+    return { usage: `--base is the body's hash, 16 lowercase hex digits; ${JSON.stringify(base)} is not that` };
+  const result = (extra2 = {}) => ({
+    write: Boolean(values.write),
+    path: null,
+    rel: null,
+    kind: null,
+    hash: null,
+    body: null,
+    sections: [],
+    part: null,
+    same: false,
+    written: false,
+    mark: null,
+    reconcile: null,
+    left: [],
+    declined: false,
+    error: null,
+    ...extra2,
+  });
+  const fail = (message, extra2 = {}) => ({
+    ok: false,
+    code: 1,
+    result: result({ ...extra2, error: message }),
+    text: `edit: ${message}\n`,
+  });
+
+  // The text (contract 1), read before the vault is: a usage error writes nothing.
+  let text = null;
+  if (given(from)) {
+    let buf;
+    try {
+      if (!statSync(String(from)).isFile()) return { usage: `--from ${from} is not a file` };
+      buf = readFileSync(String(from));
+    } catch (e) {
+      return { usage: `--from ${from} cannot be read: ${errMsg(e)}` };
+    }
+    text = buf.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(buf)) return { usage: `--from ${from} is not UTF-8 text` };
+    if (text.length > EDIT_TEXT_LIMIT)
+      return { usage: `the text is ${text.length} characters; edit takes at most ${EDIT_TEXT_LIMIT}` };
+    if (text.includes("\u0000")) return { usage: "the text holds a NUL character" };
+    if (!text.replace(/^\uFEFF/, "").trim()) return { usage: "the text is empty: an edit never removes every section" };
+  }
+
+  // The path and the kind (contract 3): inside the bound vault once links are
+  // resolved, a markdown file, and one of the three kinds.
+  const vault = normaliseVaultPath(cfg.vault_path, project);
+  if (!isDirectory(vault)) return fail(`the binding names no vault directory that is there (${cfg.vault_path})`);
+  const realVault = realOf(vault);
+  const abs = isAbsolute(arg) ? resolve(arg) : resolve(vault, arg);
+  if (!inside(realOf(abs), realVault)) return fail(`${arg} is outside the bound vault`);
+  const rel = relative(realVault, realOf(abs)).split(sep).join("/");
+  let raw;
+  try {
+    if (!statSync(abs).isFile() || !/\.md$/i.test(abs)) return fail(`${rel} is not a markdown file`);
+    raw = readFileSync(abs, "utf8");
+  } catch {
+    return fail(`${rel} is not there`);
+  }
+  const kindOf = (t) => {
+    const n = normalise(t);
+    const fm = /^---\n[\s\S]*?\n---\n/.exec(n);
+    const type = fm ? String(parseFrontmatter(n).data.type ?? "").trim() : "";
+    return { fm: fm ? fm[0] : null, type, rest: fm ? n.slice(fm[0].length) : n };
+  };
+  const k = kindOf(raw);
+  if (!k.fm || !EDIT_KINDS.includes(k.type))
+    return fail(
+      `${rel} is ${k.type ? `of the kind ${k.type}` : "no artifact with a type"}; edit writes only a story, an epic or an initiative`,
+      { path: abs, rel, kind: k.type || null },
+    );
+  const parts = splitForEdit(k.rest);
+  const hash = bodyHash(parts.body);
+  const found = { path: abs, rel, kind: k.type, hash };
+
+  // The read form (contract 1).
+  if (text === null)
+    return {
+      ok: true,
+      code: 0,
+      result: result({ ...found, body: parts.body }),
+      text: `edit: ${rel} (${k.type}), hash ${hash}\n${parts.body}`,
+    };
+
+  // The checks, in order (contract 1): the base (contract 4), the guards
+  // (contract 5), then whether anything changes. The plan refuses as the write does.
+  const changed = `The file changed after it was read. Read it again (edit ${rel}) and put your change into it.`;
+  if (base !== hash) return fail(changed, found);
+  const body = bodyFrom(text, parts.body);
+  const refused = guardEdit(k.type, parts.body, body);
+  if (refused) return fail(refused.error, { ...found, part: refused.part });
+  // The file as it would be written, read back: the body must be the text (contract 6).
+  const writeOf = (fm, p, b, mark) => withMark(`${fm}${p.head}${b}${p.foot}`, mark);
+  const readsBack = (content, b) => splitForEdit(kindOf(content).rest).body === b;
+  if (!readsBack(writeOf(k.fm, parts, body, "edit check"), body))
+    return fail(
+      'The text would not read back as written: it ends with a `---` line and a "Last updated" line, which the file\'s own foot holds. Remove them from the text.',
+      found,
+    );
+  const sections = changedSections(parts.body, body);
+  if (!sections.length) sections.push("(blank lines only)");
+  if (body === parts.body)
+    return {
+      ok: true,
+      code: 0,
+      result: result({ ...found, same: true }),
+      text: `edit: ${rel} holds this text already; nothing to write.\n`,
+    };
+
+  const planText = (asking) =>
+    [
+      `edit ${k.type}: ${rel}`,
+      `  sections: ${sections.join(", ")}`,
+      `  mark: ${MARK_KEY} "edit <the write's instant>", review_status pending`,
+      ...(asking
+        ? []
+        : [
+            `Nothing written. To write it, ${fromTerminalIn(project)}:`,
+            `  ${packageCommand([], "edit", { args: `${shellQuote(rel)} --from <file> --base ${hash} --write` })}`,
+          ]),
+    ].join("\n") + "\n";
+  if (!values.write) return { ok: true, code: 0, result: result({ ...found, sections }), text: planText(false) };
+  if (confirm && !(await confirm(planText(true))))
+    return {
+      ok: false,
+      code: 1,
+      result: result({ ...found, sections, declined: true, error: "declined" }),
+      text: "Nothing written.\n",
+    };
+
+  // The write (contract 4): computed from the file as it stands at the write,
+  // so another writer's change to the frontmatter or the head is kept; a body
+  // whose hash moved is refused. The mark's instant is the write's.
+  const mark = `edit ${markInstant(now)}`;
+  const onWrite = nodeWriteRecorder({ env, project, tool: "edit" });
+  let newBody = body;
+  const r = replaceWithRetry(
+    abs,
+    (b) => {
+      const kk = kindOf(b);
+      if (!kk.fm || kk.type !== k.type) return { refused: changed };
+      const p = splitForEdit(kk.rest);
+      if (bodyHash(p.body) !== base) return { refused: changed };
+      newBody = bodyFrom(text, p.body);
+      return { content: writeOf(kk.fm, p, newBody, mark) };
+    },
+    { afterCompute, onWrite },
+  );
+  if (r.refused) return fail(changed, found);
+  if (r.error)
+    return fail(
+      r.error === CHANGED_MEANWHILE
+        ? `${CHANGED_MEANWHILE}: ${rel} changed before each of ${r.attempts} attempts; nothing was written`
+        : r.error,
+      found,
+    );
+
+  // The derived views (contract 7), as move refreshes them.
+  const { refreshViews } = await import("./reconcile.mjs");
+  const { ownEnv: projectEnv } = await import("./verbs.mjs");
+  const rec = refreshViews({ project, env: ctx.ownEnv ? ctx.ownEnv(project) : projectEnv(env, project) });
+  const left = rec.failed
+    ? [
+        {
+          what: "the derived views",
+          error: rec.error || "a view failed",
+          finish: packageCommand([], "reconcile", { args: "--write" }),
+        },
+      ]
+    : [];
+  const done = result({
+    ...found,
+    hash: bodyHash(newBody),
+    sections,
+    written: true,
+    mark,
+    reconcile: rec.summary,
+    left,
+  });
+  const head = `edit ${k.type}: ${rel} written\n  sections: ${sections.join(", ")}\n  ${MARK_KEY}: ${mark}, review_status pending\n`;
+  if (!left.length) return { ok: true, code: 0, result: done, text: head };
+  return {
+    ok: false,
+    code: 1,
+    result: { ...done, error: `left: the derived views (${left[0].error})` },
+    text: `${head}edit: ${rel} was written, but not the derived views (${left[0].error}). Finish it ${fromTerminalIn(project)}:\n  ${left[0].finish}\n`,
   };
 }
