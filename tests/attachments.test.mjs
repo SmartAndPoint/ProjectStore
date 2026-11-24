@@ -605,3 +605,31 @@ test("attachments: a vault whose .gitignore lists the folder gives each kept fil
     ],
   );
 });
+
+// [attachments#8]
+test("attachments: session check calls the story, each kept file and .gitattributes an attached edit wrote own", async () => {
+  const fx = await storyVault();
+  const sh = (...args) => {
+    const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], {
+      cwd: fx.vault,
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  sh("init", "-q");
+  sh("add", "-A");
+  sh("commit", "-qm", "base");
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const pdf = tmpFile("doc.pdf", Buffer.from(FIXTURES.pdf));
+  const names = [await nameOf(FIXTURES.png), await nameOf(FIXTURES.pdf)];
+  const r = await editWith(fx, names.map((n) => `![f](${UP}/${n})`).join("\n"), [png, pdf], { sid: "s-check" });
+  assert.equal(r.code, 0, r.out + r.err);
+  const c = await cli(fx.proj, ["session", "check"], { sid: "s-check" });
+  const files = c.json.result.copies[0].files;
+  for (const rel of [STORY, ".gitattributes", ...names.map((n) => `attachments/${n}`)])
+    assert.equal(files.find((x) => x.path === rel)?.verdict, "own", `${rel}: ${JSON.stringify(files)}`);
+  assert.deepEqual(
+    files.filter((x) => !["own", "consistent"].includes(x.verdict)).map((x) => x.path),
+    [],
+  );
+});

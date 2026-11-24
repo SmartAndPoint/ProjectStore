@@ -292,7 +292,12 @@ each key activates.
   `scripts/edit-cut.mjs`, which reads sections with `sectionOf` and checkboxes
   with `checklistItems`, as the gates do; a new section a gate writes needs a
   guard there. The dashboard's page imports the same module, so the page and
-  the verb cut and hash a file one way.
+  the verb cut and hash a file one way. Its `--attach` keeps the pictures and
+  PDFs a text links in the folder the layout names in `attachments.path`;
+  `scripts/attachment.mjs`, which imports nothing, types a file by its first
+  bytes and names it by its content hash, so the page and the verb agree on
+  the name. A layout without the key keeps no attachments, and its links to
+  such files stay `out-of-scope` in the graph.
 - `rank` is ranked only as a string the frontmatter parser returns that
   matches `^-?[0-9]{1,15}$`; any other value is unranked, never an error.
   `siblingOrder` in `scripts/rank.mjs` is the one comparator of a group: the
