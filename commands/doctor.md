@@ -264,3 +264,11 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   Doctor reads the clone locally and never fetches. `--fix` touches none of
   them: sending or deleting a kept branch is the user's judgement, so never
   push, merge or delete it yourself; `dashboard/README.md` says how by hand.
+- Kept files are the pictures and PDFs `edit --attach` wrote to the layout's
+  attachments folder, named by their content hash. Doctor reads their names
+  and sizes, never their bytes: `attachment-orphan` (info) is one no file of
+  the vault links to; `attachment-over-limit` (warn) is one over 5 MiB;
+  `attachment-type` (warn) is one whose extension is not png, jpg, gif, webp
+  or pdf; `attachment-ignored` (warn) is one the vault's git ignores, so a
+  commit leaves it out. `--fix` touches none of them: deleting an orphan,
+  or changing the vault's `.gitignore`, is the user's call.

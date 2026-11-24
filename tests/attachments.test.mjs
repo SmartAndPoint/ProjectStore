@@ -23,7 +23,9 @@ import { run } from "../scripts/cli.mjs";
 import { runEdit } from "../scripts/item-verbs.mjs";
 import { readEvents } from "../scripts/write-record.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
-import { loadTemplate, renderTemplate } from "../scripts/lib.mjs";
+import { buildNodeIndex, loadLayout, loadTemplate, renderTemplate } from "../scripts/lib.mjs";
+import { checkAttachments, runVaultChecks } from "../scripts/doctor.mjs";
+import { spawnSync } from "node:child_process";
 import { makeVaultProject } from "./fixtures/vault.mjs";
 import { MAX_BYTES, KEPT_TYPES, typeOf, nameOf, isKeptShape, isWrittenName, refusal } from "../scripts/attachment.mjs";
 
@@ -202,7 +204,7 @@ async function linkVault() {
 // [attachments#9]
 test("attachments: a kept link is an attachment edge, a missing kept file is dead, other links are as before", async () => {
   const { buildGraph } = await import("../scripts/graph.mjs");
-  const { loadLayout } = await import("../scripts/lib.mjs");
+
   const { vault, name } = await linkVault();
   const g = buildGraph({ vault_path: vault, layout: "engineering" }, loadLayout("engineering", REPO));
   const from = "epics/PS-A/stories/story-a.md";
@@ -529,7 +531,7 @@ test("attachments: each created file and the .gitattributes write are events of 
 // [attachments#9]
 test("attachments: with a layout that keeps no attachments, the same link is out-of-scope, as before (edge)", async () => {
   const { buildGraph } = await import("../scripts/graph.mjs");
-  const { loadLayout } = await import("../scripts/lib.mjs");
+
   const { vault, name } = await linkVault();
   const layout = { ...loadLayout("engineering", REPO) };
   delete layout.attachments;
@@ -537,4 +539,69 @@ test("attachments: with a layout that keeps no attachments, the same link is out
   const kinds = g.edges.filter((e) => e.to === `attachments/${name}`).map((e) => e.kind);
   assert.deepEqual(kinds, ["out-of-scope"]);
   assert.ok(!g.edges.some((e) => e.kind === "attachment"));
+});
+
+// ─── doctor's findings (contract 10) ─────────────────────────────────
+
+const fsOf = (fx) => ({ vault_path: fx.vault, layout: "engineering", language: "en" });
+const nodeIndexOf = (fx) => buildNodeIndex(fsOf(fx), loadLayout("engineering", REPO));
+const byCheck = (findings) =>
+  findings
+    .filter((f) => f.check.startsWith("attachment-"))
+    .map((f) => `${f.check} ${f.file}`)
+    .sort();
+
+// [attachments#10]
+test("attachments: doctor names an orphan, a wrong type and an over-limit file, and nothing for a file of another shape", async () => {
+  const fx = await storyVault();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const r = await editWith(fx, `![shot](${UP}/${name})`, [png]);
+  assert.equal(r.code, 0, r.out + r.err);
+  writeFileSync(fx.at("attachments/0000000000000000.png"), Buffer.from(FIXTURES.png));
+  writeFileSync(fx.at("attachments/0123456789abcdef.svg"), "<svg/>");
+  writeFileSync(fx.at("attachments/1111111111111111.pdf"), Buffer.alloc(MAX_BYTES + 1));
+  writeFileSync(fx.at("attachments/notes.txt"), "a note");
+  const calls = [];
+  const git = (cwd, args) => (calls.push(args), { kind: "answer", status: 1, stdout: Buffer.alloc(0) });
+  assert.deepEqual(byCheck(checkAttachments(fsOf(fx), nodeIndexOf(fx), { git })), [
+    "attachment-orphan attachments/0000000000000000.png",
+    "attachment-orphan attachments/0123456789abcdef.svg",
+    "attachment-orphan attachments/1111111111111111.pdf",
+    "attachment-over-limit attachments/1111111111111111.pdf",
+    "attachment-type attachments/0123456789abcdef.svg",
+  ]);
+  assert.equal(calls.length, 1, "one batched git run");
+  assert.ok(!calls[0].includes("attachments/notes.txt"), "a file of another shape is no kept file");
+  const all = runVaultChecks(fsOf(fx), { proj: fx.proj });
+  assert.ok(byCheck(all).includes("attachment-type attachments/0123456789abcdef.svg"), "doctor --vault runs the check");
+  for (const f of all.filter((x) => x.check === "attachment-orphan")) assert.equal(f.level, "info");
+});
+
+// [attachments#10]
+test("attachments: with no attachments folder doctor says nothing and starts no git process (edge)", async () => {
+  const fx = await storyVault();
+  let called = false;
+  const git = () => ((called = true), { kind: "answer", status: 1, stdout: Buffer.alloc(0) });
+  assert.deepEqual(checkAttachments(fsOf(fx), nodeIndexOf(fx), { git }), []);
+  assert.equal(called, false);
+});
+
+// [attachments#10]
+test("attachments: a vault whose .gitignore lists the folder gives each kept file attachment-ignored (failure)", async () => {
+  const fx = await storyVault();
+  const init = spawnSync("git", ["init", "-q"], { cwd: fx.vault });
+  assert.equal(init.status, 0, String(init.stderr));
+  mkdirSync(fx.at("attachments"));
+  writeFileSync(fx.at("attachments/0000000000000000.png"), Buffer.from(FIXTURES.png));
+  writeFileSync(fx.at("attachments/2222222222222222.gif"), Buffer.from(FIXTURES.gif));
+  writeFileSync(fx.at(".gitignore"), "attachments/\n");
+  const ignored = checkAttachments(fsOf(fx), nodeIndexOf(fx)).filter((f) => f.check === "attachment-ignored");
+  assert.deepEqual(
+    ignored.map((f) => [f.file, f.level]),
+    [
+      ["attachments/0000000000000000.png", "warn"],
+      ["attachments/2222222222222222.gif", "warn"],
+    ],
+  );
 });
