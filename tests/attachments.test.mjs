@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -632,4 +633,174 @@ test("attachments: session check calls the story, each kept file and .gitattribu
     files.filter((x) => !["own", "consistent"].includes(x.verdict)).map((x) => x.path),
     [],
   );
+});
+
+// ─── the edges the review found ──────────────────────────────────────
+
+const CFG = (fx, layout = "engineering") => ({ vault_path: fx.vault, layout, language: "en" });
+async function editRun(fx, line, attach, opts = {}) {
+  const now = await readStory(fx);
+  const text = tmpFile("text.md", now.body.replace("## Description\n", `## Description\n\n${line}\n`));
+  return runEdit({
+    values: { from: text, base: now.hash, attach, write: opts.write ?? true },
+    positionals: [STORY],
+    cfg: CFG(fx, opts.layout),
+    project: fx.proj,
+    env: { ...process.env, CI: "1" },
+    confirm: opts.confirm ?? null,
+    afterCompute: opts.afterCompute ?? null,
+  });
+}
+// A layout with no attachments key, named by its path from scaffold/layouts/.
+function layoutWithoutKey() {
+  const layout = { ...loadLayout("engineering", REPO) };
+  delete layout.attachments;
+  const p = join(mkdtempSync(join(tmpdir(), "att-layout-")), "plain.json");
+  writeFileSync(p, JSON.stringify(layout));
+  return relative(join(REPO, "scaffold", "layouts"), p).replace(/\.json$/, "");
+}
+
+// [attachments#3]
+test("attachments: an empty --attach is a usage error, not an edit without files (failure)", async () => {
+  const fx = await storyVault();
+  const now = await readStory(fx);
+  const r = await cli(fx.proj, [
+    "edit",
+    STORY,
+    "--from",
+    tmpFile("t.md", now.body),
+    "--base",
+    now.hash,
+    "--attach",
+    "",
+  ]);
+  assert.equal(r.code, 2, r.out + r.err);
+});
+
+// [attachments#1]
+test("attachments: with a layout that has no attachments key, --attach is refused and doctor says nothing (edge)", async () => {
+  const fx = await storyVault();
+  const layout = layoutWithoutKey();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const before = bytesSnapshot(fx.vault);
+  const r = await editRun(fx, `![shot](${UP}/${await nameOf(FIXTURES.png)})`, [png], { layout });
+  assert.equal(r.code, 1, r.text);
+  assert.match(r.result.error, /this layout keeps no attachments/);
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+  mkdirSync(fx.at("attachments"));
+  writeFileSync(fx.at("attachments/0000000000000000.svg"), "<svg/>");
+  const plain = { ...loadLayout("engineering", REPO) };
+  delete plain.attachments;
+  assert.deepEqual(checkAttachments(CFG(fx), buildNodeIndex(CFG(fx), plain)), []);
+});
+
+// [attachments#2] [attachments#4]
+test("attachments: a file of exactly 5 MiB is kept, one byte more is refused (edge)", async () => {
+  const fx = await storyVault();
+  const at = Buffer.concat([Buffer.from(FIXTURES.png), Buffer.alloc(MAX_BYTES - FIXTURES.png.length)]);
+  const over = Buffer.concat([at, Buffer.alloc(1)]);
+  const ok = await editRun(fx, `![big](${UP}/${await nameOf(at)})`, [tmpFile("at.png", at)], { write: false });
+  assert.equal(ok.code, 0, ok.text);
+  assert.equal(ok.result.files[0].size, MAX_BYTES);
+  assert.equal(ok.result.files[0].state, "to-create");
+  const no = await editRun(fx, `![big](${UP}/${await nameOf(over)})`, [tmpFile("over.png", over)], { write: false });
+  assert.equal(no.code, 1, no.text);
+  assert.match(no.result.error, /5242881 bytes is over the limit/);
+});
+
+// [attachments#6]
+test("attachments: a write that fails partway, at .gitattributes, takes back the files and the folder it made (failure)", async (t) => {
+  if (process.getuid?.() === 0) return t.skip("root writes a read-only file");
+  const fx = await storyVault();
+  writeFileSync(fx.at(".gitattributes"), "* text=auto\n");
+  chmodSync(fx.at(".gitattributes"), 0o444);
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const before = bytesSnapshot(fx.vault);
+  const r = await editRun(fx, `![shot](${UP}/${await nameOf(FIXTURES.png)})`, [png]);
+  chmodSync(fx.at(".gitattributes"), 0o644);
+  assert.equal(r.code, 1, r.text);
+  assert.deepEqual(bytesSnapshot(fx.vault), before, "no file and no folder of the run is left");
+});
+
+// [attachments#6]
+test("attachments: an undo restores .gitattributes to its bytes, and leaves it when another writer changed it (edge)", async () => {
+  const name = await nameOf(FIXTURES.png);
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const theirs = (fx, extra) => () => {
+    if (extra) writeFileSync(fx.at(".gitattributes"), readFileSync(fx.at(".gitattributes"), "utf8") + extra);
+    writeFileSync(
+      fx.at(STORY),
+      readFileSync(fx.at(STORY), "utf8").replace("## Description\n", "## Description\n\nTheirs.\n"),
+    );
+  };
+  const fx = await storyVault();
+  writeFileSync(fx.at(".gitattributes"), "* text=auto\n");
+  const r = await editRun(fx, `![shot](${UP}/${name})`, [png], { afterCompute: theirs(fx, null) });
+  assert.equal(r.code, 1, r.text);
+  assert.equal(readFileSync(fx.at(".gitattributes"), "utf8"), "* text=auto\n");
+  const fx2 = await storyVault();
+  writeFileSync(fx2.at(".gitattributes"), "* text=auto\n");
+  const r2 = await editRun(fx2, `![shot](${UP}/${name})`, [png], { afterCompute: theirs(fx2, "*.pdf binary\n") });
+  assert.equal(r2.code, 1, r2.text);
+  assert.match(readFileSync(fx2.at(".gitattributes"), "utf8"), /\*\.pdf binary/, "another writer's change stays");
+  // A folder that was there before the run stays after its undo.
+  const fx3 = await storyVault();
+  mkdirSync(fx3.at("attachments"));
+  const r3 = await editRun(fx3, `![shot](${UP}/${name})`, [png], { afterCompute: theirs(fx3, null) });
+  assert.equal(r3.code, 1, r3.text);
+  assert.ok(existsSync(fx3.at("attachments")) && !existsSync(fx3.at(`attachments/${name}`)));
+});
+
+// [attachments#4]
+test("attachments: a dangling symbolic link as the folder, or as .gitattributes, is refused in the plan (failure)", async () => {
+  const name = await nameOf(FIXTURES.png);
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const fx = await storyVault();
+  symlinkSync(join(tmpdir(), "att-nowhere-" + process.pid), fx.at("attachments"));
+  for (const write of [false, true]) {
+    const r = await editRun(fx, `![shot](${UP}/${name})`, [png], { write });
+    assert.equal(r.code, 1, r.text);
+    assert.match(r.result.error, /is a symbolic link/);
+  }
+  const fx2 = await storyVault();
+  const outside = tmpFile("gitattributes", "* text=auto\n");
+  symlinkSync(outside, fx2.at(".gitattributes"));
+  const r2 = await editRun(fx2, `![shot](${UP}/${name})`, [png]);
+  assert.equal(r2.code, 1, r2.text);
+  assert.match(r2.result.error, /\.gitattributes is not a plain file/);
+  assert.equal(readFileSync(outside, "utf8"), "* text=auto\n", "nothing is written through the link");
+});
+
+// [attachments#3]
+test("attachments: a declined write keeps files and gitattributes in its result, and the same text plans no sections (edge)", async () => {
+  const fx = await storyVault();
+  const name = await nameOf(FIXTURES.png);
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const before = bytesSnapshot(fx.vault);
+  const r = await editRun(fx, `![shot](${UP}/${name})`, [png], { confirm: async () => false });
+  assert.equal(r.code, 1, r.text);
+  assert.equal(r.result.declined, true);
+  assert.deepEqual(
+    r.result.files.map((f) => f.state),
+    ["to-create"],
+  );
+  assert.equal(r.result.gitattributes, "to-change");
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+  const first = await editWith(fx, `![shot](${UP}/${name})`, [png]);
+  assert.equal(first.code, 0, first.out + first.err);
+  rmSync(fx.at(`attachments/${name}`));
+  const now = await readStory(fx);
+  const plan = await cli(fx.proj, [
+    "edit",
+    STORY,
+    "--from",
+    tmpFile("t.md", now.body),
+    "--base",
+    now.hash,
+    "--attach",
+    png,
+  ]);
+  assert.equal(plan.code, 0, plan.out + plan.err);
+  assert.equal(plan.json.result.same, true);
+  assert.deepEqual(plan.json.result.sections, []);
 });

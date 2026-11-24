@@ -604,15 +604,21 @@ async function attachmentPlan({ vault, realVault, rel, body, dir, attach }) {
   for (const file of attach) {
     const type = typeOf(headOf(file));
     if (!type) return { error: attachmentRefusal("type", { file }) };
-    const size = statSync(file).size;
-    if (size > MAX_BYTES) return { error: attachmentRefusal("size", { file, size }) };
+    const stated = statSync(file).size;
+    if (stated > MAX_BYTES) return { error: attachmentRefusal("size", { file, size: stated }) };
     const bytes = readFileSync(file);
+    const size = bytes.length;
+    if (size > MAX_BYTES) return { error: attachmentRefusal("size", { file, size }) };
     const name = await nameOf(bytes);
     if (!byName.has(name)) byName.set(name, { file, name, type, size, bytes });
   }
-  if (attach.length && existsSync(dirAbs)) {
-    if (lstatSync(dirAbs).isSymbolicLink())
+  // lstat, not existsSync: a dangling symbolic link is no folder either.
+  const lst = lstatOrNull(dirAbs);
+  if (attach.length && lst) {
+    if (lst.isSymbolicLink())
       return { error: `${dir}/ is a symbolic link; the attachments folder must be a folder of the vault` };
+    if (!lst.isDirectory())
+      return { error: `${dir} is not a folder; the attachments folder must be a folder of the vault` };
     if (!inside(realOf(dirAbs), realVault)) return { error: `${dir}/ resolves outside the vault` };
   }
   const files = [];
@@ -620,8 +626,10 @@ async function attachmentPlan({ vault, realVault, rel, body, dir, attach }) {
     const path = `${dir}/${f.name}`;
     const there = join(dirAbs, f.name);
     let state = "to-create";
-    if (existsSync(there)) {
-      if (statSync(there).size !== f.size)
+    const at = lstatOrNull(there);
+    if (at) {
+      if (!at.isFile()) return { error: `${path} is there and is not a plain file; nothing is written over it` };
+      if (at.size !== f.size)
         return { error: `${path} is there with another size than ${f.file}; nothing is written over it` };
       state = "found";
     }
@@ -657,6 +665,14 @@ async function attachmentPlan({ vault, realVault, rel, body, dir, attach }) {
   return { files, dirAbs };
 }
 
+function lstatOrNull(p) {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
 // Whether the vault's .gitattributes lacks the attachments line.
 function gitattributesLacks(vault, dir) {
   try {
@@ -668,14 +684,14 @@ function gitattributesLacks(vault, dir) {
   }
 }
 
-// Write the files to create and the .gitattributes line (contract 5), and
-// return what an undo needs; record nothing yet (a run that is taken back
-// records nothing).
-function writeAttachments({ vault, dir, dirAbs, files, addLine }) {
-  const made = { dir: false, files: [], ga: null };
+// Write the files to create and the .gitattributes line (contract 5) into
+// `made`, the caller's, step by step, so an undo after a throw partway
+// through still sees every file this run made; record nothing yet (a run
+// that is taken back records nothing).
+function writeAttachments(made, { vault, dir, dirAbs, files, addLine }) {
   if (files.some((f) => f.state === "to-create") && !existsSync(dirAbs)) {
-    mkdirSync(dirAbs, { recursive: true });
-    made.dir = true;
+    // mkdirSync answers the first folder it made, undefined when another run made it meanwhile.
+    made.dir = mkdirSync(dirAbs, { recursive: true }) ? dirAbs : null;
   }
   for (const f of files)
     if (f.state === "to-create") {
@@ -689,8 +705,9 @@ function writeAttachments({ vault, dir, dirAbs, files, addLine }) {
   if (addLine) {
     const file = join(vault, ".gitattributes");
     const before = existsSync(file) ? readFileSync(file) : null;
+    made.ga = { file, before, after: null };
     ensureGitignoreLines(file, [GITATTRIBUTES_LINE(dir)]);
-    made.ga = { file, before, after: readFileSync(file) };
+    made.ga.after = readFileSync(file);
   }
   return made;
 }
@@ -703,11 +720,11 @@ function undoAttachments(made) {
     try {
       unlinkSync(f.abs);
     } catch {}
-  if (made.dir && made.files.length)
+  if (made.dir)
     try {
-      rmdirSync(dirname(made.files[0].abs));
+      rmdirSync(made.dir);
     } catch {}
-  if (made.ga)
+  if (made.ga && made.ga.after)
     try {
       if (readFileSync(made.ga.file).equals(made.ga.after)) {
         if (made.ga.before === null) unlinkSync(made.ga.file);
@@ -733,7 +750,7 @@ export async function runEdit(ctx) {
   if (given(base) && !HASH.test(String(base)))
     return { usage: `--base is the body's hash, 16 lowercase hex digits; ${JSON.stringify(base)} is not that` };
   // The attached files (the attachments spec, contract 3): repeatable, with a text.
-  const attach = [].concat(values.attach ?? []).filter((a) => a !== undefined && a !== null && a !== "");
+  const attach = [].concat(values.attach ?? []).filter((a) => a !== undefined && a !== null);
   if (attach.length && !given(from)) return { usage: "edit --attach needs --from <file> and --base <hash>" };
   for (const a of attach) {
     try {
@@ -858,11 +875,17 @@ export async function runEdit(ctx) {
   const same = body === parts.body;
   const toCreate = att.files.filter((f) => f.state === "to-create");
   const addLine = Boolean(attach.length) && (!same || toCreate.length > 0) && gitattributesLacks(vault, layoutDir);
+  if (addLine) {
+    // The line is written only into a plain file of the vault, never through a link.
+    const ga = lstatOrNull(join(vault, ".gitattributes"));
+    if (ga && !ga.isFile())
+      return fail(".gitattributes is not a plain file of the vault; the attachments line cannot be added to it", found);
+  }
   const attached = (gitattributesState) =>
     attach.length ? { files: filesOut(att.files), gitattributes: gitattributesState } : {};
 
   const sections = changedSections(parts.body, body);
-  if (!sections.length) sections.push("(blank lines only)");
+  if (!sections.length && !same) sections.push("(blank lines only)");
   if (same && !toCreate.length)
     return {
       ok: true,
@@ -897,16 +920,26 @@ export async function runEdit(ctx) {
     return {
       ok: false,
       code: 1,
-      result: result({ ...found, sections, declined: true, error: "declined" }),
+      result: result({
+        ...found,
+        sections,
+        same,
+        declined: true,
+        error: "declined",
+        ...attached(addLine ? "to-change" : null),
+      }),
       text: "Nothing written.\n",
     };
 
+  // Loaded before any file is written, so a failed load leaves nothing to undo.
+  const { refreshViews } = await import("./reconcile.mjs");
+  const { ownEnv: projectEnv } = await import("./verbs.mjs");
   // The files first (contract 5), each once; what this run made is taken back
   // when the text is not written (contract 6).
   const onWrite = nodeWriteRecorder({ env, project, tool: "edit" });
-  let made = { dir: false, files: [], ga: null };
+  const made = { dir: null, files: [], ga: null };
   try {
-    made = writeAttachments({ vault, dir: layoutDir, dirAbs: att.dirAbs, files: att.files, addLine });
+    writeAttachments(made, { vault, dir: layoutDir, dirAbs: att.dirAbs, files: att.files, addLine });
   } catch (e) {
     undoAttachments(made);
     return fail(errMsg(e), found);
@@ -915,8 +948,6 @@ export async function runEdit(ctx) {
     for (const f of made.files) onWrite(f.abs, null, f.bytes);
     if (made.ga) onWrite(made.ga.file, made.ga.before, made.ga.after);
   };
-  const { refreshViews } = await import("./reconcile.mjs");
-  const { ownEnv: projectEnv } = await import("./verbs.mjs");
   const refresh = () => {
     const rec = refreshViews({ project, env: ctx.ownEnv ? ctx.ownEnv(project) : projectEnv(env, project) });
     const left = rec.failed
