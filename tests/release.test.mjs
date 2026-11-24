@@ -64,14 +64,15 @@ const code = (text) =>
 
 // The registry keeps a package's readme up to 65,536 characters and npmjs.com shows it cut
 // past that (0.30.21's README, 70,136 bytes, ended at "for ever"). A published version's readme
-// never changes, so the length is held here, before a tag, for each package's README.
+// never changes, so the length is held here, before a tag, for each package's README. The
+// packages are the release's own list (packagesFor, which the surface check reads), so a shell
+// made public is held too.
 test("release: every published package's README is at most 65,536 characters, so npm shows it whole", () => {
-  for (const f of [
-    "README.md",
-    "dashboard/README.md",
-    "packaging/shells/projectstore-claude/README.md",
-    "packaging/shells/projectstore-codex/README.md",
-  ]) {
+  const files = packagesFor().map((p) => p.readme);
+  // The core's and the dashboard's READMEs are among them, besides every publishable shell's.
+  for (const f of ["README.md", "dashboard/README.md"])
+    assert.ok(files.includes(f), `${f} is not among the READMEs checked`);
+  for (const f of files) {
     const text = readFileSync(join(ROOT, f), "utf8");
     assert.ok(text.length <= 65536, `${f}: ${text.length} characters, over npm's 65,536`);
   }
