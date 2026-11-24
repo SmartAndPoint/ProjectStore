@@ -57,6 +57,9 @@
       "readme": true
     }
   ],
+  "attachments": {
+    "path": "attachments"
+  },
   "commands": [
     "adr",
     "spec",
