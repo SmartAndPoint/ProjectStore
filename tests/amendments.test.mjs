@@ -491,7 +491,7 @@ test("agents and commands: the planner names the contracts a story amends with t
   assert.match(reviewer, /from the vault's git history when the vault has one, else from the story's own account/);
   const storyCmd = flat(read("commands", "story.md"));
   assert.match(storyCmd, /that contract's body is rewritten to the text in force, with a marker under it/);
-  assert.match(flat(read("commands", "graph.md")), /epic-contains, amends, dead, ambiguous, out-of-scope/);
+  assert.match(flat(read("commands", "graph.md")), /epic-contains, amends, attachment, dead, ambiguous, out-of-scope/);
   const doctor = flat(read("commands", "doctor.md"));
   for (const c of ["amendment-form", "amendment-story", "amendment-link", "amendment-date", "citation-removed"])
     assert.ok(doctor.includes(`\`${c}\``), c);

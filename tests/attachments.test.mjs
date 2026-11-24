@@ -145,3 +145,72 @@ test("attachments: the module imports nothing, so the page can load it as it is"
   assert.ok(!/\bimport\s*\(/.test(src), "no dynamic import");
   assert.ok(!/\brequire\s*\(/.test(src), "no require");
 });
+
+// A small vault: one epic, one story linking a kept file, a missing kept file,
+// a file of another name in the folder, and a picture beside the note.
+async function linkVault() {
+  const vault = mkdtempSync(join(tmpdir(), "ps-att-links-"));
+  const put = (rel, text) => {
+    mkdirSync(dirname(join(vault, rel)), { recursive: true });
+    writeFileSync(join(vault, rel), text);
+  };
+  const name = await nameOf(FIXTURES.png);
+  put(`attachments/${name}`, Buffer.from(FIXTURES.png));
+  put("attachments/notes.txt", "kept elsewhere\n");
+  put("epics/PS-A/epic.md", "---\ntype: epic\nid: PS-A\ntitle: A\nstatus: planned\n---\n\n# A\n");
+  put(
+    "epics/PS-A/stories/story-a.md",
+    [
+      "---",
+      "type: story",
+      "id: story-a",
+      "title: Story A",
+      "status: planned",
+      "---",
+      "",
+      "# Story A",
+      "",
+      "## Description",
+      "",
+      `![shot](../../../attachments/${name})`,
+      "![gone](../../../attachments/0000000000000000.png)",
+      "[notes](../../../attachments/notes.txt)",
+      "![beside](./pic.png)",
+      "",
+    ].join("\n"),
+  );
+  put("epics/PS-A/stories/pic.png", Buffer.from(FIXTURES.png));
+  return { vault, name };
+}
+
+// [attachments#9]
+test("attachments: a kept link is an attachment edge, a missing kept file is dead, other links are as before", async () => {
+  const { buildGraph } = await import("../scripts/graph.mjs");
+  const { loadLayout } = await import("../scripts/lib.mjs");
+  const { vault, name } = await linkVault();
+  const g = buildGraph({ vault_path: vault, layout: "engineering" }, loadLayout("engineering", REPO));
+  const from = "epics/PS-A/stories/story-a.md";
+  const of = (kind) =>
+    g.edges
+      .filter((e) => e.from === from && e.kind === kind)
+      .map((e) => e.to)
+      .sort();
+  assert.deepEqual(of("attachment"), [`attachments/${name}`]);
+  assert.deepEqual(of("dead"), ["../../../attachments/0000000000000000.png"]);
+  assert.deepEqual(of("out-of-scope"), ["attachments/notes.txt", "epics/PS-A/stories/pic.png"]);
+  assert.ok(!g.nodes.some((n) => n.path.startsWith("attachments/")), "a kept file is never a node");
+  assert.ok(g.content.includes(`attachments/${name}`), "graph.md renders the edge");
+});
+
+// [attachments#9]
+test("attachments: with a layout that keeps no attachments, the same link is out-of-scope, as before (edge)", async () => {
+  const { buildGraph } = await import("../scripts/graph.mjs");
+  const { loadLayout } = await import("../scripts/lib.mjs");
+  const { vault, name } = await linkVault();
+  const layout = { ...loadLayout("engineering", REPO) };
+  delete layout.attachments;
+  const g = buildGraph({ vault_path: vault, layout: "engineering" }, layout);
+  const kinds = g.edges.filter((e) => e.to === `attachments/${name}`).map((e) => e.kind);
+  assert.deepEqual(kinds, ["out-of-scope"]);
+  assert.ok(!g.edges.some((e) => e.kind === "attachment"));
+});

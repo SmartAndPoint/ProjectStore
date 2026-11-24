@@ -115,6 +115,7 @@
   "isSyncedRoot",
   "isTestPath",
   "isWriteTool",
+  "keptLinkTarget",
   "keywordRe",
   "lastVaultActivityMs",
   "layoutPaths",
