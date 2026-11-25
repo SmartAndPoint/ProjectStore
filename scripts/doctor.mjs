@@ -63,6 +63,7 @@ import {
   legalArtifactName,
   stripCodeSpans,
   extractLinks,
+  keptLinkTarget,
   buildNodeIndex,
   resolveLinkTarget,
   listVaultStoryFiles,
@@ -152,6 +153,7 @@ import {
   trunkHistory,
 } from "./diff-refs.mjs";
 import { checkFlow } from "./doctor-flow.mjs";
+import { MAX_BYTES as ATTACHMENT_MAX_BYTES, KEPT_TYPES, isKeptShape } from "./attachment.mjs";
 import { checkFlowView } from "./flow-view.mjs";
 import { checkInitiatives } from "./initiative.mjs";
 import { resolveSpecParents, analyseSpecTree, checkSpecTree } from "./spec-tree.mjs";
@@ -3614,6 +3616,77 @@ export function checkWikilinks(cfg, artifacts, vaultFiles = null, nodeIndex = nu
   return out;
 }
 
+// ─── Kept files in the attachments folder (the attachments spec, 10) ───
+//
+// Over kept files only (16 hex digits, a dot, an extension), from their names
+// and sizes: their bytes are never read. A file of another shape in the folder
+// is no kept file and gets nothing. `attachment-orphan` (info) is a kept file
+// no node file links to; `attachment-over-limit` and `attachment-type` (warn)
+// break the edit verb's rules; `attachment-ignored` (warn) is one the vault's
+// git ignores, by one batched `git check-ignore` in the vault (exit 128 or no
+// git: the vault is in no work tree, and nothing is said). A layout with no
+// attachments key, or a vault with no folder, starts no git process. Vault
+// checks only: never in runStartupChecks.
+export function checkAttachments(cfg, nodeIndex, { git = (cwd, args) => gitRun(cwd, args, { timeout: 5000 }) } = {}) {
+  const dir = nodeIndex.attachments ?? null;
+  if (!dir) return [];
+  const abs = join(cfg.vault_path, dir);
+  let names;
+  try {
+    names = readdirSync(abs).filter(isKeptShape).sort();
+  } catch {
+    return [];
+  }
+  const kept = [];
+  for (const name of names) {
+    let st;
+    try {
+      st = statSync(join(abs, name));
+    } catch {
+      continue;
+    }
+    if (st.isFile()) kept.push({ rel: `${dir}/${name}`, name, size: st.size });
+  }
+  if (!kept.length) return [];
+  const linked = new Set();
+  for (const n of nodeIndex.nodes)
+    for (const link of extractLinks(n.body)) {
+      if (link.type !== "mdlink") continue;
+      const rel = keptLinkTarget(n.path, link.target, dir);
+      if (rel) linked.add(rel);
+    }
+  const out = [];
+  const f = (level, check, message, file) => out.push(finding("vault", level, check, message, file));
+  for (const k of kept) {
+    if (!linked.has(k.rel))
+      f("info", "attachment-orphan", `${k.rel} is kept, and no file of the vault links to it.`, k.rel);
+    if (k.size > ATTACHMENT_MAX_BYTES)
+      f(
+        "warn",
+        "attachment-over-limit",
+        `${k.rel} is ${k.size} bytes, over the limit of ${ATTACHMENT_MAX_BYTES} bytes (5 MiB) for one kept file.`,
+        k.rel,
+      );
+    if (!KEPT_TYPES.includes(k.name.slice(17)))
+      f(
+        "warn",
+        "attachment-type",
+        `${k.rel} has the extension .${k.name.slice(17)}; ${dir}/ keeps ${KEPT_TYPES.join(", ")} only.`,
+        k.rel,
+      );
+  }
+  const r = git(cfg.vault_path, ["check-ignore", "--", ...kept.map((k) => k.rel)]);
+  if (r.kind === "answer" && r.status === 0)
+    for (const rel of String(r.stdout).split(/\r?\n/).filter(Boolean).sort())
+      f(
+        "warn",
+        "attachment-ignored",
+        `${rel} is ignored by the vault's git, so a commit leaves it out and the text that links it shows a missing file.`,
+        rel,
+      );
+  return out;
+}
+
 // ─── Artifact identity & filename shapes (ADR-010 / SPEC-002 4, 7) ─────
 
 // Infrastructure names carry no topic identity: README.md is every folder's
@@ -4310,6 +4383,7 @@ export function runVaultChecks(
   findings.push(
     ...checkVaultPolicy(cfg, layout, artifacts, vaultCfg),
     ...checkWikilinks(cfg, artifacts, vaultFiles, nodeIndex),
+    ...checkAttachments(cfg, nodeIndex),
     ...checkSpecTree(nodeIndex, specParents, specTree, {
       finding: (level, check, message, file) => finding("vault", level, check, message, file),
     }),

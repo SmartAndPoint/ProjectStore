@@ -6,7 +6,8 @@
 // vault-link-graph-derived-view-and-shared-link-resolver; the accepted
 // link-graph ADR decides the shape). Nodes are layout artifacts keyed by
 // full vault-relative path; edges are typed; nothing resolves silently —
-// dead, ambiguous and out-of-scope targets stay visible as edges.
+// dead, ambiguous and out-of-scope targets stay visible as edges, and so
+// does a link to a kept file in the attachments folder (`attachment`).
 //
 // Output: JSON { path, content, stats } — compute only. The applier is
 // reconcile.mjs --write (atomic replace, recompute-at-write), not the
@@ -88,6 +89,7 @@ export function buildGraph(cfg, layout, { files = null } = {}) {
     if (r.outcome === "node") addEdge(from, kinds.node ?? "wikilink", r.node.path);
     else if (r.outcome === "dead") addEdge(from, "dead", raw);
     else if (r.outcome === "ambiguous") addEdge(from, "ambiguous", `${raw} (matches: ${r.candidates.join(", ")})`);
+    else if (r.outcome === "attachment") addEdge(from, "attachment", r.path);
     else addEdge(from, "out-of-scope", r.path ?? raw);
   };
 
