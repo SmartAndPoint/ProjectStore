@@ -216,6 +216,11 @@ function toggle(key) {
   store.set("open", [...ui.open]);
   render();
 }
+// A row of the tree unfolded, kept for the next visit; the caller draws (write.js, after a New).
+function unfold(key) {
+  ui.open.add(key);
+  store.set("open", [...ui.open]);
+}
 function progress(c) {
   const total = c.done + c.active + c.backlog;
   const w = (n) => `width:${total ? (n / total) * 100 : 0}%`;
@@ -318,7 +323,7 @@ function viewBacklog() {
             h("td", { class: "num dim" }, ""),
             h("td", { class: "num" }, progress(e.counts)),
           ],
-          [e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"), e.ranked && rankMark("epic")],
+          [e.standing && h("span", { class: "chip seed", title: "A standing epic: it is not done when its stories are" }, "standing"), e.ranked && rankMark("epic"), writeUi.newOnRow("epic", e.id)],
           { "data-epic": e.id, "data-group": e.group ?? "" },
         ),
       );
@@ -342,13 +347,14 @@ function viewBacklog() {
           h("td", { class: "num dim" }, i.owner),
           h("td", { class: "num" }, mine.length ? progress(i.counts) : h("span", { class: "prog" }, "no epics yet")),
         ],
+        writeUi.newOnRow("initiative", i.id),
       ),
     );
     if (ui.open.has(`i:${i.id}`) || q) epicRows(mine, 1);
   }
   const loose = S.epics.filter((e) => e.group === null || e.group === undefined).sort(byPlace);
   if (loose.length) {
-    rows.push(row("initiative none", 0, "i:", loose.length, ico("initiative"), `No initiative (${loose.length} epics)`, () => toggle("i:"), [h("td"), h("td"), h("td"), h("td")]));
+    rows.push(row("initiative none", 0, "i:", loose.length, ico("initiative"), `No initiative (${loose.length} epics)`, () => toggle("i:"), [h("td"), h("td"), h("td"), h("td")], writeUi.newOnRow("initiative", "")));
     if (ui.open.has("i:") || q) epicRows(loose, 1);
   }
   return h(
@@ -357,6 +363,7 @@ function viewBacklog() {
     h(
       "div",
       { class: "toolbar" },
+      writeUi.newInToolbar(),
       h("input", {
         type: "search",
         placeholder: "Filter by title or epic…",

@@ -12,9 +12,10 @@ npx projectstore dashboard
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
 the list, My work, the initiatives, an item's document with what is related to it, and a command
 palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
-another person, and reorder the backlog tree by a drag or Alt+↑ and Alt+↓ (a reorder that writes
-one file is committed on its drop or key; one that also gives other rows a place asks first). The core's own `move`,
-`handover` and `rank` run in
+another person, reorder the backlog tree by a drag or Alt+↑ and Alt+↓ (a reorder that writes
+one file is committed on its drop or key; one that also gives other rows a place asks first),
+save an item's text from its editor, and make a new initiative, epic or story with the tree's
+New. The core's own `move`, `handover`, `rank`, `edit` and `create` run in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
 branch. **Send** (the button reads "Publish for review") pushes that branch and opens one pull request for it (with no `gh` to ask, it
 pushes and opens none); **Discard** closes that pull request and ends the batch (with no `gh` to
@@ -87,7 +88,10 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   `move`, with `story`, `to` as `todo` or `planned`, and `reason`; `handover`, with `story`, `from`
   as the story's assignee, `to` and `reason`; `rank`, with one of `story` and `epic` and one of
   `before` and `after`, offered by a drop or a key, never a button; `edit-doc`, the editor's Save,
-  with `path`, `text` and `base`, run as the core's `edit`) and gives every required field
+  with `path`, `text` and `base`, run as the core's `edit`; and `create-initiative`,
+  `create-epic` and `create-story`, the backlog tree's New, with `title`, an epic's `epic` and
+  optional `initiative`, and a story's `epic`, each run as the core's `create` with its kind's
+  word first, as the spec "The page's New…" (alias `dashboard-create`) says) and gives every required field
   of it as a value. Each entry also carries the labels and the commit subject (or a list of
   subjects, one for each set of fields) the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400).
@@ -127,7 +131,7 @@ ProjectStore's cache at `dashboard/<version>/`, for a copy installed from npm.
   `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
 - It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
   `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
-  points the core's `move`, `handover` and `rank` at the vault inside the clone, and the lock file
+  points the core's `move`, `handover`, `rank`, `edit` and `create` at the vault inside the clone, and the lock file
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.

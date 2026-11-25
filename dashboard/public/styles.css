@@ -126,6 +126,11 @@ label.chk input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 .tree .caret:focus-visible, .tree .label:focus-visible, .card:focus-visible, .lrow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 6px; }
 .tree .t .chip { flex: none; }
 .tree .caret.none { visibility: hidden; }
+/* A dialog's plan box with no plan in it (a refused preview) takes no room. */
+.plan-box:empty { display: none; }
+/* New on a row (the spec dashboard-create, contract 3): shown on the row's hover, its selection and the button's own focus. */
+.tree .row-new { flex: none; margin-left: auto; font-size: 12px; opacity: 0; }
+.tree tr:hover .row-new, .tree tr.sel .row-new, .tree .row-new:focus-visible { opacity: 1; }
 .tree .glyph { flex: none; width: 16px; text-align: center; }
 .tree tr.initiative td { background: var(--bg-1); }
 .tree tr.initiative .label { font-weight: 700; }

@@ -1318,7 +1318,7 @@ test("dashboard writes: while write.can is true, a body that is no JSON object o
     const bodies = [
       [
         JSON.stringify({ verb: "groom" }),
-        /not a verb the page may run \(write\.verbs: move, handover, rank, edit-doc\)/,
+        /not a verb the page may run \(write\.verbs: move, handover, rank, edit-doc, create-initiative, create-epic, create-story\)/,
       ],
       [JSON.stringify({}), /not a verb the page may run/],
       [
@@ -1653,8 +1653,8 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
   );
   assert.deepEqual(
     WRITE_VERBS.map((v) => v.verb),
-    ["move", "handover", "rank", "edit-doc"],
-    "the page offers move, handover, rank and the editor's save",
+    ["move", "handover", "rank", "edit-doc", "create-initiative", "create-epic", "create-story"],
+    "the page offers move, handover, rank, the editor's save and New's three creates",
   );
   for (const entry of WRITE_VERBS) {
     // [dashboard-editor#9] edit-doc is the core's edit verb; its text reaches it as --from <file>.
@@ -1685,8 +1685,16 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
     // A verb with no form takes no positional; one with a form takes each of its words.
     // A literal word of the form (rank's story or epic) is a field, and the
     // value after it is that field's: each form starts with one such word.
-    const form = row.usage.length ? row.usage[0].split(" ").length : 0;
-    assert.equal(form, call.positionals.length + (call.word ? 2 : 0), `${entry.verb}'s positionals`);
+    // [dashboard-create#1] A lead word (create's kind) is a literal word no
+    // field gives: it picks the form that starts with it.
+    const usage = call.lead ? row.usage.find((u) => u.split(" ")[0] === call.lead) : row.usage[0];
+    if (call.lead) assert.ok(usage, `${row.verb} has a form that starts with ${call.lead}`);
+    const form = usage ? usage.split(" ").length : 0;
+    assert.equal(
+      form,
+      call.positionals.length + (call.word ? 2 : 0) + (call.lead ? 1 : 0),
+      `${entry.verb}'s positionals`,
+    );
     if (call.word)
       assert.deepEqual(
         row.usage.map((u) => u.split(" ")[0]),
