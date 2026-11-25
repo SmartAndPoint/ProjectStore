@@ -116,12 +116,15 @@ const listDir = (abs) => {
 };
 
 // ── stories, epics, initiatives, people ──
-function readStories(ctx, now) {
+// The core's facts of every story inside the vault, read once for /api/state and Reports
+// (dashboard-reports). A fact holds the story's whole text: never send one.
+export function readFacts(ctx) {
   const epicsPath = epicsPathOf(ctx);
   const read = epicsPath ? ctx.flowStories.readFlowStories(ctx.vault, epicsPath) : { stories: [], unread: 0 };
-  const { unread } = read;
-  const stories = read.stories.filter((s) => insideVault(ctx, s.rel));
-  const facts = stories.map(ctx.flowCounts.storyFacts);
+  return { facts: read.stories.filter((s) => insideVault(ctx, s.rel)).map(ctx.flowCounts.storyFacts), unread: read.unread };
+}
+function readStories(ctx, now) {
+  const { facts, unread } = readFacts(ctx);
   const list = facts.map((f) => {
     const id = f.fm.id || (stem(f.rel) === "README" ? f.rel.split("/").slice(-2)[0] : stem(f.rel));
     return {
@@ -150,7 +153,7 @@ function readStories(ctx, now) {
   return { list, facts, unread };
 }
 
-function readEpics(ctx) {
+export function readEpics(ctx) {
   const epicsPath = epicsPathOf(ctx);
   const out = [];
   if (!epicsPath) return out;
@@ -175,7 +178,7 @@ function readEpics(ctx) {
 
 // initiatives/*.md, README.md aside, by the core's frontmatter parser. None
 // when the folder is absent.
-function readInitiatives(ctx) {
+export function readInitiatives(ctx) {
   const out = [];
   for (const name of listDir(join(ctx.vault, INITIATIVES))) {
     if (!name.endsWith(".md") || name === "README.md" || !insideVault(ctx, `${INITIATIVES}/${name}`)) continue;

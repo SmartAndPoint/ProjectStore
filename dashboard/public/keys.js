@@ -74,7 +74,7 @@ function openSelected() {
 // the address carries the view's parameters (views.js), so it opens the same picture elsewhere.
 function copyLink() {
   const c = currentItem();
-  const view = savedDef(ui.view) ? viewLink(ui.view) : `${location.origin}${location.pathname}#/${ui.view}`;
+  const view = savedDef(ui.view) || ui.view === "reports" ? viewLink(ui.view) : `${location.origin}${location.pathname}#/${ui.view}`;
   const [place, query] = view.split("?");
   copyText(c ? `${place}/${c.kind}/${encodeURIComponent(c.id)}${query ? `?${query}` : ""}` : view, "A link to this place");
 }
@@ -106,7 +106,7 @@ function rootLevel(q) {
   const nav = [...document.querySelectorAll("#nav button")];
   nav.forEach((b, i) => out.push(cmd(b.querySelector(".nm")?.textContent || b.textContent, () => b.click(), { group: "Go to", key: i < 9 ? String(i + 1) : "", kw: "go open view" })));
   out.push(
-    cmd("Copy a link to this view", () => copyText(savedDef(ui.view) ? viewLink(ui.view) : `${location.origin}${location.pathname}#/${ui.view}`, "A link to this view"), { group: "Go to", kw: "share address url" }),
+    cmd("Copy a link to this view", () => copyText(savedDef(ui.view) || ui.view === "reports" ? viewLink(ui.view) : `${location.origin}${location.pathname}#/${ui.view}`, "A link to this view"), { group: "Go to", kw: "share address url" }),
     cmd("Choose my name…", null, { group: "Settings", kw: "who am i me person", children: () => [...new Set([...S.people.filter((p) => p.kind === "person").map((p) => p.name), ...(S.me ? [S.me] : [])])].map((n) => cmd(n, () => setMe(n), { mark: n === ui.me })) }),
     cmd("Read the vault again", load, { group: "Settings", key: "R" }),
     cmd("Keyboard shortcuts", showKeys, { group: "Settings", key: "?" }),
@@ -261,7 +261,7 @@ document.addEventListener("keydown", (e) => {
     if (ui.sel) (done(), openSelected());
   } else if (k === "Escape") {
     if (!ui.drawer && ui.sel) setSel(null);
-  } else if (k === "r") (done(), load());
+  } else if (k === "r") (done(), ui.view === "reports" && reportsUi.again(), load());
 });
 // A click selects too, so the keys act on what was last touched.
 document.addEventListener("click", (e) => {

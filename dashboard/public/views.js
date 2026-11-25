@@ -32,7 +32,7 @@ const workOf = (id) => (ui.work[id] ||= clone(savedDef(id)));
 // replaceChildren prints an array or a `false` as text; this drops the empty
 // pieces and flattens, as h() does.
 const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false && k !== ""));
-const isView = (id) => ["backlog", "board", "mine", "initiatives"].includes(id);
+const isView = (id) => ["backlog", "board", "mine", "initiatives", "reports"].includes(id);
 // On a narrow screen the menu slides over the page; a click anywhere else puts it back.
 document.addEventListener("click", (e) => {
   if (document.body.classList.contains("nav-open") && !e.target.closest(".nav, .nav-toggle")) document.body.classList.remove("nav-open");
@@ -63,6 +63,7 @@ function render() {
     item("board", "Board", open.length, `${plural(open.length, "open story", "open stories")} (not done)`),
     item("mine", "My work", mineN, mineN === null ? "choose your name at the bottom of this menu" : `${plural(mineN, "open story", "open stories")} assigned to ${ui.me}`),
     item("initiatives", "Initiatives", null, "the initiatives, from proposal to done"),
+    item("reports", "Reports", null, "how the work flows, and the board against the code"),
   );
   // The one place that asks who is looking, and why it matters.
   const names = [...new Set([...S.people.filter((p) => p.kind === "person").map((p) => p.name), ...(S.me ? [S.me] : []), ...(ui.me ? [ui.me] : [])])];
@@ -79,7 +80,7 @@ function render() {
     writeUi.footLine(), // write.js: whether this page writes, and why not when it does not
   );
   const def = savedDef(ui.view);
-  const title = ui.view === "backlog" ? "Backlog" : def.name;
+  const title = ui.view === "backlog" ? "Backlog" : ui.view === "reports" ? "Reports" : def.name;
   ui.viewTitle = title;
   const small = $(".brand small");
   if (small) small.textContent = S.write?.can ? S.project.name : `${S.project.name} · read only`; // two dashboards side by side must not look the same
@@ -89,9 +90,9 @@ function render() {
     h("h1", null, title),
     h("span", { class: "grow" }),
     h("button", { class: "btn kbtn", onclick: () => openPalette(), title: "Search anything, go anywhere" }, h("span", { class: "kt" }, "Search or go to"), h("kbd", null, `${MOD}K`)),
-    h("button", { class: "btn", onclick: load, title: "Read the vault again (R)" }, "↻"),
+    h("button", { class: "btn", onclick: () => (ui.view === "reports" && reportsUi.again(), load()), title: "Read the vault again (R)" }, "↻"),
   );
-  const body = ui.view === "backlog" ? viewBacklog() : viewStories(ui.view);
+  const body = ui.view === "backlog" ? viewBacklog() : ui.view === "reports" ? reportsUi.view() : viewStories(ui.view);
   const view = $("#view");
   const focus = document.activeElement?.dataset?.keep;
   const caret = focus ? document.activeElement.selectionStart : 0;
@@ -192,12 +193,14 @@ function paramsOf(def, base) {
 }
 // The parameters of the open view, for the address bar (item.js writes it).
 function viewQuery(id) {
+  if (id === "reports") return reportsUi.query(); // reports.js: the day, the window and the filters
   const base = savedDef(id);
   return base && ui.work[id] ? paramsOf(ui.work[id], base) : "";
 }
 // An address that was opened or pasted: the view becomes what it says. With
 // no parameters it is the view as built, whatever was being tried before.
 function applyQuery(id, query) {
+  if (id === "reports") return reportsUi.apply(query); // an invalid value is dropped there
   const base = savedDef(id);
   if (!base) return;
   const p = new URLSearchParams(query);
@@ -221,6 +224,7 @@ function applyQuery(id, query) {
   ui.work[id] = def;
 }
 function viewLink(id) {
+  if (id === "reports") return reportsUi.link();
   const q = paramsOf(workOf(id), savedDef(id));
   return `${location.origin}${location.pathname}#/${id}${q ? `?${q}` : ""}`;
 }
