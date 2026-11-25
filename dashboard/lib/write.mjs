@@ -42,6 +42,7 @@
 //   placePaths(place)                 clone/, clone.tmp/, project/ and the lock file
 //   WRITE_VERBS, VERB_ARGV            the verbs the page may offer, their fields, how each reaches the CLI
 //   checkRequest(body, verbs)         a preview's or an action's { verb, fields }, checked before any process
+//   filesRefusal(req, attachment)     a save's files against the core's attachment module, before any process
 //   substitutePaths(value, pairs)     the clone's and the binding folder's paths, as the person knows them
 //   decide(list)                      of a branch's pull requests, the one that decides: open, then merged, then the newest
 //   prText(subjects)                  a batch's pull request title and body (delivery contract 3)
@@ -163,7 +164,9 @@ export const WRITE_VERBS = freezeDeep([
   },
   // The editor's save (the spec dashboard-editor, contract 9): the core's edit
   // verb replaces the body of a story, an epic or an initiative when the file's
-  // body still has the hash the editor's text was taken from.
+  // body still has the hash the editor's text was taken from. Pictures and
+  // PDFs pasted into the text go with it (the spec dashboard-attachments,
+  // contract 5): `files`, each `{ name, data }`, kept by the verb's --attach.
   {
     verb: "edit-doc",
     label: "Save",
@@ -172,6 +175,7 @@ export const WRITE_VERBS = freezeDeep([
       path: { kind: "vaultpath", label: "File" },
       text: { kind: "text", max: 500000, label: "Text" },
       base: { kind: "hash", label: "Opened as" },
+      files: { kind: "files", optional: true, label: "Pictures" },
     },
   },
   // New on the backlog tree (the spec dashboard-create, contract 1): the
@@ -211,13 +215,14 @@ export const WRITE_VERBS = freezeDeep([
 // of the form that no field gives, put first (`create story <EPIC-ID> <title>`).
 // `cli` names the core verb when it is not the page's own name; `file` names
 // the one field that reaches it as a file, `--from=<file>`, written outside
-// the clone for the run. The table-vs-core test holds these against the
-// core's own verb table.
+// the clone for the run; `attach` names the field whose files reach it one
+// `--attach=<file>` each, written beside it. The table-vs-core test holds
+// these against the core's own verb table.
 export const VERB_ARGV = freezeDeep({
   move: { positionals: ["story", "to"], options: ["reason"] },
   handover: { positionals: [], options: ["story", "from", "to", "reason"] },
   rank: { word: ["story", "epic"], positionals: [], options: ["before", "after"] },
-  "edit-doc": { cli: "edit", positionals: ["path"], options: ["base"], file: "text" },
+  "edit-doc": { cli: "edit", positionals: ["path"], options: ["base"], file: "text", attach: "files" },
   "create-initiative": { cli: "create", lead: "initiative", positionals: ["title"], options: [] },
   "create-epic": { cli: "create", lead: "epic", positionals: ["epic", "title"], options: ["initiative"] },
   "create-story": { cli: "create", lead: "story", positionals: ["epic", "title"], options: [] },
@@ -246,6 +251,32 @@ const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
 const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
 // `<EPIC-ID>`: an epic folder's name, the shape only.
 export const EPIC_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+// Strict base64: the standard alphabet, padded to a multiple of four, no line breaks or spaces.
+// One character class and a length, not groups: a group repeated over a picture's 7 MB of text
+// runs out of stack.
+const BASE64_CHARS = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64 = { test: (s) => s.length % 4 === 0 && BASE64_CHARS.test(s) };
+
+// Of a checked request's files, the first that the core would not keep, or
+// null (the spec dashboard-attachments, contract 5): bytes of no kept type,
+// over the limit, or named otherwise than the core names those bytes. Read
+// with the core's own module, `attachment` (scripts/attachment.mjs); no
+// process starts. → { error } or null; `bytes` is set on each file.
+export async function filesRefusal(req, attachment, field = "files") {
+  const list = req.fields[field];
+  if (!list) return null;
+  if (!attachment) return { error: `${field}: this core keeps no attachments` };
+  for (const [i, f] of list.entries()) {
+    const at = `${field}[${i}] (${JSON.stringify(f.name).slice(0, 80)})`;
+    const bytes = Buffer.from(f.data, "base64");
+    if (!attachment.typeOf(bytes)) return { error: `${at}: ${attachment.refusal("type", { file: "its bytes" })}` };
+    if (bytes.length > attachment.MAX_BYTES) return { error: `${at}: ${attachment.refusal("size", { file: "its bytes", size: bytes.length })}` };
+    const named = await attachment.nameOf(bytes);
+    if (f.name !== named) return { error: `${at}: its bytes are named ${named}, not ${f.name}` };
+    Object.defineProperty(f, "bytes", { value: bytes, enumerable: false });
+  }
+  return null;
+}
 
 // A preview's or an action's request, checked against `verbs` before any
 // process starts (contract 6): { ok, verb, fields } with each value as the
@@ -274,6 +305,21 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
   for (const [name, kind] of Object.entries(entry.fields)) {
     const v = given[name];
     if (v === undefined && kind.optional) continue;
+    if (kind.kind === "files") {
+      // Files as `{ name, data }`, data in strict base64 (the spec dashboard-attachments,
+      // contract 5): the shape here; each file's type, size and name against the core's
+      // attachment module in filesRefusal, still before any process. An empty list is no field.
+      if (!Array.isArray(v)) return no(`${name} is a list of files, each { name, data }`);
+      if (!v.length) continue;
+      for (const [i, f] of v.entries()) {
+        const at = `${name}[${i}]`;
+        if (!f || typeof f !== "object" || Array.isArray(f) || Object.keys(f).sort().join() !== "data,name") return no(`${at} is { name, data } and nothing else`);
+        if (typeof f.name !== "string" || typeof f.data !== "string") return no(`${at} gives its name and its data as text`);
+        if (!f.data || !BASE64.test(f.data)) return no(`${at}'s data is not strict base64`);
+      }
+      fields[name] = v.map((f) => ({ name: f.name, data: f.data }));
+      continue;
+    }
     if (typeof v !== "string") return no(`${entry.verb} needs ${name} as text`);
     if (kind.kind === "epic" || (kind.kind === "sibling" && itemKind?.kind === "epic")) {
       if (!EPIC_REF.test(v)) return no(`${name} names an epic as <EPIC-ID>: a letter or a digit, then letters, digits, ".", "_" or "-", such as PS-CORE; ${JSON.stringify(v)} is not that`);
@@ -750,12 +796,12 @@ function runner({ budgets = {}, record = null, env = process.env, root = null } 
   }
 
   // The core's CLI through this Node: `<verb> --name=value… -- <positionals>`.
-  // `true` is a bare `--name`; false, null and undefined are left out. The
+  // `true` is a bare `--name`; a list is one `--name=value` per entry; false, null and undefined are left out. The
   // answer adds `envelope`, the parsed `--json` output when there is one. Its
   // environment names `options.project` (else `cwd`) as above, and no session.
   async function cli(verb, { options = {}, positionals = [], cwd = process.cwd() } = {}, { budget = B.verb, need = false, via = "cli" } = {}) {
     if (!root) throw new Error("no core root to run the CLI from");
-    const opts = Object.entries(options).flatMap(([k, v]) => (v === true ? [`--${k}`] : v === false || v === null || v === undefined ? [] : [`--${k}=${v}`]));
+    const opts = Object.entries(options).flatMap(([k, v]) => (v === true ? [`--${k}`] : v === false || v === null || v === undefined ? [] : Array.isArray(v) ? v.map((x) => `--${k}=${x}`) : [`--${k}=${v}`]));
     const argv = [join(root, "bin", "projectstore.mjs"), verb, ...opts, "--", ...positionals.map(String)];
     const project = typeof options.project === "string" ? options.project : resolve(cwd);
     const r = await run(process.execPath, argv, { cwd, budget, via, edit: forCore(project) });
@@ -1391,16 +1437,23 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     const verb = call.cli || req.verb;
     const options = { project: paths.binding, json: true, write: write || null };
     for (const k of call.options) options[k] = req.fields[k];
-    // A whole text goes in a file of its own, outside the clone, removed after the run.
+    // A whole text goes in a file of its own, outside the clone, and each pasted
+    // file beside it under its own name (the spec dashboard-attachments, contract
+    // 6): the request's folder, removed after the run however it ends.
     let dir = null;
-    if (call.file) {
-      dir = mkdtempSync(join(tmpdir(), "projectstore-edit-"));
-      const from = join(dir, "text.md");
-      writeFileSync(from, req.fields[call.file], { encoding: "utf8", mode: 0o600 });
-      options.from = from;
-    }
     let r;
     try {
+      if (call.file) {
+        dir = mkdtempSync(join(tmpdir(), "projectstore-edit-"));
+        const from = join(dir, "text.md");
+        writeFileSync(from, req.fields[call.file], { encoding: "utf8", mode: 0o600 });
+        options.from = from;
+        const files = (call.attach && req.fields[call.attach]) || [];
+        const written = new Map();
+        // The name is the core's for these bytes (filesRefusal): 16 hex digits, a dot and a type.
+        for (const f of files) if (!written.has(f.name)) written.set(f.name, (writeFileSync(join(dir, f.name), f.bytes ?? Buffer.from(f.data, "base64"), { mode: 0o600 }), join(dir, f.name)));
+        if (written.size) options.attach = [...written.values()];
+      }
       r = await proc.cli(verb, { options, positionals: positionalsOf(req), cwd: paths.binding }, { need: true, via });
     } finally {
       if (dir) rmSync(dir, { recursive: true, force: true });
@@ -1410,7 +1463,9 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
       const said = String(r.stderr || "").trim().split("\n")[0] || `it exited ${r.status} with no answer`;
       return { status: 500, ok: false, error: shown(`projectstore ${verb} gave no --json answer: ${said}`) };
     }
-    const result = shown(env.result);
+    // A file of the request's own folder, gone once the verb ended, reads as its name alone.
+    const dropDir = (v) => (dir ? JSON.parse([`${dir}/`, `/private${dir}/`].reduce((s, d) => s.split(JSON.stringify(d).slice(1, -1)).join(""), JSON.stringify(v))) : v);
+    const result = dropDir(shown(env.result));
     const message = result && typeof result === "object" && typeof result.error === "string" ? result.error : null;
     // Exit 2 is the core's usage error, and also its catch-all for a failure
     // it did not expect, which says "<verb> failed:" on stderr: that one is
@@ -1423,16 +1478,19 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
 
   // A request checked before the step (contract 6): 409 while the page cannot
   // write, 400 for a verb or field outside write.verbs; no process starts.
-  const refused = (body) => {
+  const refused = async (body) => {
     if (!state.can) return answer(409, { ok: false, error: state.reason });
     const req = checkRequest(body, state.verbs);
-    return req.ok ? { req } : answer(400, { ok: false, error: req.error });
+    if (!req.ok) return answer(400, { ok: false, error: req.error });
+    // A save's pictures, by the core's own module (the spec dashboard-attachments, contract 5).
+    const bad = await filesRefusal(req, ctx.attachment);
+    return bad ? answer(400, { ok: false, error: bad.error }) : { req };
   };
 
   // The preview (contract 6): the verb's own plan for the clone, without
   // `--write`; the clone's HEAD and working tree stay as they were.
   async function preview(body) {
-    const pre = refused(body);
+    const pre = await refused(body);
     if (!pre.req) return pre;
     return step("preview", async () => {
       if (!state.can || !known) return { status: 409, ok: false, error: state.reason };
@@ -1499,7 +1557,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
   // branch head. A verb that refuses or fails, and a commit git refuses, leave
   // HEAD and the working tree as they were and no batch branch behind.
   async function action(body) {
-    const pre = refused(body);
+    const pre = await refused(body);
     if (!pre.req) return pre;
     const req = pre.req;
     return step("action", async () => {
@@ -1533,6 +1591,22 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
         return { status: 500, ok: false, result: ran.result, error: `${req.verb} changed ${outside.join(", ")}, outside the vault's folder ${known.prefix}; nothing was committed` };
       }
       const commit = changed.filter((p) => !derived.has(rel(p)));
+      // Every file the verb created, and the .gitattributes it changed, is in the commit, or
+      // nothing is committed (the spec dashboard-attachments, contract 7): a file git ignores
+      // would leave the text linking a picture the batch does not hold. Checked before the end
+      // of an action with no change, so an ignored picture with the same text is refused too.
+      const createdPaths = [
+        ...(Array.isArray(ran.result?.files) ? ran.result.files.filter((f) => f && f.state === "created" && typeof f.path === "string").map((f) => f.path) : []),
+        ...(ran.result?.gitattributes === "changed" ? [".gitattributes"] : []),
+      ];
+      const missing = createdPaths.find((p) => !commit.includes(known.prefix ? `${known.prefix}/${p}` : p));
+      if (missing) {
+        const at = known.prefix ? `${known.prefix}/${missing}` : missing;
+        const ig = await git(clone, ["check-ignore", "-v", "--", at], { via });
+        const rule = ig.ok ? lines(ig.stdout)[0]?.split("\t")[0] : null;
+        await restore(via);
+        return { status: 200, ok: false, result: ran.result, error: `${missing} was written, but git does not see it${rule ? `: it is ignored by ${rule}` : ""}; nothing was committed. Keep ${missing === ".gitattributes" ? "it" : "the attachments folder"} out of .gitignore and save again.` };
+      }
       if (!commit.length) {
         await restore(via);
         return ran;

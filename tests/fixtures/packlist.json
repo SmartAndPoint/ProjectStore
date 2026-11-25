@@ -48,6 +48,7 @@
   "docs/images/statusline-hud.png",
   "docs/images/team.svg",
   "docs/upgrading.md",
+  "docs/web-page.md",
   "harnesses/claude-code.json",
   "harnesses/codex.json",
   "hooks/band-state.d.ts",

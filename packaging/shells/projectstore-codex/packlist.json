@@ -52,6 +52,7 @@
   "node_modules/projectstore/docs/images/statusline-hud.png",
   "node_modules/projectstore/docs/images/team.svg",
   "node_modules/projectstore/docs/upgrading.md",
+  "node_modules/projectstore/docs/web-page.md",
   "node_modules/projectstore/harnesses/claude-code.json",
   "node_modules/projectstore/harnesses/codex.json",
   "node_modules/projectstore/hooks/band-state.d.ts",

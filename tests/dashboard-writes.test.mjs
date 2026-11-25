@@ -1670,7 +1670,13 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
     );
     const call = VERB_ARGV[entry.verb];
     assert.deepEqual(
-      [...(call.word || []), ...call.positionals, ...call.options, ...(call.file ? [call.file] : [])].sort(),
+      [
+        ...(call.word || []),
+        ...call.positionals,
+        ...call.options,
+        ...(call.file ? [call.file] : []),
+        ...(call.attach ? [call.attach] : []),
+      ].sort(),
       Object.keys(entry.fields).sort(),
     );
     if (call.file)
@@ -1678,6 +1684,15 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
         row.options.some((o) => o.name === "from" && typeof o.arg === "string"),
         `${row.verb} takes --from <file>`,
       );
+    // [dashboard-attachments#5] edit-doc's files are a field of the kind files, optional, labelled,
+    // and reach the core's edit as one --attach=<file> each: an option that takes a value, repeatable.
+    if (call.attach) {
+      assert.deepEqual(entry.fields[call.attach], { kind: "files", optional: true, label: "Pictures" });
+      assert.ok(
+        row.options.some((o) => o.name === "attach" && typeof o.arg === "string" && o.multiple === true),
+        `${row.verb} takes --attach <file>, repeatable`,
+      );
+    }
     for (const name of call.options) {
       const o = row.options.find((x) => x.name === name);
       assert.ok(o && typeof o.arg === "string", `--${name} is an option of ${entry.verb} that takes a value`);

@@ -25,6 +25,11 @@ const store = {
   },
 };
 
+// The core's attachment module (scripts/attachment.mjs, served as it is at /attachment.js): the type,
+// the name and the limit of a pasted picture, the same as the edit verb's. Loaded at the first paste or
+// drop (the spec dashboard-attachments, contract 1); the page's tests define it themselves.
+const attachmentModule = () => import("/attachment.js");
+
 let S = null; // the state, as the server read it from the vault
 const ui = {
   view: store.get("view", "backlog"),

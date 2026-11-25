@@ -41,6 +41,34 @@ function artifactAt(fromRel, target) {
   const bare = target.split("#")[0].replace(/\.md$/, "");
   return artByRel.get(path) || artByRel.get(`${path}.md`) || artByRel.get(`${path}/epic.md`) || artByRel.get(`${bare}.md`) || (!bare.includes("/") ? artByName.get(bare) : null) || null;
 }
+// ── pictures and PDFs pasted or dropped, not saved yet (the spec dashboard-attachments) ──
+// Kept until the page is reloaded, across closing the drawer and opening other items (contract 4),
+// by the item they were pasted into and their written name, the core's nameOf of their bytes. The
+// bytes are base64, as a save sends them; `url` draws a picture until Save (contract 3).
+const PASTED = new Map(); // `${item}\n${name}` → { item, name, alt, type, data, url }
+const pastedNamed = (name) => [...PASTED.values()].find((f) => f.name === name) || null;
+// The pasted file a vault path names while it is not saved: `<A>/<written name>`.
+function pastedAt(path) {
+  const dir = S?.attachments;
+  return dir && path.startsWith(`${dir}/`) ? pastedNamed(path.slice(dir.length + 1)) : null;
+}
+// The relative path from a document to a vault path, as a link in its text writes it.
+function relFrom(fromRel, path) {
+  const here = fromRel.split("/").slice(0, -1);
+  const to = path.split("/");
+  let k = 0;
+  while (k < here.length && k < to.length - 1 && here[k] === to[k]) k++;
+  return [...here.slice(k).map(() => ".."), ...to.slice(k)].join("/");
+}
+const MIME = { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp", pdf: "application/pdf" };
+function toBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+// The most one save request takes, as the page's server reads it (its BODY_LIMIT).
+const SAVE_LIMIT = 16 * 1024 * 1024;
+
 function kindAndId(a) {
   if (a.type === "story") return ["story", S.stories.find((s) => s.rel === a.rel)?.ref];
   if (a.type === "epic") return ["epic", a.rel.split("/")[1]];
@@ -60,12 +88,19 @@ function docCtx(rel) {
         return id ? { open: () => openDrawer(kind, id), icons: [kindIcon(a.type)], title: `${a.type}: ${a.title}`, href: `#/${ui.view}/${kind}/${encodeURIComponent(id)}` } : null;
       }
       const path = vaultPath(rel, target);
+      // A PDF pasted and not saved yet shows its name and opens nothing until Save (contract 3).
+      const p = pastedAt(path);
+      if (p) return { open: () => toast("info", "Not saved yet", `${p.alt || p.name} is kept when the text is saved, and opens after that.`), title: `${p.alt || p.name}: kept at Save` };
       return MD.kindOf(path) !== "file" || /\.pdf$/i.test(path) ? { href: vaultUrl(path) } : null;
     },
     media(url) {
       // The page loads files from itself only: a picture or a video from another site is not shown.
       if (SCHEME.test(url)) return null;
-      const path = url.includes("/") ? vaultPath(rel, url) : `attachments/${url}`; // a bare name: where pasted files live
+      // A bare name is beside the note, as Obsidian reads it (contract 3).
+      const path = vaultPath(rel, url);
+      // A picture pasted and not saved yet is drawn from the page's memory.
+      const p = pastedAt(path);
+      if (p) return p.type === "pdf" ? null : { src: p.url, kind: "image" };
       const kind = MD.kindOf(path);
       return kind !== "file" || /\.pdf$/i.test(path) ? { src: vaultUrl(path), kind } : null;
     },
@@ -296,13 +331,105 @@ function makeEditor(item) {
   const headText = String(item.edit?.head || "").replace(/^\s*# [^\n]*\n?/, "").trim();
   const headBox = headText && !/\/stories\//.test(rel) ? h("div", { class: "ed-head", title: "Kept by gates and verbs: not edited here" }, MD.render(headText, ctx)) : null;
   const host = h("div", { class: "ed" }, headBox, tools, changedNote, keepNote, diskNote, notice, body, h("div", { class: "ed-note" }, "The text is Markdown, shown as it will read; the marks appear where the cursor is. Green is what you added, red what you removed, since your changes started. Save keeps it in your changes; Publish sends them for review. The title, the field table, the Status log and checked criteria are written by gates and verbs, not here."));
-  // A picture or a PDF pasted or dropped is not kept yet (the PS-BACKLOG story on an attachments
-  // folder): the text gets nothing, and the toast says where it can go instead.
-  const addFiles = (list) => {
-    const names = [...list].map((f) => f.name).filter(Boolean).join(", ");
-    if (!window.WS_SELFTEST)
-      toast("refused", "Not kept", `${names ? `${names}: a` : "A"} pasted picture or file is not kept by the page yet. Put it in your vault folder and link it from the text.`);
+  // ── pictures (the spec dashboard-attachments) ──
+  // Kept only where they can be saved (contract 2): the layout names an attachments folder, and
+  // this server's save takes files.
+  const picturesKept = () => !!S.attachments && !!S.write?.verbs?.find((v) => v && v.verb === "edit-doc")?.fields?.files;
+  const linkOf = (f) => relFrom(rel, `${S.attachments}/${f.name}`);
+  // The remembered files whose relative path from this item appears in the text: what a Save sends (contract 4).
+  // Of the same bytes pasted into two items, this item's entry is the one sent and forgotten.
+  const linkedPasted = (text = ed.text()) => {
+    const seen = new Map();
+    if (S.attachments)
+      for (const f of PASTED.values()) if ((!seen.has(f.name) || f.item === rel) && text.includes(linkOf(f))) seen.set(f.name, f);
+    return [...seen.values()];
   };
+  const unsaved = () => dirty() || linkedPasted().length > 0;
+  // A paste is text when its HTML holds more than a single picture (a table from a spreadsheet or a
+  // document carries a picture of itself too) or its plain text is more than the files' own names
+  // or the picture's address (contract 2).
+  const pasteIsText = (files, plain, html) => {
+    const rest = String(html || "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<head\b[\s\S]*?<\/head>/gi, "")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, "")
+      .replace(/<meta\b[^>]*>|<\/?(?:html|body)\b[^>]*>/gi, "")
+      .trim();
+    if (rest && !/^<img\b[^>]*>$/i.test(rest)) return true;
+    const src = ((/\bsrc\s*=\s*["']?([^"'\s>]+)/i.exec(rest) || [])[1] || "").replace(/&amp;/g, "&");
+    // Names in one Unicode form: a file manager may give the name and its text in two.
+    const nfc = (s) => String(s || "").normalize("NFC");
+    const said = nfc(plain).trim();
+    if (!said || (src && said === src)) return false;
+    const names = files.map((f) => nfc(f.name)).filter(Boolean);
+    return said.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join("\n") !== names.join("\n");
+  };
+  const refuse = (why) => {
+    if (!window.WS_SELFTEST) toast("refused", "Not kept", why);
+  };
+  // A paste's or a drop's files: false hands a paste back to the editor as text.
+  const addFiles = (list, _api, { plain = "", html = "", drop = false } = {}) => {
+    const files = [...list];
+    if (!drop && pasteIsText(files, plain, html)) return false;
+    if (!picturesKept()) {
+      const names = files.map((f) => f.name).filter(Boolean).join(", ");
+      refuse(`${names ? `${names}: a` : "A"} pasted picture or file is not kept here: ${S.attachments ? "this page's server keeps no files with a save" : "this vault's layout has no attachments folder"}. Put it in your vault folder and link it from the text.`);
+      return true;
+    }
+    // One paste after another, in the order they came; a failed one says so and stops none after it.
+    taking = taking.then(() => takeFiles(files)).catch((e) => refuse(`The picture could not be taken: ${e?.message || e}`));
+    return true;
+  };
+  let taking = Promise.resolve();
+  // Each file's type, size and name by the core's own module, kept in the page's memory, and a
+  // link at the cursor (contract 3). `ED.taking` is the run, for the editor's check to wait on.
+  async function takeFiles(files) {
+    let A;
+    try {
+      A = await attachmentModule(); // app.js
+    } catch (e) {
+      return refuse(`The page could not load the rules for pictures: ${e?.message || e}`);
+    }
+    const links = [];
+    for (const f of files) {
+      const label = f.name || "the file";
+      let bytes;
+      try {
+        bytes = new Uint8Array(await f.arrayBuffer());
+      } catch (e) {
+        refuse(`${label} cannot be read: ${e?.message || e}`);
+        continue;
+      }
+      const type = A.typeOf(bytes);
+      if (!type) {
+        refuse(A.refusal("type", { file: label }));
+        continue;
+      }
+      if (bytes.length > A.MAX_BYTES) {
+        refuse(A.refusal("size", { file: label, size: bytes.length }));
+        continue;
+      }
+      const name = await A.nameOf(bytes);
+      const entry = { item: rel, name, alt: (f.name || "picture").replace(/[[\]`\r\n]/g, ""), type, data: toBase64(bytes) };
+      entry.url = `data:${MIME[type]};base64,${entry.data}`;
+      // The save request with the text and every file it would send, under the server's limit.
+      const would = new Map(linkedPasted(`${ed.text()}\n${links.join("\n")}`).map((x) => [x.name, x.data.length + x.name.length + 24]));
+      would.set(name, entry.data.length + name.length + 24);
+      const size = new TextEncoder().encode(JSON.stringify(ed.text())).length + 400 + [...would.values()].reduce((a, b) => a + b, 0);
+      if (size > SAVE_LIMIT) {
+        refuse(`${label}: with the text and the other pictures, the save would be ${size} bytes, over the ${SAVE_LIMIT} bytes (16 MiB) one save takes. Save the text first, then paste it.`);
+        continue;
+      }
+      PASTED.set(`${rel}\n${name}`, entry);
+      const path = linkOf(entry);
+      // Linked already (pasted again after a reload, or twice): only the bytes are kept.
+      if (ed.text().includes(path) || links.some((l) => l.includes(path))) continue;
+      links.push(`${type === "pdf" ? "" : "!"}[${entry.alt}](${path})`);
+    }
+    if (links.length) ed.insert(links.join("\n"));
+    paint();
+    keepDraft();
+  }
   // A URL over selected words links them; rich text from a page comes in as Markdown.
   const pasteText = (plain, html) => {
     const text = String(plain || "").trim();
@@ -335,7 +462,9 @@ function makeEditor(item) {
   const writeDraft = () => {
     clearTimeout(draftTimer);
     if (window.WS_SELFTEST) return; // its sample text is not the person's
-    const kept = store.set(draftKey, dirty() ? { body: ed.text(), saved, hash: opened, at: Date.now() } : null);
+    // The pictures the text links go by their written names, not their bytes (contract 8).
+    const pasted = linkedPasted().map((f) => ({ name: f.name, alt: f.alt }));
+    const kept = store.set(draftKey, dirty() ? { body: ed.text(), saved, hash: opened, at: Date.now(), ...(pasted.length ? { pasted } : {}) } : null);
     // A text this browser cannot keep is said above the text, for as long as it cannot (contract 12).
     keepNote.replaceChildren(...(!kept && dirty() ? [h("b", null, "This browser does not keep your text. "), "Its storage is full or turned off: save the text before you leave this page."] : []));
   };
@@ -349,7 +478,7 @@ function makeEditor(item) {
   // Hashes of bodies this editor's own saves wrote over (contract 9).
   const superseded = new Set();
   async function save() {
-    if (!dirty() || saving || window.WS_SELFTEST) return;
+    if (!unsaved() || saving || window.WS_SELFTEST) return;
     // Text kept over a body that changed since (contract 9): refused here, in the page's words, with nothing sent.
     if (stale) {
       notice.classList.add("bad");
@@ -359,10 +488,18 @@ function makeEditor(item) {
     saving = true;
     paint();
     const text = ed.text();
-    const fields = { path: rel, text, base: opened };
+    // Pictures pasted into this item that its text no longer links are forgotten; those pasted into
+    // other items stay. The text's own pictures go with it (contract 4).
+    for (const [k, f] of PASTED) if (f.item === rel && !text.includes(linkOf(f))) PASTED.delete(k);
+    const sending = linkedPasted(text);
+    const fields = { path: rel, text, base: opened, ...(sending.length ? { files: sending.map((f) => ({ name: f.name, data: f.data })) } : {}) };
     const a = await writeUi.saveDoc(fields);
     saving = false;
     if (a.ok) {
+      // Kept by the verb, in the batch now: the page's copies of those bytes go, whichever item they
+      // were pasted into; any other answer keeps them for the next Save.
+      const kept = new Set(sending.map((f) => f.name));
+      for (const [k, f] of PASTED) if (kept.has(f.name)) PASTED.delete(k);
       saved = text;
       // The written body's hash is the one the next save carries, whatever was typed meanwhile.
       if (typeof a.result?.hash === "string") {
@@ -468,9 +605,11 @@ function makeEditor(item) {
     count.disabled = !n;
     count.className = `ed-count${n || isNew() ? " has" : ""}`;
     const dy = dirty();
-    state.textContent = saving ? "saving…" : dy ? "not saved" : "saved";
-    state.className = `ed-state${dy ? " dy" : ""}`;
-    saveBtn.disabled = !dy || saving;
+    // A text that links pictures the page holds is not saved either, though it reads as saved (contract 4).
+    const due = dy || linkedPasted().length > 0;
+    state.textContent = saving ? "saving…" : due ? "not saved" : "saved";
+    state.className = `ed-state${due ? " dy" : ""}`;
+    saveBtn.disabled = !due || saving;
     // Discard keeps its place when there is nothing to throw away, so the first key typed
     // does not move the bar (and the text under it) when the bar wraps in a narrow pane.
     dropBtn.style.visibility = dy ? "visible" : "hidden";
@@ -519,7 +658,10 @@ function makeEditor(item) {
     }
     ed.replaceAll(draft.body);
     const drop = h("button", { class: "link", type: "button", onclick: () => (adopt(latest), paint()) }, "throw it away");
-    fill(notice, h("span", null, `This is your text from ${new Date(draft.at).toLocaleString()}. It is not saved yet. Save it, or `), drop, ".");
+    // The browser keeps no picture over a reload: the ones this page no longer holds are named (contract 8).
+    const again = (Array.isArray(draft.pasted) ? draft.pasted : []).filter((p) => p && typeof p.name === "string" && !pastedNamed(p.name));
+    const pasteAgain = again.length ? h("div", { class: "ed-again" }, h("b", null, "Paste again before Save: "), again.map((p) => (p.alt ? `${p.alt} (${p.name})` : p.name)).join(", "), ". The page keeps no picture over a reload.") : null;
+    fill(notice, h("span", null, `This is your text from ${new Date(draft.at).toLocaleString()}. It is not saved yet. Save it, or `), drop, ".", pasteAgain);
   }
   // The base is asked when the item opens and when its file or the batch moves (a save, Get latest), not on every redraw.
   const baseKeyOf = (it) => `${it.edit?.hash || ""}|${S.write?.batch?.head || ""}|${S.write?.fetched_at || ""}`;
@@ -531,6 +673,11 @@ function makeEditor(item) {
     host,
     ed, // selftest.js reads the editor and whether text is unsaved
     dirty,
+    unsaved,
+    picturesKept, // selftest.js: whether a pasted picture is kept here
+    get taking() {
+      return taking; // selftest.js and the page's tests wait on a paste's files
+    },
     // The item read again (after a save, a refresh): the saved text and the base follow it;
     // the editor's text changes only when nothing unsaved is in it.
     sync(next) {

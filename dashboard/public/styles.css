@@ -637,6 +637,7 @@ tr:hover .add-child, .add-child:focus { opacity: 1; }
 .md a .icos, .cm-editor .icos { text-decoration: none; }
 .ed-base { font-size: 12px; padding: 3px 6px !important; max-width: 230px; }
 .ed-draft:empty { display: none; }
+.ed-again { margin-top: 4px; }
 .ed-draft { margin: 8px 0 2px; padding: 7px 11px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-left-width: 3px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 8%, transparent); font-size: 13px; }
 .ed-count { all: unset; font-size: 12px; color: var(--faint); margin: 0 6px; padding: 4px 0; white-space: nowrap; }
 .ed-count.has { color: var(--ok); font-weight: 600; }
