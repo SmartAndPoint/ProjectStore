@@ -294,10 +294,12 @@ const ROWS = {
         code(WRITE_MODULE),
       ],
       [
-        "runs `git merge-base` and `git cat-file -e` and `git show` in the page's own clone, to find where your changes started",
+        "runs `git merge-base` and `git log` and `git cat-file -e` and `git show` in the page's own clone, to find where your changes started and earlier saves",
         '["cat-file", "-e", "--end-of-options"',
         code(WRITE_MODULE),
       ],
+      // [dashboard-editor#13] A file's earlier saves: one git log in the clone.
+      ["and `git log` and `git cat-file -e`", '["log", "--max-count=31"', code(WRITE_MODULE)],
       // The Code block's read in the project's repository (dashboard-code, contracts 2 and 9).
       [
         "When you open a story or a spec, the page reads its code there and changes nothing",

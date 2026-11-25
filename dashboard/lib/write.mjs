@@ -251,9 +251,9 @@ const CONTROL = /[\u0000-\u001f\u007f\u0085\u2028\u2029]/;
 const STORY_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*\/[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
 // `<EPIC-ID>`: an epic folder's name, the shape only.
 export const EPIC_REF = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
-// Strict base64: the standard alphabet, padded to a multiple of four, no line breaks or spaces.
-// One character class and a length, not groups: a group repeated over a picture's 7 MB of text
-// runs out of stack.
+// A commit named in full: 40 lowercase hex digits, never a revision git would resolve.
+export const FULL_HASH = /^[0-9a-f]{40}$/;
+// Strict base64, padded. A class and a length: a repeated group runs out of stack on 7 MB.
 const BASE64_CHARS = /^[A-Za-z0-9+/]*={0,2}$/;
 const BASE64 = { test: (s) => s.length % 4 === 0 && BASE64_CHARS.test(s) };
 
@@ -1513,12 +1513,16 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
 
   // A vault file as it was where this person's changes start (the spec
   // dashboard-editor, contract 6): the commit the clone's HEAD shares with the
-  // default branch. "" when the file was not there; null when the page cannot
-  // write or git cannot answer. Three calls, each reading the clone only.
-  async function baseText(rel) {
+  // default branch, or at `commit` (contract 13). "" when the file was not
+  // there; null when the page cannot write or git cannot answer.
+  async function baseText(rel, commit = null) {
     if (!known || !readable || typeof rel !== "string" || !rel || rel.split("/").includes("..")) return null;
-    const mb = await git(paths.clone, ["merge-base", "--end-of-options", known.base, "HEAD"], { via: "base" });
-    const at = mb.ok ? lines(mb.stdout)[0] : null;
+    if (commit !== null && !FULL_HASH.test(String(commit))) return null;
+    let at = commit;
+    if (!at) {
+      const mb = await git(paths.clone, ["merge-base", "--end-of-options", known.base, "HEAD"], { via: "base" });
+      at = mb.ok ? lines(mb.stdout)[0] : null;
+    } else if (!(await git(paths.clone, ["cat-file", "-e", "--end-of-options", `${at}^{commit}`], { via: "base" })).ok) return null; // a save the clone lacks is unknown, not "not there"
     if (!at) return null;
     const path = known.prefix ? `${known.prefix}/${rel}` : rel;
     const has = await git(paths.clone, ["cat-file", "-e", "--end-of-options", `${at}:${path}`], { via: "base", edit: (e) => Object.assign(e, { LC_ALL: "C", LANGUAGE: "" }) });
@@ -1526,6 +1530,22 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     if (!has.ok) return has.status === 128 && /does not exist in|exists on disk, but not in/.test(String(has.stderr || "")) ? "" : null;
     const text = await git(paths.clone, ["show", "--end-of-options", `${at}:${path}`], { via: "base" });
     return text.ok ? text.stdout : null;
+  }
+
+  // A file's saves (dashboard-editor, contract 13): { list (at most 30: commit,
+  // author time, name, subject), more }, or null when git cannot answer.
+  async function savesOf(rel) {
+    if (!known || !readable || typeof rel !== "string" || !rel || rel.split("/").includes("..")) return { list: [], more: false };
+    const path = known.prefix ? `${known.prefix}/${rel}` : rel;
+    // The path as it is, and no follow from a person's log.follow.
+    const r = await git(paths.clone, ["log", "--max-count=31", "--format=%H%x1f%aI%x1f%an%x1f%s", "--end-of-options", "HEAD", "--", path], { via: "base", literal: true, config: { "log.follow": "false" } });
+    if (!r.ok) return null;
+    const list = String(r.stdout || "")
+      .split("\n")
+      .map((l) => l.split("\x1f"))
+      .filter((p) => p.length === 4 && FULL_HASH.test(p[0]))
+      .map(([commit, at, who, subject]) => ({ commit, at, who, subject }));
+    return { list: list.slice(0, 30), more: list.length > 30 };
   }
 
   // A batch branch for now that the clone does not have yet: the same second
@@ -1591,10 +1611,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
         return { status: 500, ok: false, result: ran.result, error: `${req.verb} changed ${outside.join(", ")}, outside the vault's folder ${known.prefix}; nothing was committed` };
       }
       const commit = changed.filter((p) => !derived.has(rel(p)));
-      // Every file the verb created, and the .gitattributes it changed, is in the commit, or
-      // nothing is committed (the spec dashboard-attachments, contract 7): a file git ignores
-      // would leave the text linking a picture the batch does not hold. Checked before the end
-      // of an action with no change, so an ignored picture with the same text is refused too.
+      // Every created file and a changed .gitattributes is in the commit, or nothing is
+      // (dashboard-attachments, contract 7); checked before the no-change end.
       const createdPaths = [
         ...(Array.isArray(ran.result?.files) ? ran.result.files.filter((f) => f && f.state === "created" && typeof f.path === "string").map((f) => f.path) : []),
         ...(ran.result?.gitattributes === "changed" ? [".gitattributes"] : []),
@@ -2094,6 +2112,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     // The bound vault, as Obsidian shows it on disk (the spec dashboard-editor, contract 7).
     boundCtx: () => ctx,
     baseText,
+    savesOf,
     writeBindingFolder,
     // The Code block's calls, in the project (dashboard-code, contract 9).
     reader: proc.readerFor(project, { windows }),

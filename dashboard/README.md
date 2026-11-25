@@ -31,32 +31,12 @@ the server, plain HTML, CSS and classic scripts in the page. The one built file 
 dashboard/editor` and committed with its licence notices, `THIRD-PARTY-NOTICES.txt`; CI builds it
 again and fails when either differs by a byte.
 
-## What it runs, in short
+## What it runs
 
-- The server listens on `127.0.0.1` only and answers only its own address. Apart from the refresh
-  at its start, it starts a process only for a POST from its own page, which carries the run's
-  token and the page's own origin.
-- It runs git, gh and the core's CLI through the same Node, and nothing else. It changes nothing
-  in the vault's repository or the project's: it writes in its own clone of the vault, under
-  `<main checkout>/.projectstore/state/dashboard/<person>/`, and a change reaches the vault only
-  through a pull request a person merges.
-- For a save it writes the text, and each picture pasted into it, to a folder of its own in the
-  system's temporary folder, readable by you alone, removed when the verb ends.
-
-## Pictures
-
-Paste or drop a picture (PNG, JPEG, GIF or WebP) or a PDF into an item's editor: it goes into the
-text at the cursor as a link to the vault's attachments folder, `![name](../../../attachments/<16
-hex digits>.png)` from a story, and is drawn from the page's memory until Save. Save sends the
-text with each picture it links; the core's `edit --attach` keeps them there, in the same commit.
-One file takes at most 5 MiB, one save 16 MiB. The page holds a pasted picture until it is
-reloaded: a text kept in the browser over a reload names the pictures to paste again before Save.
-A video or a sound is linked from where it lives, never kept. When the vault's `.gitignore`
-ignores the attachments folder, the save is refused and names the rule (`git check-ignore -v`).
-A vault whose pictures go through Git LFS is not covered: the clone runs no hooks.
-
-How it runs inside (its routes, every git and gh call, kept branches by hand, its files and the
-core's readers it uses):
+The server runs git, gh and the core's CLI only for its own page and once at its start, writes in
+its own clone of the vault and, for a save, in a temporary folder of its own, and keeps a pasted
+picture in the vault's attachments folder with the text it is saved with. What it reads, runs and
+writes, pictures and their limits, and kept branches by hand:
 [`docs/web-page.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/web-page.md).
 
 ## The launcher protocol

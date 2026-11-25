@@ -42,9 +42,7 @@ function artifactAt(fromRel, target) {
   return artByRel.get(path) || artByRel.get(`${path}.md`) || artByRel.get(`${path}/epic.md`) || artByRel.get(`${bare}.md`) || (!bare.includes("/") ? artByName.get(bare) : null) || null;
 }
 // ── pictures and PDFs pasted or dropped, not saved yet (the spec dashboard-attachments) ──
-// Kept until the page is reloaded, across closing the drawer and opening other items (contract 4),
-// by the item they were pasted into and their written name, the core's nameOf of their bytes. The
-// bytes are base64, as a save sends them; `url` draws a picture until Save (contract 3).
+// Kept until a reload, by item and written name (contract 4); base64, as a save sends them.
 const PASTED = new Map(); // `${item}\n${name}` → { item, name, alt, type, data, url }
 const pastedNamed = (name) => [...PASTED.values()].find((f) => f.name === name) || null;
 // The pasted file a vault path names while it is not saved: `<A>/<written name>`.
@@ -300,29 +298,31 @@ function makeEditor(item) {
     changedNote.replaceChildren(...(stale ? [h("b", null, "This file changed while you were typing. "), "Save will be refused: copy your text, open the document again and put your change into it."] : []));
   // The base is read from git, which no GET may start, so it is a POST of the page's own.
   // Only the latest answer counts: a save or a refresh may ask again before the first returns.
-  let asked = 0;
-  async function loadBase() {
-    const n = ++asked;
-    let r = null;
-    let res = null;
-    let err = "";
+  // One POST to the base route, with `fields` beside `rel` (contract 13's `saves` or `at`).
+  async function askBase(fields) {
     try {
       const token = document.querySelector('meta[name="projectstore-token"]')?.getAttribute("content") || "";
-      res = await fetch(BASE_ROUTE, { method: "POST", headers: { "content-type": "application/json", "x-projectstore-token": token }, body: JSON.stringify({ rel }) });
-      r = await res.json().catch(() => null);
+      const res = await fetch(BASE_ROUTE, { method: "POST", headers: { "content-type": "application/json", "x-projectstore-token": token }, body: JSON.stringify({ rel, ...fields }) });
+      return { status: res.status, r: await res.json().catch(() => null), err: "" };
     } catch (e) {
-      err = String(e?.message || e);
+      return { status: 0, r: null, err: String(e?.message || e) };
     }
+  }
+  let asked = 0;
+  async function loadBase() {
+    loadSaves(); // the file's saves are asked at the same moments (contract 13)
+    const n = ++asked;
+    const { status, r, err } = await askBase({});
     // While "Check the editor" runs on its own sample text, an answer would replace its earlier text.
     if (n !== asked || !ED || ED.ed !== ed || window.WS_SELFTEST) return;
-    if (res?.status === 200 && r?.ok) {
+    if (status === 200 && r?.ok) {
       base = typeof r.base === "string" ? r.base : null;
       showDisk(r.disk);
     } else {
       // Unknown, and said: never drawn as "no changes".
       base = null;
-      if (res?.status === 403) diskNote.replaceChildren(h("b", null, "The server was started again. "), "Reload this page to see your changes.");
-      else diskNote.replaceChildren(h("b", null, "Your changes cannot be marked. "), r?.error || err || `The server answered ${res?.status}.`);
+      if (status === 403) diskNote.replaceChildren(h("b", null, "The server was started again. "), "Reload this page to see your changes.");
+      else diskNote.replaceChildren(h("b", null, "Your changes cannot be marked. "), r?.error || err || `The server answered ${status}.`);
     }
     applyBase();
   }
@@ -330,7 +330,9 @@ function makeEditor(item) {
   // Above the text: what the editor does not hold, drawn as it reads (not a story's: its side panel has it).
   const headText = String(item.edit?.head || "").replace(/^\s*# [^\n]*\n?/, "").trim();
   const headBox = headText && !/\/stories\//.test(rel) ? h("div", { class: "ed-head", title: "Kept by gates and verbs: not edited here" }, MD.render(headText, ctx)) : null;
-  const host = h("div", { class: "ed" }, headBox, tools, changedNote, keepNote, diskNote, notice, body, h("div", { class: "ed-note" }, "The text is Markdown, shown as it will read; the marks appear where the cursor is. Green is what you added, red what you removed, since your changes started. Save keeps it in your changes; Publish sends them for review. The title, the field table, the Status log and checked criteria are written by gates and verbs, not here."));
+  const since = h("span", null, "since your changes started");
+  const saveNote = h("div", { class: "ed-draft ed-disk" }); // a chosen save that gives no marks (contract 13)
+  const host = h("div", { class: "ed" }, headBox, tools, changedNote, keepNote, diskNote, saveNote, notice, body, h("div", { class: "ed-note" }, "The text is Markdown, shown as it will read; the marks appear where the cursor is. Green is what you added, red what you removed, ", since, ". Save keeps it in your changes; Publish sends them for review. The title, the field table, the Status log and checked criteria are written by gates and verbs, not here."));
   // ── pictures (the spec dashboard-attachments) ──
   // Kept only where they can be saved (contract 2): the layout names an attachments folder, and
   // this server's save takes files.
@@ -582,19 +584,70 @@ function makeEditor(item) {
   let mode = store.get("diffMode", "vault");
   const count = h("button", { class: "ed-count", type: "button", title: "Go to the next changed part", onclick: () => ed.nextChange() });
   const opt = (v, t) => h("option", { value: v, selected: v === mode }, t);
+  // The file's earlier saves (the spec dashboard-editor, contract 13): listed below the three
+  // choices; a save's choice is "at:<commit>", and it is not kept in the browser.
+  const savesGroup = h("optgroup", { label: "Compare with an earlier save" });
+  let saveText = null; // the body at the chosen save, null until it is read
   const baseSel = h(
     "select",
-    { class: "ed-base", title: "What the marks compare the text with", onchange: (e) => ((mode = e.target.value), store.set("diffMode", mode), applyBase()) },
+    {
+      class: "ed-base",
+      title: "What the marks compare the text with",
+      onchange: (e) => {
+        mode = e.target.value;
+        if (mode.startsWith("at:")) return loadSave(mode.slice(3));
+        store.set("diffMode", mode);
+        applyBase();
+      },
+    },
     opt("vault", "All your changes"),
     opt("saved", "Changes not saved yet"),
     opt("off", "Changes: off"),
+    savesGroup,
   );
+  const when = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  };
+  let savesAsked = 0;
+  async function loadSaves() {
+    const n = ++savesAsked;
+    const { r } = await askBase({ saves: true });
+    if (n !== savesAsked || !ED || ED.ed !== ed || window.WS_SELFTEST) return;
+    // A read that fails leaves the list and the choice as they were, and says so.
+    if (!r?.ok || !Array.isArray(r.saves)) return void (savesGroup.label = "Earlier saves cannot be read now");
+    savesGroup.label = "Compare with an earlier save";
+    // The chosen save stays chosen while the item is open, listed or not.
+    const kept = [...savesGroup.children].find((o) => o.value === mode && !r.saves.some((s) => `at:${s.commit}` === mode));
+    fill(
+      savesGroup,
+      ...r.saves.map((s) => h("option", { value: `at:${s.commit}`, selected: mode === `at:${s.commit}` }, `${when(s.at)} · ${s.who} · ${s.subject.length > 60 ? `${s.subject.slice(0, 59)}…` : s.subject}`)),
+      kept || null,
+      r.more ? h("option", { disabled: true }, "Older saves are not listed") : null,
+    );
+  }
+  let saveAsked = 0;
+  async function loadSave(commit) {
+    const n = ++saveAsked;
+    if (window.WS_SELFTEST) return; // the check owns the earlier text meanwhile
+    saveText = null;
+    saveNote.replaceChildren();
+    applyBase();
+    const { r } = await askBase({ at: commit });
+    if (n !== saveAsked || mode !== `at:${commit}` || !ED || ED.ed !== ed || window.WS_SELFTEST) return;
+    // Unknown, or not in that save: no marks, and said.
+    saveText = r?.ok && r.base ? r.base : null;
+    saveNote.replaceChildren(...(saveText === null ? [h("b", null, "No marks. "), r?.ok && r.base === "" ? "The file is not in that save." : "That save cannot be read now."] : []));
+    applyBase();
+  }
   const isNew = () => mode === "vault" && base !== null && !base.trim();
   // The marks follow the edits as they are made (changes.mjs); setting the earlier text compares
   // the two texts again from scratch, which redraws them by the shortest diff and makes them jump.
   // So it is set only when the earlier text really is another one, not on every save or answer.
   function applyBase() {
-    const want = mode === "off" ? null : mode === "saved" ? saved : base === null || !base.trim() ? null : base;
+    const want = mode.startsWith("at:") ? saveText : mode === "off" ? null : mode === "saved" ? saved : base === null || !base.trim() ? null : base;
+    since.textContent = mode.startsWith("at:") ? "since the save you chose" : "since your changes started";
+    if (!mode.startsWith("at:")) saveNote.replaceChildren();
     if ((want ?? null) !== (ed.baseline ?? null)) ed.setBaseline(want);
     body.classList.toggle("is-new", isNew());
     paint();
