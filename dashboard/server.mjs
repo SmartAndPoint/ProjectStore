@@ -280,9 +280,9 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       const bound = writer.boundCtx?.();
       const item = readItem(ctx, rel);
       if (!item) return send(req, res, 404, { ok: false, error: "no such artifact" });
-      // Only the three kinds the edit verb writes have a base (the ADR "Create and edit verbs…").
-      const { EDIT_KINDS, splitForEdit } = ctx.editCut;
-      const editable = bound && bound !== ctx && EDIT_KINDS.includes(item.type);
+      // A file the edit verb takes, by its own predicate (the edit spec, contract 3).
+      const { editRefusal, splitForEdit } = ctx.editCut;
+      const editable = bound && bound !== ctx && editRefusal(item.type, item.status) === null;
       if (saves) {
         const found = editable ? await writer.savesOf?.(rel) : { list: [], more: false };
         if (!found) return send(req, res, 200, { ok: false, error: "the file's saves cannot be read: git gave no answer" });
@@ -377,8 +377,11 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
         if (!item) return send(req, res, 404, { error: "no such artifact" });
         // The part of the text the editor holds, cut by the edit verb's own module, and its hash for the
         // save. The base for its change marks comes from POST /api/base (git runs there).
-        const { EDIT_KINDS, splitForEdit, bodyHash } = ctx.editCut;
-        if (EDIT_KINDS.includes(item.type)) {
+        // A file the edit verb refuses by its status says why (dashboard-editor, contracts 1 and 14).
+        const { EDIT_KINDS, editRefusal, splitForEdit, bodyHash } = ctx.editCut;
+        const refused = editRefusal(item.type, item.status);
+        if (refused !== null && EDIT_KINDS.includes(item.type)) item.editRefused = refused;
+        if (refused === null) {
           const cut = splitForEdit(item.body);
           item.edit = { head: cut.head, body: cut.body, hash: bodyHash(cut.body) };
         }

@@ -625,7 +625,7 @@ export const VERBS = Object.freeze([
   // not reviewed until a review clears the mark.
   Object.freeze({
     verb: "edit",
-    summary: "Rewrite an initiative, epic or story text, marked not reviewed.",
+    summary: "Rewrite an item's text, or an open ADR, spec or research note.",
     usage: Object.freeze(["<path>", "<path> --from <file> --base <hash>"]),
     module: "./item-verbs.mjs",
     wraps: "new",

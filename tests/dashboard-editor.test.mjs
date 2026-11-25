@@ -494,3 +494,58 @@ test("dashboard editor: an at that is no full hash, or at and saves together, is
     assert.equal(w.record.length, from, "no process starts");
   });
 });
+
+// ── An ADR, a spec and a research note (contracts 1, 6 and 14, as amended 2026-11-25) ──
+
+const DOCS = {
+  "adr/ADR-002-open.md":
+    "---\ntype: adr\nid: ADR-002\ntitle: Open\nstatus: proposed\n---\n\n# Open\n\n## Context\n\nWhy.\n",
+  "specs/a-draft.md":
+    "---\ntype: spec\nid: a-draft\ntitle: A draft\nstatus: draft\n---\n\n# A draft\n\n## How we solve\n\nSo.\n\n## Acceptance\n\n- [ ] One.\n",
+  "specs/an-active.md":
+    "---\ntype: spec\nid: an-active\ntitle: An active\nstatus: active\n---\n\n# An active\n\n## How we solve\n\nSo.\n",
+  "research/a-note.md": "---\ntype: research\ntitle: A note\nstatus: draft\n---\n\n# A note\n\n## Question\n\nWhy?\n",
+  "concepts/a-term.md": "---\ntype: concept\ntitle: A term\nstatus: draft\n---\n\n# A term\n\n## Definition\n\nIt.\n",
+};
+
+// [dashboard-editor#1] [dashboard-editor#14]
+test("dashboard editor: a proposed ADR, a draft spec and a research note come with edit; an accepted ADR and an active spec with editRefused naming the status; a concept with neither", async () => {
+  const w = await makeWorld({ files: { [ADR_REL]: ADR, ...DOCS } });
+  try {
+    const { page, token } = await writablePage(w);
+    for (const rel of ["adr/ADR-002-open.md", "specs/a-draft.md", "research/a-note.md"]) {
+      const it = await item(page, rel);
+      assert.ok(it.edit, rel);
+      assert.ok(!("editRefused" in it), rel);
+      assert.match(it.edit.body, /^## /, rel);
+      // The base read takes the same files (contract 6).
+      const b = await post(page, "/api/base", own(page, token), { rel });
+      assert.equal(b.json.base, it.edit.body, rel);
+    }
+    for (const [rel, status] of [
+      [ADR_REL, "accepted"],
+      ["specs/an-active.md", "active"],
+    ]) {
+      const it = await item(page, rel);
+      assert.ok(!("edit" in it), rel);
+      assert.match(it.editRefused, new RegExp(`is ${status}, and edit writes`), rel);
+      const b = await post(page, "/api/base", own(page, token), { rel });
+      assert.deepEqual(b.json, { ok: true, base: null, disk: null }, rel);
+    }
+    const term = await item(page, "concepts/a-term.md");
+    assert.ok(!("edit" in term) && !("editRefused" in term), "a concept is text, with no reason to give");
+    // A proposed ADR saved through the page's edit-doc: one commit in the clone, marked.
+    const adr = await item(page, "adr/ADR-002-open.md");
+    const r = await post(
+      page,
+      "/api/action",
+      own(page, token),
+      save({ path: "adr/ADR-002-open.md", text: adr.edit.body.replace("Why.", "Why, again."), base: adr.edit.hash }),
+    );
+    assert.equal(r.json?.ok, true, JSON.stringify(r.json));
+    const after = await item(page, "adr/ADR-002-open.md");
+    assert.match(after.body, /Why, again\./);
+  } finally {
+    await w.cleanup();
+  }
+});

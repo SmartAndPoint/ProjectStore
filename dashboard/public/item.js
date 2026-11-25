@@ -193,6 +193,46 @@ function showTab(d, tab) {
 }
 
 // ── the pane ──
+// Where a file's unsaved text is kept in this browser (contract 12): per project, vault and file.
+const draftKeyOf = (rel) => `draft:${JSON.stringify([S.project.dir, S.vault, rel])}`;
+// Why a file the edit verb refuses is not an editor, and whether text not saved for it is kept
+// (dashboard-editor, contract 14). The server gives the reason; the page holds no list of statuses.
+function refusedNote(item) {
+  const key = draftKeyOf(item.rel);
+  const draft = store.get(key, null);
+  const kept = !!draft && typeof draft.body === "string";
+  const reason = String(item.editRefused);
+  const note = h("div", { class: "ed-draft" }, h("b", null, "Not edited here. "), reason.charAt(0).toUpperCase() + reason.slice(1));
+  if (kept) {
+    // Text typed before the edit verb refused the file stays in this browser: shown as text, to copy or to drop.
+    const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(draft.body).then(() => toast("ok", "Your text is copied"), () => toast("refused", "The text could not be copied", "Select it and copy it by hand.")) : toast("refused", "The text could not be copied", "Select it and copy it by hand."));
+    const drop = () => (store.set(key, null), renderDrawer());
+    note.append(
+      h(
+        "details",
+        { class: "ed-kept" },
+        h("summary", null, "Your text not saved for it is kept in this browser"),
+        h("pre", { class: "ed-kept-text" }, draft.body),
+        h("button", { class: "btn", type: "button", onclick: copy }, "Copy"),
+        " ",
+        h("button", { class: "btn ghost", type: "button", onclick: drop }, "Discard"),
+      ),
+    );
+  }
+  return note;
+}
+
+// What the drawer draws for an item's text (dashboard-editor, contracts 1, 10 and 14): "editor", "refused"
+// (a file the edit verb refuses: its text and why), "old-server" (a story, an epic or an initiative with
+// neither `edit` nor `editRefused`, or no `edit-doc`), "no-editor" (the editor's file did not load) or "text".
+function textMode(item, tab, write, editorLoaded) {
+  if (!item || item.missing || tab !== "doc" || !write?.can) return "text";
+  if (typeof item.editRefused === "string") return "refused";
+  if (!item.edit && !["story", "epic", "initiative"].includes(item.type)) return "text";
+  if (!item.edit || !(write.verbs || []).some((v) => v && v.verb === "edit-doc")) return "old-server";
+  return editorLoaded ? "editor" : "no-editor";
+}
+
 function renderDrawer() {
   const pane = $("#drawer");
   const d = ui.drawer;
@@ -206,15 +246,16 @@ function renderDrawer() {
   const item = d.item;
   document.title = `${info.title} · ${project}`;
   const main = h("div", { class: "item-main" });
-  // While the page can write, a story's, an epic's or an initiative's text is the editor itself, as in Obsidian (dashboard-editor).
-  // Only a story, an epic or an initiative (the ADR "Create and edit verbs…"); a server started
-  // before the page's code sends no `edit` or no `edit-doc`: the text is then shown with no editor, and a note says why.
-  const editsHere = !!item && !item.missing && d.tab === "doc" && !!S.write?.can && ["story", "epic", "initiative"].includes(item.type);
-  const canEdit = !!item?.edit && (S.write?.verbs || []).some((v) => v && v.verb === "edit-doc");
-  const editable = editsHere && canEdit && typeof WSEditor !== "undefined";
-  const oldServer = editsHere && !canEdit;
+  // While the page can write, a file the edit verb takes is the editor itself, as in Obsidian (dashboard-editor):
+  // the server says which by `edit`, and why not by `editRefused` (contracts 1 and 14). A server started before
+  // the page's code sends a story, an epic or an initiative with neither, or no `edit-doc`: the text is then
+  // shown with no editor, and a note says why (contract 10).
+  const mode = textMode(item, d.tab, S.write, typeof WSEditor !== "undefined");
+  if (mode === "refused") endRefusedEditor(item);
+  const editable = mode === "editor";
+  const oldServer = mode === "old-server";
   // The editor's built file did not load (a failed request, a blocked script): said, never silent.
-  const noEditor = editsHere && canEdit && typeof WSEditor === "undefined";
+  const noEditor = mode === "no-editor";
   if (!item) main.append(h("div", { class: "faint" }, "reading…"));
   else if (item.missing) main.append(h("div", { class: "faint" }, "The file could not be read."));
   else if (editable) main.append(editorFor(d, item));
@@ -225,6 +266,7 @@ function renderDrawer() {
       // What belongs to the item stands in the side panel. Its long form opens here, in place of the text.
       d.tab !== "doc" ? h("div", { class: "doc-bar" }, h("button", { class: "tog on", onclick: () => showTab(d, "doc") }, "← Back to the text"), h("b", null, "Related, in full")) : null,
       oldServer ? h("div", { class: "ed-draft bad" }, h("b", null, "The server is older than this page. "), "Stop it (Ctrl+C), start it again and reload this page.") : null,
+      mode === "refused" ? refusedNote(item) : null,
       noEditor ? h("div", { class: "ed-draft bad" }, h("b", null, "The editor did not load. "), "Reload this page; until then the text is shown with no editor.") : null,
       d.tab === "rel" ? relatedView(d) : MD.render(bodyOf(d, item), docCtx(item.rel)),
     );
@@ -253,6 +295,13 @@ function renderDrawer() {
 // changes start (the commit your batch shares with the default branch), so green is what
 // this page changed and an edit made in Obsidian meanwhile is not drawn as yours.
 let ED = null;
+// A file the edit verb refuses since its editor was opened (Get latest brought an accepted ADR): the editor
+// ends here, its unsaved text kept once, so a later Discard is not written back by it (contract 14).
+function endRefusedEditor(item) {
+  if (!ED || ED.rel !== item.rel) return;
+  ED.destroy({ quiet: true });
+  ED = null;
+}
 function editorFor(d, item) {
   if (ED && ED.rel === item.rel) {
     ED.sync(item);
@@ -264,8 +313,9 @@ function editorFor(d, item) {
 }
 function makeEditor(item) {
   const rel = item.rel;
-  // The editor holds the `## ` sections of a story, an epic or an initiative, cut by the edit
-  // verb's own module (scripts/edit-cut.mjs); the rest is kept by gates and verbs.
+  // The editor holds the `## ` sections of a file the edit verb takes (a story, an epic, an initiative,
+  // a proposed ADR, a draft spec or research note), cut by its own module (scripts/edit-cut.mjs); the
+  // rest is kept by gates and verbs.
   const partOf = (it) => it.edit.body;
   let saved = partOf(item); // the text as your changes hold it
   let opened = item.edit?.hash || ""; // the save is refused when the file changed since
@@ -276,7 +326,7 @@ function makeEditor(item) {
   // started one after another on one port, share this browser's storage, as the viewer's name
   // knows (views.js, meKey). A text kept by 0.30.22 under `draft:<path>` alone is not read, since
   // nothing in it names its project, and not removed, since a 0.30.22 page at this address reads it.
-  const draftKey = `draft:${JSON.stringify([S.project.dir, S.vault, rel])}`;
+  const draftKey = draftKeyOf(rel);
   const tools = h("div", { class: "ed-tools" });
   const notice = h("div", { class: "ed-draft" });
   // The file reads otherwise in the vault folder (Obsidian, or not pulled yet): said once, above the text.
@@ -747,9 +797,10 @@ function makeEditor(item) {
       applyBase();
     },
     save,
-    destroy() {
-      // Leaving a text that is not saved: it is kept in this browser, and the person is told so.
-      if (dirty() && !window.WS_SELFTEST) toast("info", "Not saved yet", `Your edit of "${item.title || rel}" is kept in this browser. Open it again to save it.`);
+    destroy({ quiet = false } = {}) {
+      // Leaving a text that is not saved: it is kept in this browser, and the person is told so
+      // (quiet when the edit verb now refuses the file: the drawer's note says it, contract 14).
+      if (!quiet && dirty() && !window.WS_SELFTEST) toast("info", "Not saved yet", `Your edit of "${item.title || rel}" is kept in this browser. Open it again to save it.`);
       writeDraft();
       window.removeEventListener("pagehide", onHide);
       ed.destroy();
