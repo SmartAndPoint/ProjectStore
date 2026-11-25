@@ -30,6 +30,9 @@ import { statusToColumn } from "../scripts/stages.mjs";
 import { WRITE_ROUTES, CODE_ROUTE, BASE_ROUTE } from "../dashboard/server.mjs";
 import { WRITE_VERBS } from "../dashboard/lib/write.mjs";
 import { writeBinding } from "./fixtures/vault.mjs";
+import { exportGoldenVault, NOW_MS } from "./fixtures/flow.mjs";
+import { openCore } from "../dashboard/lib/core.mjs";
+import { flow as reportsFlow } from "../dashboard/lib/reports.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PAGE = join(REPO, "dashboard");
@@ -309,7 +312,7 @@ test("dashboard page: no file of the page but its write module starts a process 
   }
 });
 
-test("dashboard page: the page imports only the core modules the spec lists, and stays under 512 KiB, the editor's bundle under 768 KiB", () => {
+test("dashboard page: the page imports only the core modules the spec lists, and stays under 608 KiB, the editor's bundle under 768 KiB", () => {
   const LISTED = new Set([
     "lib.mjs",
     "stages.mjs",
@@ -361,7 +364,7 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "no core module beyond the list",
   );
   assert.ok(seen.size >= 5, `the bridge names the core's modules (${[...seen].join(", ")})`);
-  assert.ok(size < 512 * 1024, `dashboard/ is ${Math.round(size / 1024)} KiB, the editor's bundle aside`);
+  assert.ok(size < 608 * 1024, `dashboard/ is ${Math.round(size / 1024)} KiB, the editor's bundle aside`);
   // The editor is one built file of its own, with its notices, under a budget of their own (dashboard-editor).
   assert.ok(
     bundle > 0 && bundle < 768 * 1024,
@@ -865,6 +868,21 @@ test("dashboard page: write.js sends every POST with the run's token, and only w
       continue;
     }
     assert.ok(!src.includes(CODE_ROUTE), `${f} names ${CODE_ROUTE}`);
+    // [dashboard-reports#5] Reports: one GET of the flow counts and one POST of its own, with the token.
+    if (f === "reports.js") {
+      assert.equal(
+        [...src.matchAll(/\bfetch\(/g)].length,
+        2,
+        "reports.js has two fetches, the flow GET and the code POST",
+      );
+      assert.equal([...src.matchAll(/\bfetch\([^)]*method/g)].length, 1, "reports.js has one POST");
+      assert.match(src, /const CODE_ROUTE = "\/api\/reports\/code"/);
+      assert.match(
+        src,
+        /fetch\(CODE_ROUTE, \{\s*method: "POST",\s*headers: \{ "content-type": "application\/json", "x-projectstore-token": token\(\) \}/,
+      );
+      continue;
+    }
     // [dashboard-editor#6] The editor's base: item.js's one POST, to its own route, with the token.
     if (f === "item.js") {
       assert.equal([...src.matchAll(/\bfetch\([^)]*method/g)].length, 1, "item.js has one POST, the base");
@@ -2349,4 +2367,190 @@ test("dashboard page: [dashboard-attachments#8] a kept draft holds the linked pi
   // A reload: a new page over the same storage, with nothing in its memory.
   const reloaded = loadEditor("/work/a", "/vaults/one", storage, PICTURES).open(EDIT_ITEM);
   assert.match(reloaded.host.text, new RegExp(`Paste again before Save: shot\\.png \\(${name}\\)`));
+});
+
+// ── Reports (dashboard/public/reports.js; the spec alias `dashboard-reports`) ──
+// reports.js in a context of its own: `answers` maps a GET of /api/reports (its query) and the
+// POST of /api/reports/code to what they answer; `calls` records every fetch. The flow answer is
+// the server's own, read from the export spec's golden vault.
+function loadReportsUi(answers) {
+  const calls = [];
+  const counts = { render: 0 };
+  const meta = new FakeEl("meta", { name: "projectstore-token", content: "the-run-token" });
+  const h = (tag, attrs, ...kids) => new FakeEl(tag, attrs, kids);
+  const ctx = {
+    ui: { view: "reports" },
+    S: {
+      people: [{ name: "Ada Byron" }],
+      stories: [{ assignee: "Bo Lee" }],
+      epics: [{ id: "PS-A", title: "A" }],
+      initiatives: [],
+      write: { fetched_at: null },
+    },
+    PRI: ["p0", "p1", "p2", "p3"],
+    plural: (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`,
+    h,
+    fill: (el, ...kids) =>
+      el.replaceChildren(
+        ...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false && k !== ""),
+      ),
+    render: () => counts.render++,
+    openByRel: () => {},
+    copyText: (url) => calls.push({ copied: url }),
+    location: { origin: "http://127.0.0.1:4800", pathname: "/" },
+    requestAnimationFrame: () => 0,
+    innerWidth: 1000,
+    URLSearchParams,
+    document: {
+      querySelector: (sel) => (sel === 'meta[name="projectstore-token"]' ? meta : null),
+      createElementNS: (_ns, tag) => new FakeEl(tag),
+      createTextNode: (s) => s,
+      body: { append() {} },
+    },
+    fetch: async (url, opts = {}) => {
+      calls.push({ url, method: opts.method || "GET", headers: { ...(opts.headers || {}) }, body: opts.body ?? null });
+      const a = typeof answers === "function" ? answers(url, opts) : answers[opts.method === "POST" ? "code" : "flow"];
+      return { status: 200, json: async () => a };
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${readFileSync(join(PUBLIC, "reports.js"), "utf8")}\nglobalThis.reportsUi = reportsUi;`, ctx, {
+    filename: "reports.js",
+  });
+  return { reports: ctx.reportsUi, ctx, calls, counts };
+}
+async function goldenFlow(query = {}) {
+  const fx = exportGoldenVault();
+  const core = await openCore({ core: REPO, project: fx.proj });
+  return { copy: "vault", ...reportsFlow(core, query, { now: NOW_MS }).result };
+}
+const CODE_ANSWER = {
+  ok: true,
+  copy: "vault",
+  result: {
+    main: { short: "main", hash: "abc123456" },
+    repo: "acme/app",
+    listFull: false,
+    unknown: { git: null, prs: null },
+    openLeft: null,
+    checks: [
+      {
+        id: "merged_open",
+        label: "Open, with its pull requests merged",
+        value: { value: 2, by: "page", basis: "the newest merged at least 7 days ago, this page's own" },
+        counted: [
+          {
+            rel: "epics/PS-A/stories/story-doing.md",
+            epic: "PS-A",
+            title: "story-doing",
+            prs: [
+              {
+                number: 11,
+                title: "eleven",
+                url: "https://github.com/acme/app/pull/11",
+                how: ["recorded"],
+                link: true,
+              },
+            ],
+          },
+        ],
+        leads: [
+          {
+            rel: "epics/PS-A/stories/story-review.md",
+            epic: "PS-A",
+            title: "story-review",
+            prs: [{ number: 13, title: "thirteen", url: "javascript:alert(1)", how: ["named"], link: false }],
+          },
+        ],
+        unknown: null,
+      },
+    ],
+  },
+};
+const drawReports = async (answers, query = "") => {
+  const r = loadReportsUi(answers);
+  r.reports.apply(query);
+  r.reports.view(); // asks both reads
+  await settle();
+  return { ...r, el: r.reports.view() };
+};
+
+// [dashboard-reports#9]
+test("dashboard page: Reports draws the answers' numbers, says this page's own on its own ones, and lists a lead apart, as a lead", async () => {
+  const F = await goldenFlow();
+  const { el, calls } = await drawReports({ flow: F, code: CODE_ANSWER });
+  const tiles = el.querySelectorAll("div.kpi").map((k) => k.text);
+  assert.ok(
+    tiles.some((t) => t.startsWith(`Created${F.window.created.value}`)),
+    tiles.join(" | "),
+  );
+  assert.ok(
+    tiles.some((t) => t.startsWith(`Closed${F.window.closed.value}`)),
+    tiles.join(" | "),
+  );
+  // In Progress has no key: its count is the page's own, and says so.
+  const own = el.querySelectorAll("span.chip.own");
+  assert.ok(own.length >= 2, "the In Progress count and the code check say this page's own");
+  assert.ok(el.text.includes("this page's own"));
+  // A key the golden policy does not set is named with the way to set it.
+  assert.ok(el.text.includes("projectstore configure --set flow.age_days.review=<days>"));
+  // The code check: N by a counted link, M by a lead; the lead labelled, and its non-https link drawn as text.
+  assert.ok(el.text.includes("1 by a counted link, 1 by a lead"));
+  const leads = el.querySelectorAll("span.chip.flag").map((x) => x.text);
+  assert.ok(leads.includes("lead"));
+  assert.ok(
+    !el.querySelectorAll("a").some((a) => !String(a.getAttribute("href")).startsWith("https://")),
+    "a link out is https only",
+  );
+  // One GET of the flow counts, one POST of the code read with the token.
+  assert.deepEqual(
+    calls.filter((c) => c.url).map((c) => `${c.method} ${c.url}`),
+    ["GET /api/reports", "POST /api/reports/code"],
+  );
+  assert.equal(calls[1].headers["x-projectstore-token"], "the-run-token");
+});
+
+test("dashboard page: Reports says counting until the code read answers, keeps the last answer dimmed while the next is read, and drops an answer to a query no longer asked", async () => {
+  const F = await goldenFlow();
+  let release;
+  const held = new Promise((r) => (release = r));
+  const r = loadReportsUi((url, opts) => (opts.method === "POST" ? null : F));
+  r.ctx.fetch = async (url, opts = {}) => {
+    r.calls.push({ url, method: opts.method || "GET" });
+    if (opts.method === "POST") await held;
+    return { status: 200, json: async () => (opts.method === "POST" ? CODE_ANSWER : { ...F, stamp: url }) };
+  };
+  r.reports.view();
+  await settle();
+  assert.ok(r.reports.view().text.includes("counting…"), "the code part says counting");
+  // A new filter: the drawn answer is the old query's, dimmed, until the new one comes.
+  r.reports.apply("weeks=8");
+  const dim = r.reports.view();
+  assert.ok(dim.classes.has("stale"));
+  await settle();
+  assert.ok(!r.reports.view().classes.has("stale"));
+  release();
+  await settle();
+  assert.ok(!r.reports.view().text.includes("counting…"));
+});
+
+// [dashboard-reports#10]
+test("dashboard page: Reports asks with exactly the address's filters, drops an invalid value, and a click on a week sets asof to the Monday after it", async () => {
+  const F = await goldenFlow();
+  const { calls, reports } = await drawReports({ flow: F, code: CODE_ANSWER }, "weeks=8&epic=PS-FLOW");
+  assert.equal(calls[0].url, "/api/reports?weeks=8&epic=PS-FLOW");
+  assert.deepEqual(JSON.parse(calls[1].body), { weeks: "8", epic: "PS-FLOW" });
+  assert.equal(reports.link(), "http://127.0.0.1:4800/#/reports?weeks=8&epic=PS-FLOW");
+  reports.apply("asof=2026-02-30&weeks=3&colour=red");
+  assert.equal(reports.query(), "weeks=3");
+  reports.apply("");
+  const el = reports.view();
+  // An svg element of the chart takes its class by setAttribute.
+  const weekHit = el.querySelectorAll("rect").find((x) => x.getAttribute("class") === "viz-hit");
+  assert.ok(weekHit, "a week of a chart can be clicked");
+  weekHit.click();
+  assert.equal(
+    reports.query(),
+    `asof=${new Date(Date.parse(F.weekly[0].from) + 7 * 86400000).toISOString().slice(0, 10)}`,
+  );
 });

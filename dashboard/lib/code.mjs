@@ -444,7 +444,8 @@ export function openCode({ reader, now = () => Date.now() } = {}) {
   // ── a story ──
 
   // The written ties of a story (contract 4): field, Closes-story line, title, number.
-  function writtenTies(ctx, { rel, text, fm }, main, ix, list) {
+  // `resolved` is the memo of the stories a Closes-story line names: one for many stories (survey).
+  function writtenTies(ctx, { rel, text, fm }, main, ix, list, resolved = new Map()) {
     const fp = ctx.followPlan;
     const rows = new Map(); // url (normalised) or `#n` → row
     const row = (key, base) => {
@@ -473,7 +474,6 @@ export function openCode({ reader, now = () => Date.now() } = {}) {
     };
     const own = real(join(ctx.vault, rel));
     const epicsPath = epicsPathOf(ctx);
-    const resolved = new Map();
     const names = (ref) => {
       if (!resolved.has(ref)) {
         const r = epicsPath ? resolveStory(ref, { vault: ctx.vault, epicsPath }, ctx.lib) : { error: "no epic folder" };
@@ -747,5 +747,33 @@ export function openCode({ reader, now = () => Date.now() } = {}) {
     return { status: 200, result };
   }
 
-  return { read };
+  // Many stories' written ties at once, for Reports (the spec dashboard-reports, contracts 5 to 7):
+  // the main facts, the kept list and one shared memo; no history is read. Unknown is never none.
+  async function survey(ctx, { stories = [], fresh = false } = {}) {
+    const out = { main: null, repo: null, listFull: false, unknown: { git: null, prs: null }, prs: [], ties: new Map() };
+    if (reader.windows) return { ...out, unknown: { git: WINDOWS, prs: WINDOWS } };
+    const main = await mainOf();
+    if (main.ok) {
+      const { tip: _tip, ...shown } = main;
+      out.main = shown;
+    } else out.unknown.git = main.reason;
+    const list = main.ok ? await listOf(Boolean(fresh)) : { ok: false, reason: "the project's repository cannot be read" };
+    const ix = list.ok ? index(list, ctx) : null;
+    if (list.ok) {
+      out.listFull = list.full;
+      out.repo = ix.repo;
+      out.prs = list.prs.map(({ number, title, url, state, mergedAt }) => ({ number, title, url, state, mergedAt }));
+    } else out.unknown.prs = list.reason;
+    const memo = new Map();
+    for (const st of stories) {
+      const rows = writtenTies(ctx, st, main.ok ? main : null, ix, list.ok ? list : null, memo);
+      out.ties.set(
+        st.rel,
+        [...rows.values()].map((r) => ({ number: r.number, url: r.url, title: r.title, state: r.state, mergedAt: r.mergedAt, how: r.how, link: r.how.some((h) => LINKS.has(h)) })),
+      );
+    }
+    return out;
+  }
+
+  return { read, survey };
 }

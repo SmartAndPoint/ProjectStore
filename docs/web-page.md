@@ -29,6 +29,12 @@ start it, its launcher protocol and how to run it by hand: the README's section
   a path that names no story or spec, and a GET or HEAD of it gets 404. `lib/code.mjs` reads the
   project's repository as last fetched and one `gh pr list` of its pull requests, kept for 10
   minutes; the spec "The dashboard's Code block…" (alias `dashboard-code`) holds the rules.
+- Reports reads twice. `GET /api/reports?asof&weeks&epic&initiative&assignee&priority` counts the
+  vault with the core's flow functions and starts no process. `POST /api/reports/code` (the same
+  six filters as strings, and `fresh`) joins the board with the project's pull requests through the
+  Code block's read and its kept list, under the same token and `Origin` check, with no call of its
+  own; a GET or HEAD of it gets 404. The spec "The dashboard's Reports…" (alias
+  `dashboard-reports`) holds the rules.
 - `POST /api/base` (`{ rel }`) reads, for the editor, a story's, an epic's or an initiative's
   text where your changes started, under the same token and `Origin` check: `git merge-base`,
   `git cat-file -e` and `git show` in the page's own clone. With `saves: true` it lists the file's

@@ -36,6 +36,7 @@ import { readState, readItem, readArtifacts, readableRel, MEDIA_TYPES } from "./
 import { related } from "./lib/related.mjs";
 import { FULL_HASH, openWriter } from "./lib/write.mjs";
 import { openCode } from "./lib/code.mjs";
+import { openReports } from "./lib/reports.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC = join(HERE, "public");
@@ -57,6 +58,10 @@ export const CODE_ROUTE = "/api/code";
 // so a POST of the page's own:
 // no GET starts a process.
 export const BASE_ROUTE = "/api/base";
+// Reports (dashboard-reports, contracts 1 and 5): the flow counts are a GET and start no
+// process; the board against the code is a POST of the page's own, under the Code block's calls.
+export const REPORTS_ROUTE = "/api/reports";
+export const REPORTS_CODE_ROUTE = "/api/reports/code";
 // A request's body (the dashboard-editor spec, contract 9): a document's text is up to 500,000
 // characters, which JSON may spell in up to six bytes each.
 const BODY_LIMIT = 16 * 1024 * 1024;
@@ -189,7 +194,7 @@ function readBody(req) {
 // is openCore's context while the page cannot write. `token` is the run's;
 // `started` settles when the start's refresh has ended, and nothing past the
 // Host check is answered before it.
-export function handler({ writer, token, port, started = Promise.resolve(), code = null }) {
+export function handler({ writer, token, port, started = Promise.resolve(), code = null, reports = openReports({ code }) }) {
   const ownHost = (host) => host === `127.0.0.1:${port()}` || host === `localhost:${port()}`;
   const ownOrigin = (origin) => origin === `http://127.0.0.1:${port()}` || origin === `http://localhost:${port()}`;
   const ownToken = (given) => {
@@ -225,6 +230,30 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       return r.status === 200 ? shape(200, { ok: true, result: r.result }) : shape(r.status, { ok: false, error: r.error });
     } catch (e) {
       return shape(500, { ok: false, error: String(e?.message || e) });
+    }
+  }
+
+  // Which copy the reads count (dashboard-reports, contract 9): the page's clone while it can write.
+  const copyOf = (ctx) => {
+    const bound = writer.boundCtx?.();
+    return bound && bound !== ctx ? "clone" : "vault";
+  };
+
+  // The Reports code read (dashboard-reports, contract 5): the guard (403), the body (400 for no
+  // JSON object or a bad filter), then the Code block's read. No lock: it runs no step.
+  async function reportsCodeRoute(req, res) {
+    try {
+      if (!ownRequest(req)) {
+        req.resume();
+        return send(req, res, 403, { ok: false, error: "this route runs only for the page's own requests: the run's token and the page's own Origin" });
+      }
+      const got = await readBody(req);
+      if (!got.ok) return send(req, res, 400, { ok: false, error: got.error });
+      const ctx = writer.readCtx();
+      const r = await reports.code(ctx, got.value, { fresh: got.value.fresh === true });
+      return r.status === 200 ? send(req, res, 200, { ok: true, copy: copyOf(ctx), result: r.result, write: writer.view() }) : send(req, res, r.status, { ok: false, error: r.error });
+    } catch (e) {
+      return send(req, res, 500, { ok: false, error: String(e?.message || e) });
     }
   }
 
@@ -322,9 +351,10 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       const raw = String(req.url || "");
       const p = pathOf(raw);
       const writing = WRITE_ROUTES.includes(p);
-      const posting = writing || p === CODE_ROUTE || p === BASE_ROUTE;
+      const posting = writing || p === CODE_ROUTE || p === BASE_ROUTE || p === REPORTS_CODE_ROUTE;
       if (req.method === "POST" && writing) return await writeRoute(req, res, p);
       if (req.method === "POST" && p === CODE_ROUTE && code) return await codeRoute(req, res);
+      if (req.method === "POST" && p === REPORTS_CODE_ROUTE && code) return await reportsCodeRoute(req, res);
       if (req.method === "POST" && p === BASE_ROUTE) return await baseRoute(req, res);
       // OPTIONS too: no preflight is answered, so no Access-Control-Allow-* header is sent.
       if (req.method !== "GET" && req.method !== "HEAD") {
@@ -353,6 +383,14 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
           item.edit = { head: cut.head, body: cut.body, hash: bodyHash(cut.body) };
         }
         return send(req, res, 200, item);
+      }
+      if (p === REPORTS_ROUTE) {
+        // A filter named twice is refused: one link opens one page (contract 10).
+        const keys = [...url.searchParams.keys()];
+        const twice = keys.find((k, i) => keys.indexOf(k) !== i);
+        if (twice) return send(req, res, 400, { error: `${twice} is given twice` });
+        const r = reports.flow(ctx, Object.fromEntries(url.searchParams));
+        return r.status === 200 ? send(req, res, 200, { copy: copyOf(ctx), ...r.result }) : send(req, res, r.status, { error: r.error });
       }
       if (p === "/api/related") {
         const r = related(ctx, url.searchParams.get("rel") || "");
@@ -431,7 +469,8 @@ export async function startServer({ core, project, port = null, ports = null, bu
   let startEnded;
   const started = new Promise((r) => (startEnded = r));
   let bound = 0;
-  const server = createServer(handler({ writer, token, port: () => bound, started, code }));
+  const reports = openReports({ code, ...(now ? { now } : {}) });
+  const server = createServer(handler({ writer, token, port: () => bound, started, code, reports }));
   let closing = null;
   const close = () =>
     (closing ??= (async () => {

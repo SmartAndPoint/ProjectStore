@@ -203,7 +203,7 @@ const ROWS = {
       ],
       // The Code block's read (dashboard-code, contract 3).
       [
-        "When you open a story or a spec on the page, it also runs `gh pr list` in your project's repository for up to 1000 of its pull requests",
+        "When you open a story or a spec or Reports on the page, it also runs `gh pr list` in your project's repository for up to 1000 of its pull requests",
         "--limit=${LIST_LIMIT}",
         code(CODE_MODULE),
       ],
@@ -302,7 +302,7 @@ const ROWS = {
       ["and `git log` and `git cat-file -e`", '["log", "--max-count=31"', code(WRITE_MODULE)],
       // The Code block's read in the project's repository (dashboard-code, contracts 2 and 9).
       [
-        "When you open a story or a spec, the page reads its code there and changes nothing",
+        "When you open a story or a spec or Reports, the page reads its code there and changes nothing",
         '"rev-list", "--count"',
         code(CODE_MODULE),
       ],
@@ -647,7 +647,7 @@ test("disclosure: each row's strings are in its module or the manifest data it r
   // The page's git and gh, and where its sends stop (the dashboard-writes spec's acceptance).
   for (const s of [
     "On the dashboard's page, `gh` reads, opens and closes the page's own pull request",
-    "and reads your project's pull requests for a story or a spec you open",
+    "and reads your project's pull requests for a story or a spec or Reports you open",
     "`git clone` and `git fetch` and `git ls-remote` read from it, and Send's `git push` writes one branch there",
     "Nothing the page sends reaches the vault's default branch until a person merges that pull request",
   ])
