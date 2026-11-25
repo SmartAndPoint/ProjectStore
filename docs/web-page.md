@@ -31,7 +31,10 @@ start it, its launcher protocol and how to run it by hand: the README's section
   minutes; the spec "The dashboard's Code block…" (alias `dashboard-code`) holds the rules.
 - `POST /api/base` (`{ rel }`) reads, for the editor, a story's, an epic's or an initiative's
   text where your changes started, under the same token and `Origin` check: `git merge-base`,
-  `git cat-file -e` and `git show` in the page's own clone. The editor saves through the action
+  `git cat-file -e` and `git show` in the page's own clone. With `saves: true` it lists the file's
+  earlier saves instead, by one `git log` there (at most 30: each commit's hash, author time, author's
+  name and subject, an email-shaped word said as "an email-shaped name"), and with `at` (a full
+  hash) it reads the body at one of them, when one is chosen in the editor's selector. The editor saves through the action
   `edit-doc`, which runs the core's `edit` verb; the spec "The dashboard's editor…" (alias
   `dashboard-editor`) holds the rules.
 - A preview or an action names a verb of the server's table (`WRITE_VERBS` in `lib/write.mjs`:
@@ -77,7 +80,7 @@ start it, its launcher protocol and how to run it by hand: the README's section
   `show` and `diff`, which read and fetch nothing, with `GIT_NO_LAZY_FETCH=1`, and `gh pr list`.
   Everything else makes the clone at
   `<main checkout>/.projectstore/state/dashboard/<person>/clone/` or runs in it: `clone`, `config`, `fetch`, `ls-remote`, `remote`, `symbolic-ref`, `for-each-ref`, `rev-list`,
-  `rev-parse`, `status`, `ls-files`, `diff`, `switch`, `add`, `commit`, `merge`, `cherry-pick`,
+  `rev-parse`, `status`, `ls-files`, `log`, `diff`, `switch`, `add`, `commit`, `merge`, `cherry-pick`,
   `check-ignore`, `branch --delete`, `reset --hard`, `clean` and `push`. The README's row **The
   dashboard and your browser** says what each is for, and `tests/disclosure.test.mjs` holds the
   row to this file.
@@ -113,6 +116,18 @@ start it, its launcher protocol and how to run it by hand: the README's section
   other in-process reads (the headings registry) find their root as the core always does, from
   the harness's plugin-root variable when the launcher's environment sets it, else from the
   core's own place.
+
+## Pictures
+
+Paste or drop a picture (PNG, JPEG, GIF or WebP) or a PDF into an item's editor: it goes into the
+text at the cursor as a link to the vault's attachments folder, `![name](../../../attachments/<16
+hex digits>.png)` from a story, and is drawn from the page's memory until Save. Save sends the
+text with each picture it links; the core's `edit --attach` keeps them there, in the same commit.
+One file takes at most 5 MiB, one save 16 MiB. The page holds a pasted picture until it is
+reloaded: a text kept in the browser over a reload names the pictures to paste again before Save.
+A video or a sound is linked from where it lives, never kept. When the vault's `.gitignore`
+ignores the attachments folder, the save is refused and names the rule (`git check-ignore -v`).
+A vault whose pictures go through Git LFS is not covered: the clone runs no hooks.
 
 ## Kept branches ("Kept aside" on the page), by hand
 

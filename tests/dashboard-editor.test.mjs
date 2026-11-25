@@ -326,3 +326,171 @@ test("dashboard editor: a base read whose body is no JSON object is 400", async 
     assert.equal(r.status, 400);
   });
 });
+
+// ─── Contract 13: any earlier save of the file ───
+
+// [dashboard-editor#13]
+test("dashboard editor: a story saved twice lists those two saves first, newest first, with the author's name and no address; at reads the older body", async () => {
+  await withWorld(async (w) => {
+    const { page, token } = await writablePage(w);
+    const one = await item(page, STORY_REL);
+    const first = one.edit.body.replace("## Description\n", "## Description\n\nFirst save.\n");
+    const a = await post(
+      page,
+      "/api/action",
+      own(page, token),
+      save({ path: STORY_REL, text: first, base: one.edit.hash }),
+    );
+    assert.equal(a.json.ok, true, JSON.stringify(a.json));
+    const two = await item(page, STORY_REL);
+    const second = two.edit.body.replace("First save.", "Second save.");
+    const b = await post(
+      page,
+      "/api/action",
+      own(page, token),
+      save({ path: STORY_REL, text: second, base: two.edit.hash }),
+    );
+    assert.equal(b.json.ok, true, JSON.stringify(b.json));
+    const from = w.record.length;
+    const r = await post(page, "/api/base", own(page, token), { rel: STORY_REL, saves: true });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.ok, true);
+    const [newest, older] = r.json.saves;
+    assert.equal(r.json.more, false);
+    assert.deepEqual([newest.subject, older.subject], [`edit ${STORY_REL}`, `edit ${STORY_REL}`]);
+    assert.match(newest.commit, /^[0-9a-f]{40}$/);
+    assert.equal(newest.who, "Vault Person");
+    assert.deepEqual(Object.keys(newest).sort(), ["at", "commit", "subject", "who"]);
+    assert.equal(JSON.stringify(r.json).includes("vault-person"), false, "no email address reaches the page");
+    const logs = w.record.slice(from).filter((e) => e.cmd === "git" && e.argv.includes("log"));
+    assert.equal(logs.length, 1, "one git log");
+    assert.ok(
+      logs[0].argv.some((a) => a.includes("%aI")),
+      "the author time, which a carry keeps",
+    );
+    // Newest first: the newest save holds the second text, the older one the first.
+    const atNew = await post(page, "/api/base", own(page, token), { rel: STORY_REL, at: newest.commit });
+    assert.deepEqual(atNew.json, { ok: true, base: second, disk: null });
+    const at = await post(page, "/api/base", own(page, token), { rel: STORY_REL, at: older.commit });
+    assert.equal(at.status, 200);
+    assert.deepEqual(at.json, { ok: true, base: first, disk: null });
+  });
+});
+
+// [dashboard-editor#13] failure: an author's name, and a word of a subject, shaped like an address.
+test("dashboard editor: an email-shaped author or subject word reaches the page as an email-shaped name", async () => {
+  await withWorld(async (w) => {
+    const file = join(w.vault, STORY_REL);
+    writeFileSync(file, readFileSync(file, "utf8").replace("## Description\n", "## Description\n\nBy hand.\n"));
+    w.git(
+      w.repo,
+      "-c",
+      "user.name=someone@example.test",
+      "-c",
+      "user.email=x",
+      "commit",
+      "-q",
+      "-am",
+      "fix for other@example.test",
+    );
+    w.git(w.repo, "push", "-q", "origin", "main");
+    const { page, token } = await writablePage(w);
+    const r = await post(page, "/api/base", own(page, token), { rel: STORY_REL, saves: true });
+    assert.equal(r.json.ok, true, JSON.stringify(r.json));
+    assert.deepEqual(
+      [r.json.saves[0].who, r.json.saves[0].subject],
+      ["an email-shaped name", "fix for an email-shaped name"],
+    );
+    assert.equal(/@example\.test/.test(JSON.stringify(r.json)), false);
+  });
+});
+
+// [dashboard-editor#13] edge: 31 saves give 30 and more; a vault in a folder of its repository.
+test("dashboard editor: of 31 saves the newest 30 are listed with more: true; in a vault folder the saves are read at that folder", async () => {
+  const w = await makeWorld({ prefix: "vault" });
+  try {
+    const file = join(w.vault, STORY_REL);
+    for (let i = 1; i <= 30; i++) {
+      writeFileSync(
+        file,
+        readFileSync(file, "utf8").replace(/\n## Description\n(\nLine \d+\.\n)?/, `\n## Description\n\nLine ${i}.\n`),
+      );
+      w.git(w.repo, ...w.as, "commit", "-q", "-am", `line ${i}`);
+    }
+    w.git(w.repo, "push", "-q", "origin", "main");
+    const { page, token } = await writablePage(w);
+    const r = await post(page, "/api/base", own(page, token), { rel: STORY_REL, saves: true });
+    assert.equal(r.json.ok, true, JSON.stringify(r.json));
+    assert.equal(r.json.saves.length, 30);
+    assert.equal(r.json.more, true);
+    assert.equal(r.json.saves[0].subject, "line 30");
+    assert.equal(
+      r.json.saves.some((s) => s.subject === "seed the vault"),
+      false,
+      "the oldest is not listed",
+    );
+  } finally {
+    await w.cleanup();
+  }
+});
+
+// [dashboard-editor#13] failure: git gives no answer for the saves.
+test("dashboard editor: a saves read git cannot answer is ok: false with the reason, not an empty list", async () => {
+  await withWorld(async (w) => {
+    const { page, token } = await writablePage(w);
+    // A clone whose HEAD names no commit: git log fails, and the writer says null.
+    const clone = page.writer.paths.clone;
+    const head = readFileSync(join(clone, ".git", "HEAD"), "utf8");
+    writeFileSync(join(clone, ".git", "HEAD"), "ref: refs/heads/gone\n");
+    assert.equal(await page.writer.savesOf(STORY_REL), null);
+    writeFileSync(join(clone, ".git", "HEAD"), head);
+    // The route says it in ok: false, not as an empty list.
+    page.writer.savesOf = async () => null;
+    const r = await post(page, "/api/base", own(page, token), { rel: STORY_REL, saves: true });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.json, { ok: false, error: "the file's saves cannot be read: git gave no answer" });
+  });
+});
+
+// [dashboard-editor#13] edge, failure: a save where the file is not yet, and a save the clone lacks.
+test('dashboard editor: at a commit before the file was added the base is ""; at a commit the clone lacks it is null', async () => {
+  await withWorld(async (w) => {
+    const seed = w.git(w.repo, "rev-parse", "HEAD");
+    const NEW = "epics/PS-X/stories/story-new.md";
+    writeFileSync(
+      join(w.vault, NEW),
+      readFileSync(join(w.vault, STORY_REL), "utf8").replaceAll("story-a", "story-new"),
+    );
+    w.git(w.repo, "add", "-A");
+    w.git(w.repo, ...w.as, "commit", "-q", "-m", "add story-new");
+    w.git(w.repo, "push", "-q", "origin", "main");
+    const { page, token } = await writablePage(w);
+    const before = await post(page, "/api/base", own(page, token), { rel: NEW, at: seed });
+    assert.deepEqual(before.json, { ok: true, base: "", disk: null });
+    const lacked = await post(page, "/api/base", own(page, token), {
+      rel: STORY_REL,
+      at: "0123456789abcdef0123456789abcdef01234567",
+    });
+    assert.deepEqual(lacked.json, { ok: true, base: null, disk: null });
+  });
+});
+
+// [dashboard-editor#13] failure, edge
+test("dashboard editor: an at that is no full hash, or at and saves together, is 400 with no call; an ADR's saves are [] with no call", async () => {
+  await withWorld(async (w) => {
+    const { page, token } = await writablePage(w);
+    const from = w.record.length;
+    for (const body of [
+      { rel: STORY_REL, at: "HEAD~1" },
+      { rel: STORY_REL, at: "z".repeat(40) },
+      { rel: STORY_REL, at: "A".repeat(40) },
+      { rel: STORY_REL, at: "a".repeat(40), saves: true },
+    ]) {
+      const r = await post(page, "/api/base", own(page, token), body);
+      assert.equal(r.status, 400, JSON.stringify(body));
+    }
+    const adr = await post(page, "/api/base", own(page, token), { rel: ADR_REL, saves: true });
+    assert.deepEqual(adr.json, { ok: true, saves: [], more: false });
+    assert.equal(w.record.length, from, "no process starts");
+  });
+});

@@ -34,7 +34,7 @@ import { fileURLToPath } from "node:url";
 import { openCore } from "./lib/core.mjs";
 import { readState, readItem, readArtifacts, readableRel, MEDIA_TYPES } from "./lib/state.mjs";
 import { related } from "./lib/related.mjs";
-import { openWriter } from "./lib/write.mjs";
+import { FULL_HASH, openWriter } from "./lib/write.mjs";
 import { openCode } from "./lib/code.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -242,15 +242,31 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
       const got = await readBody(req);
       if (!got.ok) return send(req, res, 400, { ok: false, error: got.error });
       const rel = typeof got.value.rel === "string" ? got.value.rel : "";
+      // Saves, or the body at one by its full hash (dashboard-editor, contract 13); before any process.
+      const saves = got.value.saves === true;
+      const at = got.value.at ?? null;
+      if (saves && at !== null) return send(req, res, 400, { ok: false, error: "the base read takes saves or at, not both" });
+      if (at !== null && (typeof at !== "string" || !FULL_HASH.test(at))) return send(req, res, 400, { ok: false, error: "at names a save by its full hash, 40 lowercase hex digits" });
       const ctx = writer.readCtx();
       const bound = writer.boundCtx?.();
       const item = readItem(ctx, rel);
       if (!item) return send(req, res, 404, { ok: false, error: "no such artifact" });
       // Only the three kinds the edit verb writes have a base (the ADR "Create and edit verbs…").
       const { EDIT_KINDS, splitForEdit } = ctx.editCut;
-      if (!bound || bound === ctx || !EDIT_KINDS.includes(item.type)) return send(req, res, 200, { ok: true, base: null, disk: null });
-      const from = await writer.baseText?.(rel);
+      const editable = bound && bound !== ctx && EDIT_KINDS.includes(item.type);
+      if (saves) {
+        const found = editable ? await writer.savesOf?.(rel) : { list: [], more: false };
+        if (!found) return send(req, res, 200, { ok: false, error: "the file's saves cannot be read: git gave no answer" });
+        // No address reaches the page.
+        const { isEmailAddress } = ctx.flowPolicy;
+        const word = (w) => (isEmailAddress(w) ? "an email-shaped name" : w);
+        const list = found.list.map((s) => ({ ...s, who: word(s.who), subject: s.subject.split(/(\s+)/).map(word).join("") }));
+        return send(req, res, 200, { ok: true, saves: list, more: found.more });
+      }
+      if (!editable) return send(req, res, 200, { ok: true, base: null, disk: null });
+      const from = await writer.baseText?.(rel, at);
       if (typeof from !== "string") return send(req, res, 200, { ok: true, base: null, disk: null });
+      if (at) return send(req, res, 200, { ok: true, base: from ? splitForEdit(ctx.lib.parseFrontmatter(from).body).body : "", disk: null });
       if (!from) return send(req, res, 200, { ok: true, base: "", disk: null }); // a new document
       // Bodies compared as the editor cuts them: the base, the clone's file, the vault folder's.
       const cut = (body) => splitForEdit(body).body;
