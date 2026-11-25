@@ -263,7 +263,7 @@ You are running projectstore diagnostics (ADR-005: umbrella doctor).
   the fetched default branch lacks: they may be work that was never sent.
   Doctor reads the clone locally and never fetches. `--fix` touches none of
   them: sending or deleting a kept branch is the user's judgement, so never
-  push, merge or delete it yourself; `dashboard/README.md` says how by hand.
+  push, merge or delete it yourself; `docs/web-page.md` says how by hand.
 - Kept files are the pictures and PDFs `edit --attach` wrote to the layout's
   attachments folder, named by their content hash. Doctor reads their names
   and sizes, never their bytes: `attachment-orphan` (info) is one no file of

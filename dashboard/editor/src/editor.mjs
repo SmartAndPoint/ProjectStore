@@ -502,12 +502,15 @@ export function create({ parent, doc, readOnly = false, ctx = {}, onChange, onSa
           paste(e) {
             const cd = e.clipboardData;
             if (!cd) return false;
-            if (cd.files && cd.files.length && onFiles) {
+            const plain = cd.getData("text/plain");
+            const html = cd.getData("text/html");
+            // The page decides (the spec dashboard-attachments, contract 2): a table copied from a
+            // spreadsheet carries a picture of itself too, and stays text when onFiles says false.
+            if (cd.files && cd.files.length && onFiles && onFiles(cd.files, api, { plain, html, drop: false }) !== false) {
               e.preventDefault();
-              onFiles(cd.files, api);
               return true;
             }
-            if (onPasteText && onPasteText(cd.getData("text/plain"), cd.getData("text/html"), api)) {
+            if (onPasteText && onPasteText(plain, html, api)) {
               e.preventDefault();
               return true;
             }
@@ -519,7 +522,7 @@ export function create({ parent, doc, readOnly = false, ctx = {}, onChange, onSa
             e.preventDefault();
             const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
             if (pos !== null) v.dispatch({ selection: { anchor: pos } });
-            onFiles(files, api);
+            onFiles(files, api, { plain: "", html: "", drop: true });
             return true;
           },
         }),

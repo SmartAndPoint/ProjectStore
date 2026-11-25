@@ -24,7 +24,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import vm from "node:vm";
 import { statusToColumn } from "../scripts/stages.mjs";
 import { WRITE_ROUTES, CODE_ROUTE, BASE_ROUTE } from "../dashboard/server.mjs";
@@ -325,6 +325,8 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "spec-drift.mjs",
     // The editor (dashboard-editor): the edit verb's own cut and hash.
     "edit-cut.mjs",
+    // The pictures (dashboard-attachments): a kept file's type, name and limit.
+    "attachment.mjs",
   ]);
   const seen = new Set();
   let size = 0;
@@ -1977,15 +1979,33 @@ test("dashboard page: item.js asks for the Code block in fetchItem and draws it 
 // pages of different projects, started one after another on one port, have one browser storage.
 // The page's start at the foot of item.js waits on a fetchState that never answers; the editor
 // is a stub that holds its text as a string, and Discard's dialog takes its first button.
-function loadEditor(dir, vault, storage) {
+// For the pictures (dashboard-attachments, contracts 2–4): `attachments` is the state's folder,
+// `files` whether the server's edit-doc has a files field; the page's attachmentModule() is the
+// core's scripts/attachment.mjs; the stub editor takes a paste or a drop at its cursor; toasts are kept.
+function loadEditor(dir, vault, storage, { attachments = null, files = false, answer = null } = {}) {
   const h = (tag, attrs, ...kids) => Object.assign(new FakeEl(tag, attrs, kids), { style: {} });
   const saves = [];
+  const toasts = [];
+  const verbs = [
+    {
+      verb: "edit-doc",
+      fields: {
+        path: {},
+        text: {},
+        base: {},
+        ...(files ? { files: { kind: "files", optional: true, label: "Pictures" } } : {}),
+      },
+    },
+  ];
   const ctx = {
-    S: { project: { dir, name: "proj" }, vault, write: { batch: null } },
+    S: { project: { dir, name: "proj" }, vault, write: { batch: null, verbs }, attachments },
     ui: { view: "backlog" },
     h,
     fill: (el, ...kids) => el.replaceChildren(...kids),
-    toast: () => {},
+    toast: (kind, title, text) => toasts.push({ kind, title, text }),
+    attachmentModule: () => import(pathToFileURL(join(REPO, "scripts", "attachment.mjs")).href),
+    btoa: globalThis.btoa,
+    TextEncoder,
     dialog: (title, body, buttons) => buttons[0].run(),
     load: async () => {},
     fetchState: () => new Promise(() => {}),
@@ -1996,36 +2016,65 @@ function loadEditor(dir, vault, storage) {
       get: (k, d) => (storage.has(`ws:${k}`) ? JSON.parse(storage.get(`ws:${k}`)) : d),
       set: (k, v) => (v === null ? storage.delete(`ws:${k}`) : storage.set(`ws:${k}`, JSON.stringify(v)), true),
     },
-    writeUi: { saveDoc: async (fields) => (saves.push(fields), { ok: true, result: { hash: "h2" } }) },
+    writeUi: {
+      saveDoc: async (fields) => (saves.push(fields), answer ? answer(fields) : { ok: true, result: { hash: "h2" } }),
+    },
     window: { addEventListener() {}, removeEventListener() {} },
     document: { addEventListener() {}, querySelector: () => null, activeElement: null },
     setTimeout: () => 0,
     clearTimeout: () => {},
     fetch: async () => ({ status: 200, json: async () => ({ ok: true, base: null, disk: null }) }),
     WSEditor: {
-      create: ({ doc, onChange }) => {
+      create: ({ doc, onChange, onFiles, ctx: edCtx }) => {
         let text = doc;
-        return {
+        const api = {
           live: true,
           baseline: null,
+          cursor: 0,
+          ctx: edCtx,
           text: () => text,
+          selected: () => "",
           replaceAll: (t) => (text = t),
           type: (t) => ((text = t), onChange()),
+          insert(t) {
+            text = text.slice(0, api.cursor) + t + text.slice(api.cursor);
+            api.cursor += t.length;
+            onChange();
+          },
+          // What the editor hands the page for a paste (false: the editor pastes it as text) and a drop.
+          paste: (list, plain = "", html = "") => onFiles(list, api, { plain, html, drop: false }),
+          drop: (list) => onFiles(list, api, { plain: "", html: "", drop: true }),
           setBaseline(b) {
             this.baseline = b;
           },
           changes: () => 0,
           destroy() {},
         };
+        return api;
       },
     },
   };
   vm.createContext(ctx);
-  vm.runInContext(`${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor;`, ctx, {
-    filename: "item.js",
-  });
-  return { open: (item) => ctx.makeEditor(item), saves };
+  vm.runInContext(
+    `${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor; globalThis.PASTED_ = PASTED;`,
+    ctx,
+    {
+      filename: "item.js",
+    },
+  );
+  return { open: (item) => ctx.makeEditor(item), saves, toasts, pasted: ctx.PASTED_ };
 }
+// A file as a paste or a drop hands it: its name and its bytes.
+const fileFrom = (name, bytes) => ({
+  name,
+  arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+});
+const PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+// A PNG of `n` bytes, other bytes for each `seed`.
+const pngOf = (n, seed = 0) => Buffer.concat([PNG_BYTES.subarray(0, 8), Buffer.alloc(n - 8, seed)]);
 const EDIT_ITEM = {
   rel: "epics/PS-X/stories/story-a.md",
   title: "A",
@@ -2095,4 +2144,209 @@ test("dashboard page: [dashboard-editor#12] a text kept by 0.30.22 under the pat
   ed.destroy();
   assert.deepEqual([...storage.keys()], [OLD], "Save and closing leave the old entry, and only it");
   assert.equal(storage.get(OLD), old);
+});
+
+// ── the page's pictures (dashboard/public/item.js; the spec alias `dashboard-attachments`) ──
+const PICTURES = { attachments: "attachments", files: true };
+const ITEM_B = { ...EDIT_ITEM, rel: "epics/PS-X/stories/story-b.md", title: "B" };
+const nameOfBytes = async (bytes) => (await import("../scripts/attachment.mjs")).nameOf(bytes);
+const pasteInto = async (ed, files, plain = "", html = "") => {
+  const r = ed.ed.paste(files, plain, html);
+  await ed.taking;
+  return r;
+};
+
+// [dashboard-attachments#2]
+test("dashboard page: [dashboard-attachments#2] a table's HTML stays text, a PNG with its own name as text/plain is taken, and a server whose edit-doc has no files takes none", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const ed = page.open(EDIT_ITEM);
+  const shot = fileFrom("shot.png", PNG_BYTES);
+  const table = "<meta charset='utf-8'><table><tr><td>a</td><td><img src=\"x.png\"></td></tr></table>";
+  assert.equal(await pasteInto(ed, [shot], "a\tb", table), false, "the editor pastes it as text");
+  assert.equal(ed.ed.text(), "Saved.\n");
+  assert.equal(page.pasted.size, 0, "no file is taken");
+  assert.equal(await pasteInto(ed, [shot], "shot.png", ""), true);
+  assert.doesNotMatch(ed.ed.text(), /shot\.png\n|^shot\.png/, "the name is not inserted as text");
+  assert.match(ed.ed.text(), /!\[shot\.png\]\(\.\.\/\.\.\/\.\.\/attachments\/[0-9a-f]{16}\.png\)/);
+  // "Copy image" in a browser: one <img> and its address as text/plain.
+  const copied = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES).open(EDIT_ITEM);
+  assert.equal(
+    await pasteInto(
+      copied,
+      [shot],
+      "https://example.com/a.png",
+      "<meta charset='utf-8'><img src=\"https://example.com/a.png\">",
+    ),
+    true,
+  );
+  assert.match(copied.ed.text(), /!\[shot\.png\]/);
+
+  const old = loadEditor("/work/a", "/vaults/one", new Map(), { attachments: "attachments", files: false });
+  const o = old.open(EDIT_ITEM);
+  assert.equal(await pasteInto(o, [shot]), true);
+  assert.equal(o.ed.text(), "Saved.\n", "nothing is inserted");
+  assert.equal(old.pasted.size, 0);
+  assert.match(old.toasts.at(-1).text, /is not kept here/);
+  const none = loadEditor("/work/a", "/vaults/one", new Map(), { attachments: null, files: true });
+  const n = none.open(EDIT_ITEM);
+  await pasteInto(n, [shot]);
+  assert.equal(n.ed.text(), "Saved.\n");
+  assert.match(none.toasts.at(-1).text, /no attachments folder/);
+});
+
+// [dashboard-attachments#3]
+test("dashboard page: [dashboard-attachments#3] a PNG pasted into a story three folders deep becomes a link at the cursor, drawn from a data: URL; a bare name is drawn from beside the note", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const ed = page.open(EDIT_ITEM);
+  ed.ed.cursor = "Saved.".length;
+  await pasteInto(ed, [fileFrom("my [shot]`\n.png", PNG_BYTES)]);
+  const name = await nameOfBytes(PNG_BYTES);
+  assert.equal(
+    ed.ed.text(),
+    `Saved.![my shot.png](../../../attachments/${name})\n`,
+    "at the cursor, the alt without [ ] ` and line breaks",
+  );
+  const media = ed.ed.ctx.media(`../../../attachments/${name}`);
+  assert.equal(media.kind, "image");
+  assert.ok(media.src.startsWith("data:image/png;base64,"), media.src.slice(0, 40));
+  assert.equal(
+    ed.ed.ctx.media("shot.png"),
+    null,
+    "a bare name is beside the note, where nothing is (the stub's kindOf is file)",
+  );
+  // The same picture again: only the bytes are kept, no second link.
+  await pasteInto(ed, [fileFrom("again.png", PNG_BYTES)]);
+  assert.equal(ed.ed.text().split(name).length, 2, "one link");
+  // A PDF is a link, not a picture.
+  const pdf = Buffer.from("%PDF-1.4\n%fixture\n");
+  await pasteInto(ed, [fileFrom("spec.pdf", pdf)]);
+  assert.match(
+    ed.ed.text(),
+    new RegExp(`(?<!!)\\[spec\\.pdf\\]\\(\\.\\./\\.\\./\\.\\./attachments/${await nameOfBytes(pdf)}\\)`),
+  );
+});
+
+// [dashboard-attachments#3] failure
+test("dashboard page: [dashboard-attachments#3] an MP4, a PNG over MAX_BYTES and a PNG that would bring the save over 16 MiB insert nothing, each with its refusal", async () => {
+  const A = await import("../scripts/attachment.mjs");
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const ed = page.open(EDIT_ITEM);
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypmp42"), Buffer.alloc(16)]);
+  await pasteInto(ed, [fileFrom("clip.mp4", mp4)]);
+  assert.equal(page.toasts.at(-1).text, A.refusal("type", { file: "clip.mp4" }));
+  const big = pngOf(A.MAX_BYTES + 1);
+  await pasteInto(ed, [fileFrom("big.png", big)]);
+  assert.equal(page.toasts.at(-1).text, A.refusal("size", { file: "big.png", size: big.length }));
+  assert.equal(ed.ed.text(), "Saved.\n", "nothing inserted");
+  // Two pictures just under the limit fit in one save; a third does not.
+  const near = A.MAX_BYTES - 4096;
+  await pasteInto(ed, [fileFrom("one.png", pngOf(near, 1)), fileFrom("two.png", pngOf(near, 2))]);
+  assert.equal(page.pasted.size, 2);
+  await pasteInto(ed, [fileFrom("three.png", pngOf(near, 3))]);
+  assert.match(page.toasts.at(-1).text, /^three\.png: .*over the 16777216 bytes \(16 MiB\) one save takes/);
+  assert.equal(page.pasted.size, 2);
+  assert.doesNotMatch(ed.ed.text(), /three\.png/);
+});
+
+// [dashboard-attachments#4]
+test("dashboard page: [dashboard-attachments#4] Save sends the remembered files the text links: none once the link is deleted, one across a closed drawer, and B's after A is saved", async () => {
+  const name = await nameOfBytes(PNG_BYTES);
+  // Pasted, then its link deleted: nothing to send, and the file is forgotten at the Save.
+  const p1 = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const e1 = p1.open(EDIT_ITEM);
+  await pasteInto(e1, [fileFrom("shot.png", PNG_BYTES)]);
+  e1.ed.type("Saved, with no picture.\n");
+  await e1.save();
+  assert.equal((p1.saves[0].files || []).length, 0);
+  assert.equal(p1.pasted.size, 0, "forgotten: pasted here, no longer linked");
+
+  // Pasted, the drawer closed, the story opened again: the picture is sent, and forgotten once kept.
+  const p2 = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const e2 = p2.open(EDIT_ITEM);
+  await pasteInto(e2, [fileFrom("shot.png", PNG_BYTES)]);
+  const text = e2.ed.text();
+  e2.destroy();
+  const again = p2.open(EDIT_ITEM);
+  assert.equal(again.ed.text(), text, "the kept draft holds the link");
+  await again.save();
+  assert.deepEqual(JSON.parse(JSON.stringify(p2.saves[0].files.map((f) => f.name))), [name]);
+  assert.equal(p2.saves[0].files[0].data, PNG_BYTES.toString("base64"));
+  assert.equal(p2.pasted.size, 0, "kept by the verb: forgotten");
+
+  // Pasted in B, then A saved: A sends nothing of B's, and B's Save sends it.
+  const p3 = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const b = p3.open(ITEM_B);
+  await pasteInto(b, [fileFrom("shot.png", PNG_BYTES)]);
+  b.destroy();
+  const a = p3.open(EDIT_ITEM);
+  a.ed.type("A changed.\n");
+  await a.save();
+  assert.equal(p3.saves[0].files, undefined, "A's save sends no file");
+  a.destroy();
+  const b2 = p3.open(ITEM_B);
+  await b2.save();
+  assert.deepEqual(JSON.parse(JSON.stringify(p3.saves[1].files.map((f) => f.name))), [name]);
+});
+
+// [dashboard-attachments#4] A refused save keeps the files; a text that links a remembered file is not saved.
+test("dashboard page: [dashboard-attachments#4] a refused save keeps the pasted files for the next Save, and the save line reads not saved while the text links one", async () => {
+  let refuse = true;
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), {
+    ...PICTURES,
+    answer: () => (refuse ? { ok: false, error: "refused" } : { ok: true, result: { hash: "h2" } }),
+  });
+  const ed = page.open(EDIT_ITEM);
+  await pasteInto(ed, [fileFrom("shot.png", PNG_BYTES)]);
+  assert.equal(ed.unsaved(), true);
+  await ed.save();
+  assert.equal(page.saves.length, 1);
+  assert.equal(page.pasted.size, 1, "kept after the refusal");
+  refuse = false;
+  await ed.save();
+  assert.equal(page.saves[1].files.length, 1, "sent again");
+  assert.equal(page.pasted.size, 0);
+  assert.equal(ed.unsaved(), false);
+});
+
+// [dashboard-attachments#4] The same picture pasted into two items: once A's Save keeps it, the batch has
+// those bytes, and the page forgets every copy of them; B's text links a kept file then.
+test("dashboard page: [dashboard-attachments#4] the same picture pasted into B and then A: A's Save sends it once, A and B read saved", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const b = page.open(ITEM_B);
+  await pasteInto(b, [fileFrom("shot.png", PNG_BYTES)]);
+  b.destroy();
+  const a = page.open(EDIT_ITEM);
+  await pasteInto(a, [fileFrom("shot.png", PNG_BYTES)]);
+  assert.equal(page.pasted.size, 2);
+  await a.save();
+  assert.equal(page.saves[0].files.length, 1);
+  assert.equal(a.unsaved(), false, "A reads saved");
+  assert.equal(page.pasted.size, 0, "every copy of the kept bytes is forgotten");
+});
+
+// [dashboard-attachments#2] A file name given in two Unicode forms is still the file's own name.
+test("dashboard page: [dashboard-attachments#2] a name in NFD as text/plain and NFC as the file's name is taken as the file", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const ed = page.open(EDIT_ITEM);
+  assert.equal(
+    await pasteInto(ed, [fileFrom("снимок-й.png".normalize("NFC"), PNG_BYTES)], "снимок-й.png".normalize("NFD")),
+    true,
+  );
+  assert.equal(page.pasted.size, 1);
+});
+
+// [dashboard-attachments#8] What a draft keeps of its pictures: their written names, not their bytes.
+test("dashboard page: [dashboard-attachments#8] a kept draft holds the linked pictures' written names, and a reloaded page names them to paste again", async () => {
+  const storage = new Map();
+  const page = loadEditor("/work/a", "/vaults/one", storage, PICTURES);
+  const ed = page.open(EDIT_ITEM);
+  await pasteInto(ed, [fileFrom("shot.png", PNG_BYTES)]);
+  ed.destroy();
+  const [kept] = [...storage.values()].map((v) => JSON.parse(v));
+  const name = await nameOfBytes(PNG_BYTES);
+  assert.deepEqual(kept.pasted, [{ name, alt: "shot.png" }]);
+  assert.doesNotMatch(JSON.stringify(kept), /iVBOR/, "no bytes in the draft");
+  // A reload: a new page over the same storage, with nothing in its memory.
+  const reloaded = loadEditor("/work/a", "/vaults/one", storage, PICTURES).open(EDIT_ITEM);
+  assert.match(reloaded.host.text, new RegExp(`Paste again before Save: shot\\.png \\(${name}\\)`));
 });

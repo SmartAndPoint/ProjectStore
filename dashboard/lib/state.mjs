@@ -291,6 +291,9 @@ export function readState(ctx) {
     board: { columns: CORE_COLUMNS.map((name) => ({ name, shows: [name], limit: null })), lanes: "none" },
     coreColumns: [...CORE_COLUMNS],
     initiativeStatuses: [...INITIATIVE_STATUSES],
+    // The layout's attachments folder, where a pasted picture is kept, or null when the layout
+    // keeps none (the spec dashboard-attachments, contract 1).
+    attachments: typeof ctx.layout.attachments?.path === "string" ? ctx.layout.attachments.path : null,
   };
 }
 

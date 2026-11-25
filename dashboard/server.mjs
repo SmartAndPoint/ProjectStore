@@ -349,6 +349,9 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
         if (!file) return send(req, res, 404, { error: "no such file" });
         return sendMedia(req, res, file);
       }
+      // The core's attachment module, as the core holds it: the page names a pasted picture exactly
+      // as the edit verb will, and the package keeps no copy (dashboard-attachments, contract 1).
+      if (p === "/attachment.js") return send(req, res, 200, readFileSync(ctx.attachmentFile), { "content-type": TYPES[".js"], "content-security-policy": CSP });
       const file = pageFile(p);
       if (!file) throw new NotFound();
       let bytes = readFileSync(file);

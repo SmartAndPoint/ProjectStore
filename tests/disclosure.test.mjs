@@ -281,9 +281,16 @@ const ROWS = {
         'cli: "create", lead: "story"',
         code(WRITE_MODULE),
       ],
+      // [dashboard-attachments#6] The text and each pasted picture, in the request's own folder.
       [
-        "for `edit` it writes the text you save to a file of its own in your system's temporary folder",
+        "for `edit` it writes the text you save, and each picture pasted into it, to a folder of its own in your system's temporary folder",
         'mkdtempSync(join(tmpdir(), "projectstore-edit-"))',
+        code(WRITE_MODULE),
+      ],
+      // [dashboard-attachments#7] A created file the commit would not hold: nothing is committed.
+      [
+        "when git ignores a picture it wrote, nothing is committed and `git check-ignore -v` names the rule",
+        '["check-ignore", "-v", "--", at]',
         code(WRITE_MODULE),
       ],
       [

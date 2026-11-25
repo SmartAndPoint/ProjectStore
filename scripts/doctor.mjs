@@ -4117,7 +4117,7 @@ export function checkGraph(cfg) {
 // branch (refs/remotes/origin/HEAD's target) lacks; in a clone whose person is
 // not the binding's author today, the checked-out batch too, since the page
 // now works in another clone. No command is printed: sending or deleting a
-// kept branch is the person's judgement (dashboard/README.md says how).
+// kept branch is the person's judgement (docs/web-page.md says how).
 //
 // Local reads only, `git for-each-ref` and `git rev-list --count`: no fetch,
 // no gh, nothing written. git runs with no variable that locates another

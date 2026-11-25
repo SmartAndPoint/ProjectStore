@@ -17,7 +17,7 @@ async function selfTestRun() {
   const d = ED; // item.js: the editor of the open item
   const out = [];
   if (!d?.ed || !d.host?.isConnected) return [{ name: "an item is open in the editor", ok: false, detail: "open a story first" }];
-  if (d.dirty()) return [{ name: "the open item has no unsaved text", ok: false, detail: "save or discard it first: the check rewrites the text and puts it back" }];
+  if (d.unsaved()) return [{ name: "the open item has no unsaved text", ok: false, detail: "save or discard it first: the check rewrites the text and puts it back" }];
   const ed = d.ed;
   const v = ed.view;
   const body = ed.text();
@@ -147,27 +147,59 @@ async function selfTestRun() {
     const bytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
     return new File([bytes], "check-shot.png", { type: "image/png" });
   };
-  // Pictures are not kept by the page yet: a pasted or dropped one leaves the text as it was.
-  await check("a pasted picture leaves the text as it was", async () => {
+  // Pictures (the spec dashboard-attachments, contract 9): a pasted or a dropped one puts a link at
+  // the cursor and is drawn from the page's memory, ↩ puts the text back, and nothing is saved.
+  // Where pictures are not kept (no attachments folder, or a server whose save takes no files),
+  // the text stays as it was and the check says so. The page's memory is as before afterwards.
+  const pastedBefore = new Map(PASTED); // item.js
+  const kept = d.picturesKept();
+  const pictureCheck = async (put) => {
     await fresh();
-    v.dispatch({ selection: { anchor: text().length } });
-    paste((dt) => dt.items.add(png()));
+    const at = put();
+    await d.taking;
     await pause();
-    must(text() === SAMPLE, "the text changed");
-    must(d.ed.changes() === 0, `${d.ed.changes()} changes counted`);
-  });
-
-  await check("a dropped picture leaves the text as it was", async () => {
-    await fresh();
-    const pos = text().indexOf(P2);
-    const c = (v.measure(), v.coordsAtPos(pos));
-    must(c, "the page is not laid out");
-    const dt = new DataTransfer();
-    dt.items.add(png());
-    v.contentDOM.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, clientX: c.left + 1, clientY: (c.top + c.bottom) / 2, bubbles: true, cancelable: true }));
+    if (!kept) {
+      must(text() === SAMPLE, "the text changed");
+      must(d.ed.changes() === 0, `${d.ed.changes()} changes counted`);
+      return "pictures are not kept here: the text stays as it was";
+    }
+    const m = /!\[check-shot\.png\]\(([^)\s]+)\)/.exec(text());
+    must(m, "no link to the picture in the text");
+    must(Math.abs(m.index - at) <= 1, `the link is at ${m.index}, the cursor was at ${at}`);
+    // Drawn while the cursor is elsewhere; its ↩ shows where the cursor is.
+    v.dispatch({ selection: { anchor: 0 } });
     await pause();
-    must(text() === SAMPLE, "the text changed");
-  });
+    must(v.dom.querySelector('img.cm-media[src^="data:image/png"]'), "the picture is not drawn");
+    v.dispatch({ selection: { anchor: m.index + 2 } });
+    await pause();
+    const b = v.dom.querySelector("button.cm-putback");
+    must(b, "no ↩ button");
+    b.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    await pause();
+    must(text() === SAMPLE, "↩ did not put the text back");
+    return "";
+  };
+  await check("a pasted picture becomes a link at the cursor, drawn, and ↩ puts the text back", () =>
+    pictureCheck(() => {
+      const at = text().indexOf(P1) + P1.length;
+      v.dispatch({ selection: { anchor: at } });
+      paste((dt) => dt.items.add(png()));
+      return at;
+    }),
+  );
+  await check("a dropped picture becomes a link where it was dropped, drawn, and ↩ puts the text back", () =>
+    pictureCheck(() => {
+      const pos = text().indexOf(P2);
+      const c = (v.measure(), v.coordsAtPos(pos));
+      must(c, "the page is not laid out");
+      const dt = new DataTransfer();
+      dt.items.add(png());
+      v.contentDOM.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, clientX: c.left + 1, clientY: (c.top + c.bottom) / 2, bubbles: true, cancelable: true }));
+      return pos;
+    }),
+  );
+  PASTED.clear();
+  for (const [k, x] of pastedBefore) PASTED.set(k, x);
 
   await check("the ↩ button puts a change back", async () => {
     await fresh();
@@ -199,7 +231,7 @@ async function selfTestRun() {
   ed.replaceAll(body);
   await pause();
   window.WS_SELFTEST = false;
-  out.push({ name: "the item is as it was, nothing to save", ok: !d.dirty() && ed.text() === body, detail: "" });
+  out.push({ name: "the item is as it was, nothing to save", ok: !d.unsaved() && ed.text() === body, detail: "" });
   return out;
 }
 
