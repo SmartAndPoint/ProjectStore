@@ -94,6 +94,7 @@ function itemCommands(c) {
   if (c.kind === "story") add(`Open its epic, ${c.it.epic}`, () => openDrawer("epic", c.it.epic), { icon: ICON.epic });
   if (c.kind === "story") for (const m of writeUi.storyCommands(c.it)) add(m.label, m.run, { kw: m.kw }); // write.js
   if (c.kind === "epic" && c.it.initiative && S.initiatives.some((i) => i.id === c.it.initiative)) add("Open its initiative", () => openDrawer("initiative", c.it.initiative), { icon: ICON.initiative });
+  if (c.kind === "epic" || c.kind === "initiative") for (const m of writeUi.itemCreateCommands(c.kind, c.id)) add(m.label, m.run, { kw: m.kw }); // write.js: New in it
   if (ui.drawer && ui.drawer.id === c.id && ui.drawer.related) add(ui.drawer.tab === "rel" ? "Back to the text" : "Related, in full", () => showTab(ui.drawer, ui.drawer.tab === "rel" ? "doc" : "rel"));
   add("Copy a link to it", copyLink);
   return out;

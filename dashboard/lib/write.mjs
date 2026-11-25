@@ -174,26 +174,60 @@ export const WRITE_VERBS = freezeDeep([
       base: { kind: "hash", label: "Opened as" },
     },
   },
+  // New on the backlog tree (the spec dashboard-create, contract 1): the
+  // core's create, with its kind's word before the positionals.
+  {
+    verb: "create-initiative",
+    label: "Create initiative",
+    subject: "create initiative {title}",
+    fields: {
+      title: { kind: "line", max: 200, label: "Title" },
+    },
+  },
+  {
+    verb: "create-epic",
+    label: "Create epic",
+    subject: ["create epic {epic} in {initiative}: {title}", "create epic {epic}: {title}"],
+    fields: {
+      epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic ID" },
+      title: { kind: "line", max: 200, label: "Title" },
+      initiative: { kind: "initiative", label: "Initiative", optional: true },
+    },
+  },
+  {
+    verb: "create-story",
+    label: "Create story",
+    subject: "create story in {epic}: {title}",
+    fields: {
+      epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic" },
+      title: { kind: "line", max: 200, label: "Title" },
+    },
+  },
 ]);
 // How each verb's fields reach the core's CLI: positionals after `--`, options
 // as `--name=value`. `word` names fields of which the one a request gives
 // reaches the CLI as that literal word of the verb's form, then its value,
-// before the positionals (`rank story <EPIC>/<id>`). `cli` names the core
-// verb when it is not the page's own name; `file` names the one field that
-// reaches it as a file, `--from=<file>`, written outside the clone for the run.
-// The table-vs-core test holds these against the core's own verb table.
+// before the positionals (`rank story <EPIC>/<id>`). `lead` is a literal word
+// of the form that no field gives, put first (`create story <EPIC-ID> <title>`).
+// `cli` names the core verb when it is not the page's own name; `file` names
+// the one field that reaches it as a file, `--from=<file>`, written outside
+// the clone for the run. The table-vs-core test holds these against the
+// core's own verb table.
 export const VERB_ARGV = freezeDeep({
   move: { positionals: ["story", "to"], options: ["reason"] },
   handover: { positionals: [], options: ["story", "from", "to", "reason"] },
   rank: { word: ["story", "epic"], positionals: [], options: ["before", "after"] },
   "edit-doc": { cli: "edit", positionals: ["path"], options: ["base"], file: "text" },
+  "create-initiative": { cli: "create", lead: "initiative", positionals: ["title"], options: [] },
+  "create-epic": { cli: "create", lead: "epic", positionals: ["epic", "title"], options: ["initiative"] },
+  "create-story": { cli: "create", lead: "story", positionals: ["epic", "title"], options: [] },
 });
-// The positionals a checked request gives the CLI: the literal word and its
-// value first, when the verb has one, then the positionals in order.
+// The positionals a checked request gives the CLI: the lead word, then the
+// literal word and its value, when the verb has them, then the positionals in order.
 export function positionalsOf(req, argv = VERB_ARGV) {
   const call = argv[req.verb];
   const word = (call.word || []).find((k) => Object.hasOwn(req.fields, k));
-  return [...(word ? [word, req.fields[word]] : []), ...call.positionals.map((k) => req.fields[k])];
+  return [...(call.lead ? [call.lead] : []), ...(word ? [word, req.fields[word]] : []), ...call.positionals.map((k) => req.fields[k])];
 }
 // The commit's subject for a checked request (contract 7): the entry's
 // template with each `{name}` replaced once by that field's value, so a value
@@ -242,7 +276,11 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
     if (v === undefined && kind.optional) continue;
     if (typeof v !== "string") return no(`${entry.verb} needs ${name} as text`);
     if (kind.kind === "epic" || (kind.kind === "sibling" && itemKind?.kind === "epic")) {
-      if (!EPIC_REF.test(v)) return no(`${name} names an epic as <EPIC-ID>, such as PS-CORE; ${JSON.stringify(v)} is not that`);
+      if (!EPIC_REF.test(v)) return no(`${name} names an epic as <EPIC-ID>: a letter or a digit, then letters, digits, ".", "_" or "-", such as PS-CORE; ${JSON.stringify(v)} is not that`);
+      fields[name] = v;
+    } else if (kind.kind === "initiative") {
+      // An initiative's id, in the form of an epic's; the core resolves it.
+      if (!EPIC_REF.test(v)) return no(`${name} names an initiative by its id, such as faster-onboarding; ${JSON.stringify(v)} is not that`);
       fields[name] = v;
     } else if (kind.kind === "story" || kind.kind === "sibling") {
       if (!STORY_REF.test(v)) return no(`${name} names a story as ${kind.form || itemKind?.form || "<EPIC>/<id>"}, such as PS-CORE/story-x; ${JSON.stringify(v)} is not that`);
@@ -260,7 +298,7 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       fields[name] = t;
     } else if (kind.kind === "line") {
       const t = v.trim();
-      if (!t) return no(`${name} is empty: say in one line why`);
+      if (!t) return no(name === "reason" ? `${name} is empty: say in one line why` : `${name} is empty`);
       if (CONTROL.test(t)) return no(`${name} must be one line, with no line break or control character`);
       // Counted in characters (code points), after the trim.
       const n = [...t].length;

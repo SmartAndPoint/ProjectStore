@@ -65,18 +65,23 @@ const writeUi = (() => {
 
   // After every write answer: draw from its `write` now, then read the board again.
   // The element that held the focus keeps it; one that a redraw replaced is
-  // found again by its data-focus, else the strip takes it.
-  async function after() {
+  // found again by its data-focus, else the strip takes it. `saved`, when
+  // given, is the sentence that says what was saved, kept when the read fails.
+  // → true when the board was read again.
+  async function after(saved = null) {
     const el = document.activeElement;
     const key = el?.getAttribute?.("data-focus") || null;
+    let read = true;
     try {
       render();
       await load(); // app.js: /api/state, the artifacts and the open item
     } catch (e) {
-      say("warn", "The page could not read the backlog again, so what it shows may be out of date. Reload the page.", String(e?.message || e));
+      read = false;
+      say("warn", `${saved ? `${saved} But the` : "The"} page could not read the backlog again, so what it shows may be out of date. Reload the page.`, String(e?.message || e));
     }
     // Only a focus that a redraw took away moves: none (the page just opened) stays none.
     if (el && el !== document.body && !el.isConnected) refocus(key);
+    return read;
   }
   // Focus the element with this data-focus, else the strip, else the view.
   function refocus(key) {
@@ -631,8 +636,25 @@ const writeUi = (() => {
     const all = new Set([...(S.people || []).map((p) => p && p.name), ...(S.assignees || [])].filter(Boolean));
     return [...all].filter((n) => !left.has(n) && n !== except).sort();
   }
+  // An epic's id as the core takes a new one: a letter or a digit, then letters, digits, `.`, `_` or `-`.
+  const EPIC_ID = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
+  // A preset epic by its id and title, an initiative by its title.
+  function namedItem(kind, id) {
+    if (kind === "epic") {
+      const e = (S.epics || []).find((x) => x && x.id === id);
+      return e && e.title ? `${id} · ${e.title}` : id;
+    }
+    const i = (S.initiatives || []).find((x) => x && x.id === id);
+    return (i && i.title) || id;
+  }
   // A template's `{name}`s filled once from `values` (the server does the same).
-  const fillSubject = (template, values) => String(template || "").replace(/\{([a-z_]+)\}/g, (m, name) => (Object.hasOwn(values, name) && values[name] !== "" ? String(values[name]) : m));
+  // A list of templates: the first whose every `{name}` has a value, as the server picks it.
+  const fillSubject = (template, values) => {
+    const has = (name) => Object.hasOwn(values, name) && values[name] !== "" && values[name] !== undefined;
+    const list = Array.isArray(template) ? template.filter((t) => typeof t === "string") : [String(template || "")];
+    const chosen = list.find((t) => [...t.matchAll(/\{([a-z_]+)\}/g)].every((m) => has(m[1]))) || list[list.length - 1] || "";
+    return chosen.replace(/\{([a-z_]+)\}/g, (m, name) => (has(name) ? String(values[name]) : m));
+  };
 
   // One verb's dialog, drawn from its entry: the title and the button's word
   // (the entry's label, or the label of the preset choice), each field by its
@@ -657,6 +679,18 @@ const writeUi = (() => {
         if (!v) return toast("refused", "This change is not offered", `${name} ${preset[name]} is not among ${verb}'s values.`);
         fixed[name] = v.value;
         title = v.label || title;
+      } else if ((f.kind === "epic" || f.kind === "initiative") && preset[name] !== undefined && preset[name] !== null) {
+        // Preset by the control that opened the dialog: shown as text, by its title.
+        fixed[name] = String(preset[name]);
+        rows.push(h("div", { class: "f fixed" }, h("span", null, `${f.label || name} `), h("b", null, namedItem(f.kind, fixed[name]))));
+      } else if (f.kind === "initiative" && f.optional) {
+        // Not preset and optional: left out of the request.
+      } else if (f.kind === "epic") {
+        // An epic's id, typed: the shape is checked here and again by the server.
+        const label = f.label || name;
+        const input = h("input", { type: "text", class: `field-${name} mono`, "aria-label": label, placeholder: "BILLING", autocomplete: "off", spellcheck: false });
+        rows.push(h("label", { class: "f" }, h("span", null, `${label} `, h("i", null, "(its folder's name: a letter or a digit, then letters, digits, . _ or -, such as BILLING)")), input));
+        inputs.push({ name, field: f, input, count: null, max: null });
       } else if (f.kind === "line" || f.kind === "person") {
         const max = Number(f.max) || null;
         const label = f.label || name;
@@ -692,7 +726,12 @@ const writeUi = (() => {
       for (const x of inputs) {
         const t = x.input.value.trim();
         const n = [...t].length;
-        if (!t) return x.field.kind === "person" ? `Name the person for ${(x.field.label || x.name).toLowerCase()}.` : "Say in one line why.";
+        if (x.field.kind === "epic") {
+          if (!t) return "Name the epic's ID, such as BILLING.";
+          if (!EPIC_ID.test(t)) return `${t} cannot be an epic's ID: start with a letter or a digit, then use letters, digits, ".", "_" or "-".`;
+          continue;
+        }
+        if (!t) return x.field.kind === "person" ? `Name the person for ${(x.field.label || x.name).toLowerCase()}.` : x.name === "reason" ? "Say in one line why." : `Fill in the ${(x.field.label || x.name).toLowerCase()}.`;
         if (x.max && n > x.max) return x.name === "reason" ? `The reason is ${n} characters long; it takes at most ${x.max}.` : `${x.field.label || x.name} is ${n} characters long; it takes at most ${x.max}.`;
       }
       return null;
@@ -708,7 +747,8 @@ const writeUi = (() => {
       primary.textContent = fresh() ? title : "Preview";
       primary.disabled = inFlight || !!valid();
     };
-    const showError = (text) => fill(err, text ? h("div", { class: "msg" }, text) : null);
+    // A verb may say a refusal in plain words of its own (`errorView`), else the server's line stands.
+    const showError = (text) => fill(err, text ? (opts.errorView && opts.errorView(text)) || h("div", { class: "msg" }, text) : null);
     const firstInput = () => inputs[0]?.input || primary;
     const doPreview = async () => {
       const bad = valid();
@@ -723,10 +763,10 @@ const writeUi = (() => {
       inFlight = false;
       if (a.ok) {
         planned = key;
-        fill(plan, h("div", { class: "plan-h" }, "What will change"), opts.planView(a.result), h("div", { class: "faint" }, landing()));
+        fill(plan, h("div", { class: "plan-h" }, "What will change"), opts.planView(a.result, sent), h("div", { class: "faint" }, landing()));
       } else {
         planned = null;
-        fill(plan, a.result && typeof a.result === "object" && a.result.story ? opts.planView(a.result) : null);
+        fill(plan, a.result && typeof a.result === "object" && a.result.story ? opts.planView(a.result, sent) : null);
         showError(a.error);
       }
       sync();
@@ -746,10 +786,11 @@ const writeUi = (() => {
       primary.textContent = opts.busyWord || `${title}…`;
       const a = await running("action", () => post("/api/action", { verb, fields: sent }));
       inFlight = false;
+      let wrote = false;
       if (a.ok) {
         dlg.close();
         const b = w()?.batch;
-        const wrote = (b?.commits || 0) > before;
+        wrote = (b?.commits || 0) > before;
         say("ok", wrote ? opts.doneText(sent) : `Nothing was written: ${opts.sameText(sent)}`);
       } else {
         planned = null;
@@ -758,7 +799,9 @@ const writeUi = (() => {
         if (dlg.isOpen()) firstInput().focus();
         else say("error", `${title}: ${a.error}`);
       }
-      await after();
+      const read = await after(a.ok && wrote && opts.savedText ? opts.savedText(sent) : null);
+      // What the verb does once its change is read back (a create opens the new item).
+      if (a.ok && wrote && read && opts.opened) opts.opened(a.result, sent);
     };
     primary.addEventListener("click", () => {
       if (primary.disabled) return;
@@ -814,6 +857,137 @@ const writeUi = (() => {
       doneText: (f) => `${s.title} is ${f.to}'s now.`,
       sameText: (f) => `${s.title} is ${f.to}'s already.`,
     });
+  }
+
+  // ── New: an initiative, an epic or a story (the spec dashboard-create) ──
+  const CREATES = { initiative: "create-initiative", epic: "create-epic", story: "create-story" };
+  // Where the new item goes, in words: the epic, the initiative, or none; an initiative stands at the top.
+  function whereWords(kind, fields) {
+    if (kind === "story") return `in the epic ${namedItem("epic", fields.epic)}`;
+    if (kind === "epic") return fields.initiative ? `in the initiative ${namedItem("initiative", fields.initiative)}` : "with no initiative";
+    return null;
+  }
+  // A note of `create`'s plan, a code, in plain words (contract 4).
+  const NOTE_WORDS = {
+    "epic-row-missing": "The epic's story list is not a table, so the story is not added to it.",
+    "epic-row-unlinkable": "The story cannot be linked from the epic's story list, so it is not added to it.",
+  };
+  // Who a new item is for: the template makes the binding's default author a
+  // story's assignee and an initiative's owner (the spec create, contract 2).
+  function whoWords(kind) {
+    // With no default author in the binding, the draft takes the computer's login name.
+    const me = typeof S.me === "string" && S.me ? S.me : "your computer's login name (the binding names no default author)";
+    if (kind === "story") return `assigned to ${me}`;
+    if (kind === "initiative") return `owned by ${me}`;
+    return null;
+  }
+  // `create`'s plan (contract 4): what will be made, where and for whom, the
+  // mark in plain words, and the file, the epic's row and the notes under Details.
+  function createPlan(kind, result, sent) {
+    if (!result || typeof result !== "object") return h("div", { class: "faint" }, "The core gave no plan.");
+    const notes = Array.isArray(result.notes) ? result.notes.filter((n) => typeof n === "string" && n) : [];
+    const who = whoWords(kind);
+    const where = whereWords(kind, sent);
+    return h(
+      "div",
+      { class: "plan" },
+      kv(["New", kind], ["Title", sent.title || ""], where ? ["Where", where] : null, who ? ["Who", who] : null),
+      h("div", { class: "note" }, `The new ${kind} is marked as not reviewed until someone reviews it in an agent session. Its priority is the template's; a session can change it.`),
+      ...notes.map((n) => h("div", { class: "note warn" }, NOTE_WORDS[n] || n)),
+      details(
+        kv(
+          result.rel ? ["File", h("span", { class: "mono path" }, result.rel)] : null,
+          result.row ? ["Row in the epic's story list", h("span", { class: "mono" }, result.row)] : null,
+          ...notes.map((n) => ["Note", h("span", { class: "mono" }, n)]),
+        ),
+      ),
+    );
+  }
+  // A refusal of `create` in plain words, its own line under Details (contract 4).
+  function createRefusal(kind, error) {
+    const said = String(error || "");
+    // create's own phrases (scripts/item-verbs.mjs, refusal), never the path, which holds the title's slug.
+    const plain = / exists; a create never overwrites|is the same artifact as /.test(said)
+      ? `There is ${kind === "story" ? "a" : "an"} ${kind} of this name already. Choose another ${kind === "epic" ? "ID" : "title"}.`
+      : /file name is \d+ bytes/i.test(said)
+        ? "The title is too long for a file name. Shorten it."
+        : null;
+    return plain ? [h("div", { class: "msg" }, plain), details(h("div", { class: "faint mono" }, said))] : null;
+  }
+  // The item of the state whose file is `rel`, as [kind, id], or null.
+  function itemAt(rel) {
+    const s = (S.stories || []).find((x) => x && x.rel === rel);
+    if (s) return ["story", s.ref];
+    const e = (S.epics || []).find((x) => x && x.rel === rel);
+    if (e) return ["epic", e.id];
+    const i = (S.initiatives || []).find((x) => x && x.rel === rel);
+    return i ? ["initiative", i.id] : null;
+  }
+  // Open the made item (contract 5): the rows above it unfolded in the tree
+  // (a story's epic and that epic's initiative, an epic's initiative), then its drawer.
+  function openMade(kind, result, sent) {
+    const rel = result && typeof result === "object" ? result.rel : null;
+    const found = rel ? itemAt(rel) : null;
+    if (!found) return say("ok", `${sent.title} is made, in ${rel || "the vault"}, but the page cannot find it in the backlog yet. Reload the page to see it.`);
+    const epicId = kind === "story" ? sent.epic : kind === "epic" ? found[1] : null;
+    const group = epicId ? ((S.epics || []).find((e) => e && e.id === epicId)?.group ?? null) : null;
+    const keys = [kind === "story" ? `e:${epicId}` : null, epicId ? `i:${group ?? ""}` : null].filter(Boolean);
+    if (typeof unfold === "function") for (const k of keys) unfold(k); // app.js
+    render();
+    if (typeof openDrawer === "function") openDrawer(found[0], found[1]); // item.js
+  }
+  function openCreate(kind, preset = {}) {
+    const verb = CREATES[kind];
+    if (!verb || !entryOf(verb)) return toast("refused", "This change is not offered", `The page cannot make a new ${kind} now.`);
+    const where = whereWords(kind, preset);
+    const what = () => h("div", { class: "move-what" }, h("b", null, `A new ${kind}`), where ? h("div", { class: "faint" }, where) : null);
+    return openVerb(verb, null, preset, {
+      what,
+      hint: `Give the ${kind} a title${kind === "epic" ? " and an ID" : ""}, then Preview to see what will change. Nothing is saved yet.`,
+      changed: "A field changed: Preview again to see what will change.",
+      planView: (result, sent) => createPlan(kind, result, sent),
+      busyWord: "Creating…",
+      errorView: (error) => createRefusal(kind, error),
+      doneText: (f) => `The ${kind} ${f.title} is made. Write its text in the editor.`,
+      sameText: (f) => `the ${kind} ${f.title} is there already.`,
+      savedText: (f) => `The ${kind} ${f.title} is saved as a draft change.`,
+      opened: (result, sent) => openMade(kind, result, sent),
+    });
+  }
+  // What a row's New makes (contract 3), or null: an epic in an initiative that
+  // is not rejected or deferred, or with none (id ""); a story in an epic that is not done.
+  function makesIn(kind, id) {
+    if (kind === "initiative") {
+      const i = id ? (S.initiatives || []).find((x) => x && x.id === id) : null;
+      if (id && (!i || i.stage === "rejected" || i.stage === "deferred")) return null;
+      return entryOf(CREATES.epic) ? { make: "epic", preset: id ? { initiative: id } : {}, where: id ? namedItem("initiative", id) : null } : null;
+    }
+    if (kind === "epic") {
+      const e = (S.epics || []).find((x) => x && x.id === id);
+      if (!e || e.status === "done") return null;
+      return entryOf(CREATES.story) ? { make: "story", preset: { epic: id }, where: namedItem("epic", id) } : null;
+    }
+    return null;
+  }
+  // New's controls (contract 3), each only while the page can write and
+  // write.verbs lists its entry. On a row: New epic in an initiative (or in
+  // No initiative), New story in an epic.
+  function newOnRow(kind, id) {
+    const m = makesIn(kind, id);
+    if (!m) return null;
+    const name = m.where ? `New ${m.make} in ${m.where}` : `New ${m.make} with no initiative`;
+    return h("button", { class: "btn ghost row-new", type: "button", "data-focus": `new-${m.make}-${id}`, disabled: !!busy, "aria-label": name, title: name, onclick: () => openCreate(m.make, m.preset) }, `+ New ${m.make}`);
+  }
+  // The palette's line for the selected or open epic or initiative (keys.js).
+  function itemCreateCommands(kind, id) {
+    const m = makesIn(kind, id);
+    return m ? [{ label: `New ${m.make} in this ${kind}…`, run: () => openCreate(m.make, m.preset), kw: `create add new ${m.make} write` }] : [];
+  }
+  // The tree's toolbar: New initiative, and New epic with no initiative.
+  function newInToolbar() {
+    return ["initiative", "epic"]
+      .filter((k) => entryOf(CREATES[k]))
+      .map((k) => h("button", { class: "btn", type: "button", "data-focus": `new-${k}`, disabled: !!busy, onclick: () => openCreate(k, {}) }, `New ${k}`));
   }
 
   // ── Publish (Send) and Discard ──
@@ -1088,6 +1262,7 @@ const writeUi = (() => {
     if (x.batch && x.batch.commits) out.push({ label: "Publish my changes for review…", run: confirmSend, group: "My changes", kw: "send push pull request batch" });
     if (x.batch) out.push({ label: "Discard my changes…", run: confirmDiscard, group: "My changes", kw: "end close batch" });
     out.push({ label: "Get the latest backlog", run: refresh, group: "My changes", kw: "refresh fetch pull request state code host" });
+    for (const k of ["initiative", "epic"]) if (entryOf(CREATES[k])) out.push({ label: `New ${k}…`, run: () => openCreate(k, {}), group: "New", kw: `create add new ${k} write` });
     return out;
   }
 
@@ -1098,5 +1273,5 @@ const writeUi = (() => {
 
   // The editor's save (dashboard-editor, contract 9): the core's edit verb as edit-doc, through the one POST.
   const saveDoc = (fields) => post("/api/action", { verb: "edit-doc", fields });
-  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();
