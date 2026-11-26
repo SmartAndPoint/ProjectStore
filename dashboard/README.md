@@ -10,8 +10,8 @@ npx projectstore dashboard
 ```
 
 A local page over a project's vault: the backlog tree (initiative, epic, story), the board and
-the list, My work, the initiatives, an item's document with what is related to it, and a command
-palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
+the list, My work, the initiatives, Reports (the flow, and the board against the code), an item's
+document with what is related to it, and a command palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
 another person, reorder the backlog tree by a drag or Alt+↑ and Alt+↓ (a reorder that writes
 one file is committed on its drop or key; one that also gives other rows a place asks first),
 save an item's text from its editor, and make a new initiative, epic or story with the tree's
