@@ -203,7 +203,7 @@ A story moves from the backlog to ToDo, and back, with a reason that goes into i
 npx projectstore move PS-CORE/story-x todo --reason "next up" --write
 ```
 
-When a person leaves the project, `handover` gives their open stories to someone else, with the reason in each story's Status log. Bare, it prints the plan; `--write` asks once at a terminal:
+`handover` gives a leaving person's open stories to someone else; `assign` names who holds a ToDo story, a person or an agent (`agent:<name>`, refused at its WIP limit), or clears it. Both log why. Bare, each prints the plan; `--write` asks once:
 
 ```
 npx projectstore handover --from "First Last" --to "Other Person" --reason "left the team" --write
@@ -341,8 +341,6 @@ Click a story, an epic or an initiative to open it: its document (while the page
 - *"… asked … a project's .npmrc and lower-case npm_config_\* variables are not passed to it"*: the network is down, or the fetch took over 120 seconds. If only your project's `.npmrc` names your company registry, name it for this run, as the message shows: `NPM_CONFIG_REGISTRY=<your registry> npx projectstore dashboard`.
 - *"port 4800 is in use"*, or *"ports 4800–4809 are all in use; pass --port"*: pick a free port with `--port <n>`.
 - The project is not bound (exit 3): bind it to a vault first, with `npx projectstore bind <vault>` from a terminal in the project.
-
-On a large vault kept in iCloud, the first read can be slow while iCloud downloads the files.
 
 How the page works inside: [`docs/web-page.md`](https://github.com/SmartAndPoint/ProjectStore/blob/main/docs/web-page.md).
 

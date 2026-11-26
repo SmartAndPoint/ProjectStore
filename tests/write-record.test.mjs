@@ -421,6 +421,28 @@ test("node writers: move puts a planned story in ToDo, then handover --write giv
   assert.ok(!ev.some((e) => !e.rel.startsWith("epics/")), "no derived view is recorded");
 });
 
+// [writerecord#5] [assign#3]
+test("node writers: move puts a planned story in ToDo, then assign --write names its holder: one more story event, tool assign", async () => {
+  const { proj, path } = moveFixture();
+  const env = { ...process.env, [SID_ENV]: "s1" };
+  const moved = await cli(proj, ["move", "PS-X/story-a", "todo", "--reason", "next up", "--write", "--json"], env);
+  assert.equal(moved.code, 0, moved.err);
+  const before = readFileSync(path, "utf8");
+  const r = await cli(
+    proj,
+    ["assign", "PS-X/story-a", "agent:claude", "--reason", "next up", "--write", "--json"],
+    env,
+  );
+  assert.equal(r.code, 0, r.err);
+  const assigned = events(proj, "s1").filter((e) => e.tool === "assign");
+  assert.deepEqual(
+    assigned.map((e) => e.rel),
+    ["epics/PS-X/stories/story-a.md"],
+  );
+  assert.equal(assigned[0].before, sha(before));
+  assert.equal(assigned[0].after, sha(readFileSync(path, "utf8")));
+});
+
 // [writerecord#5]
 test("node writers: epic --initiative, then initiative accepted, each leave one event with the verb as the tool", async () => {
   const { proj, vault } = moveFixture();

@@ -30,7 +30,15 @@ import { loadHeadingsRegistry, heading, headingLineRe, footerDateRe, parseFrontm
 import { statusToColumn, NOT_ACTIONABLE, STATUS_COLUMNS } from "./stages.mjs";
 
 export const STATUS_FIELDS = Object.freeze(["status", "assignee", "pr"]);
-export const STATUS_ACTORS = Object.freeze(["plan gate", "close gate", "follow", "groom", "handover", "move"]);
+export const STATUS_ACTORS = Object.freeze([
+  "plan gate",
+  "close gate",
+  "follow",
+  "groom",
+  "handover",
+  "move",
+  "assign",
+]);
 // An empty side of a log line.
 export const EMPTY = "none";
 

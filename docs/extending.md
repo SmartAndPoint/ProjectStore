@@ -270,7 +270,11 @@ each key activates.
   or a control character is refused. `flow.people[<name>].left` marks a
   person as left (`leftDateOf` in `scripts/flow-policy.mjs`): doctor's
   `assignee-left` then lists their open work, and the verb refuses them as
-  `--to`. `groom` moves every ToDo story past `age_days.todo` (`agedIn` in
+  `--to`. `assign <EPIC>/<story> <name>|--clear --reason "<why>"` writes the
+  assignee of one story in ToDo, or clears one in the Backlog or ToDo, through
+  the same `changeAssignee` with `touch: false` and the actor `assign`; an
+  agent (`isAgentName` in `scripts/flow-policy.mjs`) whose load is at its limit
+  is refused (`wipOf` in `scripts/assign.mjs`). `groom` moves every ToDo story past `age_days.todo` (`agedIn` in
   `scripts/flow-counts.mjs`, the set doctor calls `todo-aged`) back to
   `planned` through `changeStatus`, with the actor `groom`, and then stamps
   `flow.groomed_at` through `writeVaultConfig`. A `flow` block that holds only

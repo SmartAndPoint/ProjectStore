@@ -8,6 +8,8 @@ start it, its launcher protocol and how to run it by hand: the README's section
 
 ## What the server reads, what it runs, and for whom
 
+On a large vault kept in iCloud, the first read can be slow while iCloud downloads the files.
+
 - It listens on `127.0.0.1` only. A request whose `Host` is not `127.0.0.1:<port>` or
   `localhost:<port>` gets 403, before anything else is looked at.
 - The read routes take GET and HEAD, and nothing else (404): `/` and the page's own files under

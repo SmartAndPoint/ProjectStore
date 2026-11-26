@@ -1195,6 +1195,7 @@ const WRITERS = [
   "story-section.mjs",
   "groom.mjs",
   "handover.mjs",
+  "assign.mjs",
   "item-verbs.mjs",
   "initiative-verbs.mjs",
   "rank-verb.mjs",

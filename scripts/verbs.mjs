@@ -724,6 +724,27 @@ export const VERBS = Object.freeze([
       JSON_OPT,
     ],
   }),
+  // Who holds one story in ToDo, or no one before work starts (the assign
+  // spec, contract 1): bare, the plan; --write applies it, asking at a
+  // terminal. A name, or --clear, and --reason are required; the handler says so.
+  Object.freeze({
+    verb: "assign",
+    summary: "Name who holds a story in ToDo, or clear its holder.",
+    usage: Object.freeze(["<story> <name>", "<story> --clear"]),
+    module: "./assign.mjs",
+    wraps: "new",
+    how: "import",
+    output: "envelope",
+    writes: true,
+    requiresBinding: true,
+    mcp: Object.freeze([]),
+    options: [
+      opt("reason", "<text>", "why the story is held by this name, one line (required): it goes into the Status log"),
+      opt("clear", false, "empty the assignee of a story in the Backlog or ToDo, instead of a name"),
+      opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
+      JSON_OPT,
+    ],
+  }),
   // The weekly grooming pass (the groom spec, contract 1): bare, the plan;
   // --write moves the stale ToDo stories back to the backlog and stamps
   // flow.groomed_at, asking once at a terminal. No argument.
@@ -1009,6 +1030,11 @@ const EXAMPLES = {
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team"  # the plan; nothing is written',
     '{cmd} handover --from "First Last" --to "Other Person" --reason "left the team" --write',
     '{cmd} handover --from "First Last" --to "Other Person" --reason "on leave" --story PS-CORE/story-x --write',
+  ],
+  assign: [
+    '{cmd} assign PS-CORE/story-x agent:claude --reason "next up"  # the plan; nothing is written',
+    '{cmd} assign PS-CORE/story-x "Other Person" --reason "next up" --write',
+    '{cmd} assign PS-CORE/story-x --clear --reason "nobody yet" --write',
   ],
   groom: ["{cmd} groom  # the plan; nothing is written", "{cmd} groom --write", "{cmd} groom --json"],
   export: ["{cmd} export > flow-export.json", "{cmd} export --as-of 2026-11-16 > flow-export.json"],
