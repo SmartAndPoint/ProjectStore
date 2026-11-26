@@ -866,6 +866,7 @@ function sideEpic(d) {
         ["Priority", chipP(e.priority)],
         ["Progress", progress(e.counts)],
       ),
+      writeUi.itemButtons("epic", e.id), // write.js: its initiative
       fileLine(e.rel),
     ],
     more: [h("h3", null, `Stories (${mine.length})`), h("div", { class: "linklist" }, mine.map((s) => h("div", { class: "line" }, pill(s), h("button", { class: "link", onclick: () => openDrawer("story", s.ref) }, s.title))))],
@@ -888,6 +889,7 @@ function sideInitiative(d) {
         ["Worked out in", el ? [pill(el), " ", h("button", { class: "link", onclick: () => openDrawer("story", el.ref) }, `story for ${el.assignee || "nobody"}`)] : "—"],
         ["Progress", i.epics.length ? progress(i.counts) : "no epics yet"],
       ),
+      writeUi.itemButtons("initiative", i.id), // write.js: its decision and fields
       fileLine(i.rel),
     ],
     more: [h("h3", null, `Epics (${i.epics.length})`), h("div", { class: "linklist" }, i.epics.map((x) => h("button", { class: "link", onclick: () => openDrawer("epic", x) }, `${x} · ${epic(x)?.title || ""}`)))],

@@ -207,6 +207,54 @@ export const WRITE_VERBS = freezeDeep([
       title: { kind: "line", max: 200, label: "Title" },
     },
   },
+  // An initiative's decision and fields, and an epic's initiative (the spec
+  // dashboard-initiative, contract 1): the core's initiative and epic verbs.
+  {
+    verb: "initiative-decide",
+    label: "Decide",
+    subject: "decide {initiative}: {decision}: {reason}",
+    fields: {
+      initiative: { kind: "initiative", label: "Initiative" },
+      decision: {
+        kind: "choice",
+        label: "Decision",
+        values: [
+          { value: "accepted", label: "Accept" },
+          { value: "rejected", label: "Reject" },
+          { value: "deferred", label: "Defer" },
+        ],
+      },
+      reason: { kind: "line", max: 200, label: "Why, in one line" },
+    },
+  },
+  {
+    verb: "initiative-fields",
+    label: "Edit fields",
+    subject: "edit fields of {initiative}",
+    fields: {
+      initiative: { kind: "initiative", label: "Initiative" },
+      title: { kind: "line", max: 200, label: "Title", optional: true },
+      owner: { kind: "person", max: 100, label: "Owner", optional: true },
+      priority: { kind: "line", max: 10, label: "Priority", optional: true },
+    },
+  },
+  {
+    verb: "epic-initiative",
+    label: "Set initiative",
+    subject: "set the initiative of {epic} to {initiative}",
+    fields: {
+      epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic" },
+      initiative: { kind: "initiative", label: "Initiative" },
+    },
+  },
+  {
+    verb: "epic-unlink",
+    label: "No initiative",
+    subject: "clear the initiative of {epic}",
+    fields: {
+      epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic" },
+    },
+  },
 ]);
 // How each verb's fields reach the core's CLI: positionals after `--`, options
 // as `--name=value`. `word` names fields of which the one a request gives
@@ -226,6 +274,11 @@ export const VERB_ARGV = freezeDeep({
   "create-initiative": { cli: "create", lead: "initiative", positionals: ["title"], options: [] },
   "create-epic": { cli: "create", lead: "epic", positionals: ["epic", "title"], options: ["initiative"] },
   "create-story": { cli: "create", lead: "story", positionals: ["epic", "title"], options: [] },
+  "initiative-decide": { cli: "initiative", positionals: ["initiative", "decision"], options: ["reason"] },
+  "initiative-fields": { cli: "initiative", positionals: ["initiative"], options: ["title", "owner", "priority"] },
+  "epic-initiative": { cli: "epic", positionals: ["epic"], options: ["initiative"] },
+  // `set` is an option no field gives, with its fixed value: `--initiative=` clears it.
+  "epic-unlink": { cli: "epic", positionals: ["epic"], options: [], set: { initiative: "" } },
 });
 // The positionals a checked request gives the CLI: the lead word, then the
 // literal word and its value, when the verb has them, then the positionals in order.
@@ -1437,6 +1490,7 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     const verb = call.cli || req.verb;
     const options = { project: paths.binding, json: true, write: write || null };
     for (const k of call.options) options[k] = req.fields[k];
+    if (call.set) Object.assign(options, call.set);
     // A whole text goes in a file of its own, outside the clone, and each pasted
     // file beside it under its own name (the spec dashboard-attachments, contract
     // 6): the request's folder, removed after the run however it ends.

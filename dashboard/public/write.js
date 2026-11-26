@@ -250,7 +250,7 @@ const writeUi = (() => {
   const elsewhere = (item) =>
     item.kind === "story"
       ? `A story moves only among the open stories of its own epic, ${item.epic}.`
-      : "An epic moves only among the epics of its initiative. To give it another initiative, change the epic's initiative field (the command `epic <EPIC-ID> --initiative <id>` does it).";
+      : "An epic moves only among the epics of its initiative. To give it another initiative, open the epic and set its initiative there.";
   const clearLine = () => {
     for (const el of document.querySelectorAll(".drop-line-before, .drop-line-after")) el.classList.remove("drop-line-before", "drop-line-after");
   };
@@ -685,6 +685,14 @@ const writeUi = (() => {
         rows.push(h("div", { class: "f fixed" }, h("span", null, `${f.label || name} `), h("b", null, namedItem(f.kind, fixed[name]))));
       } else if (f.kind === "initiative" && f.optional) {
         // Not preset and optional: left out of the request.
+      } else if (f.kind === "initiative") {
+        // An initiative's id, typed, offered from the vault's initiatives (dashboard-initiative, contract 2).
+        const label = f.label || name;
+        const id = `write-initiatives-${++datalists}`;
+        const input = h("input", { type: "text", class: `field-${name} mono`, "aria-label": label, placeholder: "an initiative's id", autocomplete: "off", spellcheck: false, list: id });
+        const list = h("datalist", { id }, (S.initiatives || []).map((i) => h("option", { value: i.id, label: i.title })));
+        rows.push(h("label", { class: "f" }, h("span", null, `${label} `, h("i", null, "(its id, as the vault names it)")), input, list));
+        inputs.push({ name, field: f, input, count: null, max: null });
       } else if (f.kind === "epic") {
         // An epic's id, typed: the shape is checked here and again by the server.
         const label = f.label || name;
@@ -701,6 +709,8 @@ const writeUi = (() => {
           attrs.list = id;
           list = h("datalist", { id }, namesFor(fixed.from).map((n) => h("option", { value: n })));
         }
+        // A field the item already holds starts as its value (dashboard-initiative, contract 2).
+        if (preset[name] !== undefined && preset[name] !== null) attrs.value = String(preset[name]);
         const input = h("input", attrs);
         const count = max ? h("span", { class: "faint count" }, `0/${max}`) : null;
         const hint = f.kind === "line" ? `(one line${max ? `, at most ${max} characters` : ""}${name === "reason" ? "; it is kept in the story's history" : ""})` : max ? `(one name, at most ${max} characters)` : "(one name)";
@@ -715,15 +725,23 @@ const writeUi = (() => {
     const cancel = h("button", { class: "btn", type: "button" }, "Cancel");
     let planned = null; // the fields, as JSON, of the plan on screen
     let inFlight = false;
+    // An optional field goes only when it is not empty and differs from the
+    // value it opened with (dashboard-initiative, contract 3): a value the page
+    // filled in, such as a default, is never written by being left alone.
+    const opened = (x) => (preset[x.name] === undefined || preset[x.name] === null ? "" : String(preset[x.name]).trim());
+    const skipped = (x) => x.field.optional && (!x.input.value.trim() || x.input.value.trim() === opened(x));
     const valuesNow = () => {
       const out = { ...fixed };
-      for (const x of inputs) out[x.name] = x.input.value.trim();
+      for (const x of inputs) if (!skipped(x)) out[x.name] = x.input.value.trim();
       return out;
     };
     const keyNow = () => JSON.stringify(valuesNow());
     const fresh = () => planned !== null && planned === keyNow();
     const valid = () => {
+      const optional = inputs.filter((x) => x.field.optional);
+      if (optional.length && optional.length === inputs.length && optional.every(skipped)) return "Change at least one field.";
       for (const x of inputs) {
+        if (skipped(x)) continue;
         const t = x.input.value.trim();
         const n = [...t].length;
         if (x.field.kind === "epic") {
@@ -858,6 +876,91 @@ const writeUi = (() => {
       sameText: (f) => `${s.title} is ${f.to}'s already.`,
     });
   }
+
+  // ── An initiative's decision and fields, an epic's initiative (the spec dashboard-initiative) ──
+  const FIELD_WORDS = { status: "Decision", outcome: "Outcome", title: "Title", owner: "Owner", priority: "Priority", initiative: "Initiative" };
+  // The core's plan as its changes, each field from → to; none is nothing to write (contract 3).
+  function changesPlan(result) {
+    const changes = result && typeof result === "object" && Array.isArray(result.changes) ? result.changes.filter((c) => c && typeof c === "object") : [];
+    if (!changes.length) return h("div", { class: "faint" }, "Nothing changes: the file already says this.");
+    const side = (v) => (v === null || v === undefined || v === "" ? "none" : String(v));
+    return h("div", { class: "plan" }, kv(...changes.map((c) => [FIELD_WORDS[c.field] || String(c.field), c.field === "outcome" ? side(c.to) : `${side(c.from)} → ${side(c.to)}`])));
+  }
+  const initiativeOf = (id) => (S.initiatives || []).find((i) => i && i.id === id) || null;
+  const epicOf = (id) => (S.epics || []).find((e) => e && e.id === id) || null;
+  const itemWhat = (title, line) => () => h("div", { class: "move-what" }, h("b", null, title), line ? h("div", { class: "faint" }, line) : null);
+  const ITEM_ROWS = {
+    decide: "initiative-decide",
+    fields: "initiative-fields",
+    link: "epic-initiative",
+    unlink: "epic-unlink",
+  };
+  function openDecide(id, decision) {
+    const i = initiativeOf(id);
+    if (!i || !entryOf(ITEM_ROWS.decide)) return toast("refused", "This change is not offered", `The page cannot decide the initiative ${id} now.`);
+    return openVerb(ITEM_ROWS.decide, null, { initiative: id, decision }, {
+      what: itemWhat(i.title, `now ${i.status || "with no decision"}`),
+      hint: "Say why in one line, then Preview to see what will change. Nothing is saved yet.",
+      planView: (result) => changesPlan(result),
+      doneText: () => `${i.title} is decided.`,
+      sameText: () => `${i.title} already says this.`,
+    });
+  }
+  function openFields(id) {
+    const i = initiativeOf(id);
+    if (!i || !entryOf(ITEM_ROWS.fields)) return toast("refused", "This change is not offered", `The page cannot edit the initiative ${id} now.`);
+    const owner = i.owner && i.owner !== "unknown" ? i.owner : "";
+    return openVerb(ITEM_ROWS.fields, null, { initiative: id, title: i.title || "", owner, priority: i.priority || "" }, {
+      what: itemWhat(i.title, "its title, owner and priority"),
+      hint: "Change what you need, then Preview: only the fields that differ are written. Nothing is saved yet.",
+      planView: (result) => changesPlan(result),
+      doneText: () => `${i.title}'s fields are saved.`,
+      sameText: () => `${i.title} already says this.`,
+    });
+  }
+  function openLink(epicId) {
+    const e = epicOf(epicId);
+    if (!e || !entryOf(ITEM_ROWS.link)) return toast("refused", "This change is not offered", `The page cannot set the initiative of ${epicId} now.`);
+    return openVerb(ITEM_ROWS.link, null, { epic: epicId }, {
+      what: itemWhat(`${e.id} · ${e.title}`, e.initiative ? `now under ${namedItem("initiative", e.initiative)}` : "now under no initiative"),
+      hint: "Name the initiative, then Preview to see what will change. Nothing is saved yet.",
+      planView: (result) => changesPlan(result),
+      doneText: (f) => `${e.id} is under ${namedItem("initiative", f.initiative)} now.`,
+      sameText: () => `${e.id} is under that initiative already.`,
+    });
+  }
+  function openUnlink(epicId) {
+    const e = epicOf(epicId);
+    if (!e || !e.initiative || !entryOf(ITEM_ROWS.unlink)) return toast("refused", "This change is not offered", `${epicId} has no initiative to take it out of.`);
+    return openVerb(ITEM_ROWS.unlink, null, { epic: epicId }, {
+      what: itemWhat(`${e.id} · ${e.title}`, `now under ${namedItem("initiative", e.initiative)}`),
+      hint: "Preview to see what will change. Nothing is saved yet.",
+      planView: (result) => changesPlan(result),
+      doneText: () => `${e.id} is under no initiative now.`,
+      sameText: () => `${e.id} is under no initiative already.`,
+    });
+  }
+  // The actions an initiative or an epic offers (contract 2): [{ label, run, kw, focus }].
+  function itemActions(kind, id) {
+    const out = [];
+    if (kind === "initiative" && initiativeOf(id)) {
+      const decide = entryOf(ITEM_ROWS.decide);
+      if (decide) for (const v of valuesOf(decide.fields.decision)) out.push({ label: `${v.label}…`, run: () => openDecide(id, v.value), kw: `decide decision ${v.value} initiative write`, focus: `decide-${v.value}` });
+      if (entryOf(ITEM_ROWS.fields)) out.push({ label: "Edit fields…", run: () => openFields(id), kw: "title owner priority initiative write", focus: "fields" });
+    }
+    if (kind === "epic" && epicOf(id)) {
+      const e = epicOf(id);
+      if (entryOf(ITEM_ROWS.link)) out.push({ label: e.initiative ? "Change initiative…" : "Set initiative…", run: () => openLink(id), kw: "initiative epic link write", focus: "link" });
+      if (e.initiative && entryOf(ITEM_ROWS.unlink)) out.push({ label: "No initiative…", run: () => openUnlink(id), kw: "initiative epic unlink clear write", focus: "unlink" });
+    }
+    return out;
+  }
+  function itemButtons(kind, id) {
+    const acts = itemActions(kind, id);
+    if (!acts.length) return null;
+    return h("div", { class: "row write-acts" }, acts.map((a) => h("button", { class: "btn", type: "button", "data-focus": a.focus, disabled: !!busy, onclick: a.run }, a.label)));
+  }
+  const itemCommands = (kind, id) => itemActions(kind, id).map(({ label, run, kw }) => ({ label, run, kw }));
 
   // ── New: an initiative, an epic or a story (the spec dashboard-create) ──
   const CREATES = { initiative: "create-initiative", epic: "create-epic", story: "create-story" };
@@ -1273,5 +1376,5 @@ const writeUi = (() => {
 
   // The editor's save (dashboard-editor, contract 9): the core's edit verb as edit-doc, through the one POST.
   const saveDoc = (fields) => post("/api/action", { verb: "edit-doc", fields });
-  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, openDecide, openFields, openLink, openUnlink, itemButtons, itemCommands, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();

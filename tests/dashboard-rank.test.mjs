@@ -680,7 +680,7 @@ test("dashboard rank: a story over another epic's row, or an epic over another i
   const e = await v.drag("e:PS-C", "e:PS-E", 72);
   assert.equal(e.accepted, false);
   assert.equal(v.posts.length, 0);
-  assert.match(v.texts(), /epic <EPIC-ID> --initiative <id>/);
+  assert.match(v.texts(), /open the epic and set its initiative there/); // [dashboard-initiative#2]
 });
 
 // [dashboard-rank#8]
