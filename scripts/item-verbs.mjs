@@ -26,8 +26,20 @@
 // runReviewed(ctx) follow move's contract: each returns {usage} or {ok, code,
 // result, text}, and the bin (cli.mjs) prints and asks. Loaded lazily.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  rmdirSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packageCommand } from "./harness.mjs";
 import {
@@ -35,10 +47,15 @@ import {
   folderByKind,
   parseFrontmatter,
   createFileExclusive,
+  ensureGitignoreLines,
+  extractLinks,
+  keptLinkTarget,
   fromTerminalIn,
   nowIso,
   today,
+  writeFileAtomic,
 } from "./lib.mjs";
+import { MAX_BYTES, typeOf, nameOf, isKeptShape, refusal as attachmentRefusal } from "./attachment.mjs";
 import { normaliseVaultPath, shellQuote, DEFAULT_LAYOUT, DEFAULT_LANGUAGE } from "./binding.mjs";
 import { renderDraft, DraftError } from "./draft.mjs";
 import { oneLine, setFm, setHeaderField, epicRowAdd } from "./status-log.mjs";
@@ -46,7 +63,7 @@ import { replaceWithRetry, syncEpicRow, CHANGED_MEANWHILE, EPIC_ROW_MISSING } fr
 import { applyFields, applyEpicInitiative, initiativeTarget } from "./initiative-verbs.mjs";
 import { nodeWriteRecorder } from "./write-record.mjs";
 import { MARK_KEY, isMarked } from "./verb-mark.mjs";
-import { EDIT_KINDS, splitForEdit, bodyHash, guardEdit, changedSections, normalise } from "./edit-cut.mjs";
+import { editRefusal, splitForEdit, bodyHash, guardEdit, changedSections, normalise } from "./edit-cut.mjs";
 
 const KINDS = Object.freeze(["initiative", "epic", "story"]);
 // The options each kind takes, beside --write and --json.
@@ -560,11 +577,173 @@ function bodyFrom(text, was) {
   return `${t.trimEnd()}${tail}`;
 }
 
+// ─── attachments (the attachments spec, contracts 3 to 8) ──────────────
+
+const GITATTRIBUTES_LINE = (dir) => `${dir}/** -text`;
+
+// The first bytes of a file, enough for typeOf, without reading the rest.
+function headOf(file, n = 16) {
+  const fd = openSync(file, "r");
+  try {
+    const b = Buffer.alloc(n);
+    const got = readSync(fd, b, 0, n, 0);
+    return b.subarray(0, got);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// The checks of contract 4 for a text and its attached files, before anything
+// is written: each file's type, size and name; `<A>` not a link and inside the
+// vault; a same-named file of another size; every attached file linked; every
+// kept link to a file that is attached or kept; no wikilink to a kept name.
+// Returns { error } or { files: [{path, type, size, state, bytes}], dirAbs }.
+async function attachmentPlan({ vault, realVault, rel, body, dir, attach }) {
+  const dirAbs = join(vault, dir);
+  const byName = new Map();
+  for (const file of attach) {
+    const type = typeOf(headOf(file));
+    if (!type) return { error: attachmentRefusal("type", { file }) };
+    const stated = statSync(file).size;
+    if (stated > MAX_BYTES) return { error: attachmentRefusal("size", { file, size: stated }) };
+    const bytes = readFileSync(file);
+    const size = bytes.length;
+    if (size > MAX_BYTES) return { error: attachmentRefusal("size", { file, size }) };
+    const name = await nameOf(bytes);
+    if (!byName.has(name)) byName.set(name, { file, name, type, size, bytes });
+  }
+  // lstat, not existsSync: a dangling symbolic link is no folder either.
+  const lst = lstatOrNull(dirAbs);
+  if (attach.length && lst) {
+    if (lst.isSymbolicLink())
+      return { error: `${dir}/ is a symbolic link; the attachments folder must be a folder of the vault` };
+    if (!lst.isDirectory())
+      return { error: `${dir} is not a folder; the attachments folder must be a folder of the vault` };
+    if (!inside(realOf(dirAbs), realVault)) return { error: `${dir}/ resolves outside the vault` };
+  }
+  const files = [];
+  for (const f of byName.values()) {
+    const path = `${dir}/${f.name}`;
+    const there = join(dirAbs, f.name);
+    let state = "to-create";
+    const at = lstatOrNull(there);
+    if (at) {
+      if (!at.isFile()) return { error: `${path} is there and is not a plain file; nothing is written over it` };
+      if (at.size !== f.size)
+        return { error: `${path} is there with another size than ${f.file}; nothing is written over it` };
+      state = "found";
+    }
+    files.push({ path, type: f.type, size: f.size, state, bytes: f.bytes });
+  }
+  // The links of the text (contract 4): kept links, and wikilinks to a kept name.
+  const linked = new Set();
+  for (const link of extractLinks(body)) {
+    if (link.type === "mdlink") {
+      const t = keptLinkTarget(rel, link.target, dir);
+      if (t) linked.add(t);
+    } else if (link.type === "wikilink") {
+      const last = String(link.target).split(/[|#]/)[0].trim().split("/").pop();
+      if (isKeptShape(last))
+        return {
+          error: `the text links ${last} as a wikilink; link a kept file by a relative Markdown link, as ![name](${posix.relative(posix.dirname(rel), `${dir}/${last}`)})`,
+        };
+    }
+  }
+  for (const f of files)
+    if (!linked.has(f.path)) {
+      const file = byName.get(f.path.slice(dir.length + 1)).file;
+      return {
+        error: attachmentRefusal("unlinked", { file, path: f.path, rel: posix.relative(posix.dirname(rel), f.path) }),
+      };
+    }
+  const attached = new Set(files.map((f) => f.path));
+  for (const path of [...linked].sort())
+    if (!attached.has(path) && !existsSync(join(vault, path)))
+      return {
+        error: `the text links ${path}, which is not in ${dir}/ and not attached; attach the file or remove the link`,
+      };
+  return { files, dirAbs };
+}
+
+function lstatOrNull(p) {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
+// Whether the vault's .gitattributes lacks the attachments line.
+function gitattributesLacks(vault, dir) {
+  try {
+    return !readFileSync(join(vault, ".gitattributes"), "utf8")
+      .split(/\r?\n/)
+      .some((l) => l.trim() === GITATTRIBUTES_LINE(dir));
+  } catch {
+    return true;
+  }
+}
+
+// Write the files to create and the .gitattributes line (contract 5) into
+// `made`, the caller's, step by step, so an undo after a throw partway
+// through still sees every file this run made; record nothing yet (a run
+// that is taken back records nothing).
+function writeAttachments(made, { vault, dir, dirAbs, files, addLine }) {
+  if (files.some((f) => f.state === "to-create") && !existsSync(dirAbs)) {
+    // mkdirSync answers the first folder it made, undefined when another run made it meanwhile.
+    made.dir = mkdirSync(dirAbs, { recursive: true }) ? dirAbs : null;
+  }
+  for (const f of files)
+    if (f.state === "to-create") {
+      const abs = join(vault, f.path);
+      if (createFileExclusive(abs, f.bytes)) {
+        made.files.push({ abs, bytes: f.bytes });
+        f.state = "created";
+      } else if (statSync(abs).size === f.size) f.state = "found";
+      else throw new Error(`${f.path} appeared with another size while this edit ran; nothing is written over it`);
+    }
+  if (addLine) {
+    const file = join(vault, ".gitattributes");
+    const before = existsSync(file) ? readFileSync(file) : null;
+    made.ga = { file, before, after: null };
+    ensureGitignoreLines(file, [GITATTRIBUTES_LINE(dir)]);
+    made.ga.after = readFileSync(file);
+  }
+  return made;
+}
+
+// Take back what writeAttachments made (contract 6): the files it created,
+// the folder only when it made it and it is empty, and .gitattributes only
+// while it still holds the bytes this run wrote.
+function undoAttachments(made) {
+  for (const f of made.files)
+    try {
+      unlinkSync(f.abs);
+    } catch {}
+  if (made.dir)
+    try {
+      rmdirSync(made.dir);
+    } catch {}
+  if (made.ga && made.ga.after)
+    try {
+      if (readFileSync(made.ga.file).equals(made.ga.after)) {
+        if (made.ga.before === null) unlinkSync(made.ga.file);
+        else writeFileAtomic(made.ga.file, made.ga.before, { sweep: false });
+      }
+    } catch {}
+}
+
+const filesOut = (files) => files.map(({ path, type, size, state }) => ({ path, type, size, state }));
+
 export async function runEdit(ctx) {
   const { values, positionals, cfg, project, env, confirm, afterCompute = null } = ctx;
   const now = ctx.now ?? null;
   const [arg, ...extra] = positionals;
-  if (!arg || extra.length) return { usage: "edit takes one path: a story, an epic or an initiative in the vault" };
+  if (!arg || extra.length)
+    return {
+      usage:
+        "edit takes one path in the vault: a story, an epic, an initiative, a proposed ADR, a draft spec or a draft research note",
+    };
   const from = values.from;
   const base = values.base;
   if (given(from) !== given(base))
@@ -574,6 +753,17 @@ export async function runEdit(ctx) {
   if (!given(from) && values.write) return { usage: "edit --write needs --from <file> and --base <hash>" };
   if (given(base) && !HASH.test(String(base)))
     return { usage: `--base is the body's hash, 16 lowercase hex digits; ${JSON.stringify(base)} is not that` };
+  // The attached files (the attachments spec, contract 3): repeatable, with a text.
+  const attach = [].concat(values.attach ?? []).filter((a) => a !== undefined && a !== null);
+  if (attach.length && !given(from)) return { usage: "edit --attach needs --from <file> and --base <hash>" };
+  for (const a of attach) {
+    try {
+      if (!statSync(String(a)).isFile()) return { usage: `--attach ${a} is not a file` };
+      closeSync(openSync(String(a), "r"));
+    } catch (e) {
+      return { usage: `--attach ${a} cannot be read: ${errMsg(e)}` };
+    }
+  }
   const result = (extra2 = {}) => ({
     write: Boolean(values.write),
     path: null,
@@ -632,18 +822,22 @@ export async function runEdit(ctx) {
   } catch {
     return fail(`${rel} is not there`);
   }
+  // The kind and the status, trimmed and in lower case as the dashboard's `readItem` reads them;
+  // `refusal` is the one predicate of edit-cut.mjs the page asks too (contract 3).
   const kindOf = (t) => {
     const n = normalise(t);
     const fm = /^---\n[\s\S]*?\n---\n/.exec(n);
-    const type = fm ? String(parseFrontmatter(n).data.type ?? "").trim() : "";
-    return { fm: fm ? fm[0] : null, type, rest: fm ? n.slice(fm[0].length) : n };
+    const data = fm ? parseFrontmatter(n).data : {};
+    const type = String(data.type ?? "")
+      .trim()
+      .toLowerCase();
+    const refusal = fm
+      ? editRefusal(type, data.status)
+      : "it has no frontmatter, so it is no artifact the edit verb writes";
+    return { fm: fm ? fm[0] : null, type, refusal, rest: fm ? n.slice(fm[0].length) : n };
   };
   const k = kindOf(raw);
-  if (!k.fm || !EDIT_KINDS.includes(k.type))
-    return fail(
-      `${rel} is ${k.type ? `of the kind ${k.type}` : "no artifact with a type"}; edit writes only a story, an epic or an initiative`,
-      { path: abs, rel, kind: k.type || null },
-    );
+  if (k.refusal) return fail(`${rel}: ${k.refusal}`, { path: abs, rel, kind: k.type || null });
   const parts = splitForEdit(k.rest);
   const hash = bodyHash(parts.body);
   const found = { path: abs, rel, kind: k.type, hash };
@@ -672,56 +866,160 @@ export async function runEdit(ctx) {
       'The text would not read back as written: it ends with a `---` line and a "Last updated" line, which the file\'s own foot holds. Remove them from the text.',
       found,
     );
+  // The attachments (the attachments spec, contract 4): after the guards and
+  // the foot, before the same-text answer; on every edit of a vault whose
+  // layout names the folder, `--attach` or not.
+  let layoutDir = null;
+  try {
+    const lay = loadLayout(cfg.layout || DEFAULT_LAYOUT);
+    layoutDir = typeof lay.attachments?.path === "string" ? lay.attachments.path : null;
+  } catch {}
+  if (attach.length && !layoutDir) return fail("this layout keeps no attachments", found);
+  let att = { files: [], dirAbs: null };
+  if (layoutDir) {
+    att = await attachmentPlan({ vault, realVault, rel, body, dir: layoutDir, attach });
+    if (att.error) return fail(att.error, found);
+  }
+  const same = body === parts.body;
+  const toCreate = att.files.filter((f) => f.state === "to-create");
+  const addLine = Boolean(attach.length) && (!same || toCreate.length > 0) && gitattributesLacks(vault, layoutDir);
+  if (addLine) {
+    // The line is written only into a plain file of the vault, never through a link.
+    const ga = lstatOrNull(join(vault, ".gitattributes"));
+    if (ga && !ga.isFile())
+      return fail(".gitattributes is not a plain file of the vault; the attachments line cannot be added to it", found);
+  }
+  const attached = (gitattributesState) =>
+    attach.length ? { files: filesOut(att.files), gitattributes: gitattributesState } : {};
+
   const sections = changedSections(parts.body, body);
-  if (!sections.length) sections.push("(blank lines only)");
-  if (body === parts.body)
+  if (!sections.length && !same) sections.push("(blank lines only)");
+  if (same && !toCreate.length)
     return {
       ok: true,
       code: 0,
-      result: result({ ...found, same: true }),
+      result: result({ ...found, same: true, ...attached(null) }),
       text: `edit: ${rel} holds this text already; nothing to write.\n`,
     };
 
+  const fileLines = att.files.map((f) => `  file: ${f.path} (${f.type}, ${f.size} bytes) — ${f.state}`);
   const planText = (asking) =>
     [
       `edit ${k.type}: ${rel}`,
-      `  sections: ${sections.join(", ")}`,
-      `  mark: ${MARK_KEY} "edit <the write's instant>", review_status pending`,
+      ...(same ? ["  text: unchanged; only the files below are written"] : [`  sections: ${sections.join(", ")}`]),
+      ...fileLines,
+      ...(addLine ? [`  .gitattributes: + ${GITATTRIBUTES_LINE(layoutDir)}`] : []),
+      ...(same ? [] : [`  mark: ${MARK_KEY} "edit <the write's instant>", review_status pending`]),
       ...(asking
         ? []
         : [
             `Nothing written. To write it, ${fromTerminalIn(project)}:`,
-            `  ${packageCommand([], "edit", { args: `${shellQuote(rel)} --from <file> --base ${hash} --write` })}`,
+            `  ${packageCommand([], "edit", { args: `${shellQuote(rel)} --from <file> --base ${hash}${attach.length ? " --attach <file>" : ""} --write` })}`,
           ]),
     ].join("\n") + "\n";
-  if (!values.write) return { ok: true, code: 0, result: result({ ...found, sections }), text: planText(false) };
+  if (!values.write)
+    return {
+      ok: true,
+      code: 0,
+      result: result({ ...found, sections, same, ...attached(addLine ? "to-change" : null) }),
+      text: planText(false),
+    };
   if (confirm && !(await confirm(planText(true))))
     return {
       ok: false,
       code: 1,
-      result: result({ ...found, sections, declined: true, error: "declined" }),
+      result: result({
+        ...found,
+        sections,
+        same,
+        declined: true,
+        error: "declined",
+        ...attached(addLine ? "to-change" : null),
+      }),
       text: "Nothing written.\n",
     };
+
+  // Loaded before any file is written, so a failed load leaves nothing to undo.
+  const { refreshViews } = await import("./reconcile.mjs");
+  const { ownEnv: projectEnv } = await import("./verbs.mjs");
+  // The files first (contract 5), each once; what this run made is taken back
+  // when the text is not written (contract 6).
+  const onWrite = nodeWriteRecorder({ env, project, tool: "edit" });
+  const made = { dir: null, files: [], ga: null };
+  try {
+    writeAttachments(made, { vault, dir: layoutDir, dirAbs: att.dirAbs, files: att.files, addLine });
+  } catch (e) {
+    undoAttachments(made);
+    return fail(errMsg(e), found);
+  }
+  const recordAttachments = () => {
+    for (const f of made.files) onWrite(f.abs, null, f.bytes);
+    if (made.ga) onWrite(made.ga.file, made.ga.before, made.ga.after);
+  };
+  const refresh = () => {
+    const rec = refreshViews({ project, env: ctx.ownEnv ? ctx.ownEnv(project) : projectEnv(env, project) });
+    const left = rec.failed
+      ? [
+          {
+            what: "the derived views",
+            error: rec.error || "a view failed",
+            finish: packageCommand([], "reconcile", { args: "--write" }),
+          },
+        ]
+      : [];
+    return { rec, left };
+  };
+
+  // The same text with files to write (contract 7): the files alone, the text
+  // and its mark left as they are, the views refreshed.
+  if (same) {
+    recordAttachments();
+    const { rec, left } = refresh();
+    const done = result({
+      ...found,
+      same: true,
+      written: true,
+      reconcile: rec.summary,
+      left,
+      ...attached(made.ga ? "changed" : null),
+    });
+    const head = `edit ${k.type}: ${rel} holds this text already; ${made.files.length} file${made.files.length === 1 ? "" : "s"} written\n${fileLines.join("\n")}\n`;
+    if (!left.length) return { ok: true, code: 0, result: done, text: head };
+    return {
+      ok: false,
+      code: 1,
+      result: { ...done, error: `left: the derived views (${left[0].error})` },
+      text: `${head}edit: the files were written, but not the derived views (${left[0].error}). Finish it ${fromTerminalIn(project)}:\n  ${left[0].finish}\n`,
+    };
+  }
 
   // The write (contract 4): computed from the file as it stands at the write,
   // so another writer's change to the frontmatter or the head is kept; a body
   // whose hash moved is refused. The mark's instant is the write's.
   const mark = `edit ${markInstant(now)}`;
-  const onWrite = nodeWriteRecorder({ env, project, tool: "edit" });
   let newBody = body;
-  const r = replaceWithRetry(
-    abs,
-    (b) => {
-      const kk = kindOf(b);
-      if (!kk.fm || kk.type !== k.type) return { refused: changed };
-      const p = splitForEdit(kk.rest);
-      if (bodyHash(p.body) !== base) return { refused: changed };
-      newBody = bodyFrom(text, p.body);
-      return { content: writeOf(kk.fm, p, newBody, mark) };
-    },
-    { afterCompute, onWrite },
-  );
-  if (r.refused) return fail(changed, found);
+  let r;
+  try {
+    r = replaceWithRetry(
+      abs,
+      (b) => {
+        const kk = kindOf(b);
+        // A status is no part of the body's hash: one that moved since the plan is its own refusal.
+        if (kk.fm && kk.type === k.type && kk.refusal) return { refused: `${rel}: ${kk.refusal}` };
+        if (!kk.fm || kk.type !== k.type) return { refused: changed };
+        const p = splitForEdit(kk.rest);
+        if (bodyHash(p.body) !== base) return { refused: changed };
+        newBody = bodyFrom(text, p.body);
+        return { content: writeOf(kk.fm, p, newBody, mark) };
+      },
+      { afterCompute, onWrite },
+    );
+  } catch (e) {
+    undoAttachments(made);
+    throw e;
+  }
+  if (r.refused || r.error) undoAttachments(made);
+  if (r.refused) return fail(typeof r.refused === "string" ? r.refused : changed, found);
   if (r.error)
     return fail(
       r.error === CHANGED_MEANWHILE
@@ -729,20 +1027,10 @@ export async function runEdit(ctx) {
         : r.error,
       found,
     );
+  recordAttachments();
 
   // The derived views (contract 7), as move refreshes them.
-  const { refreshViews } = await import("./reconcile.mjs");
-  const { ownEnv: projectEnv } = await import("./verbs.mjs");
-  const rec = refreshViews({ project, env: ctx.ownEnv ? ctx.ownEnv(project) : projectEnv(env, project) });
-  const left = rec.failed
-    ? [
-        {
-          what: "the derived views",
-          error: rec.error || "a view failed",
-          finish: packageCommand([], "reconcile", { args: "--write" }),
-        },
-      ]
-    : [];
+  const { rec, left } = refresh();
   const done = result({
     ...found,
     hash: bodyHash(newBody),
@@ -751,8 +1039,9 @@ export async function runEdit(ctx) {
     mark,
     reconcile: rec.summary,
     left,
+    ...attached(made.ga ? "changed" : null),
   });
-  const head = `edit ${k.type}: ${rel} written\n  sections: ${sections.join(", ")}\n  ${MARK_KEY}: ${mark}, review_status pending\n`;
+  const head = `edit ${k.type}: ${rel} written\n  sections: ${sections.join(", ")}\n${fileLines.length ? `${fileLines.join("\n")}\n` : ""}  ${MARK_KEY}: ${mark}, review_status pending\n`;
   if (!left.length) return { ok: true, code: 0, result: done, text: head };
   return {
     ok: false,

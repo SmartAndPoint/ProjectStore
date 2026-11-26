@@ -625,7 +625,7 @@ export const VERBS = Object.freeze([
   // not reviewed until a review clears the mark.
   Object.freeze({
     verb: "edit",
-    summary: "Rewrite an initiative, epic or story text, marked not reviewed.",
+    summary: "Rewrite an item's text, or an open ADR, spec or research note.",
     usage: Object.freeze(["<path>", "<path> --from <file> --base <hash>"]),
     module: "./item-verbs.mjs",
     wraps: "new",
@@ -637,6 +637,7 @@ export const VERBS = Object.freeze([
     options: [
       opt("from", "<file>", "a file with the new text of the sections under the title"),
       opt("base", "<hash>", "the hash of the body the text was written over, as the bare edit prints it"),
+      opt("attach", "<file>", "a PNG, JPEG, GIF, WebP or PDF the text links, kept in the attachments folder", true),
       opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
       JSON_OPT,
     ],
@@ -988,6 +989,7 @@ const EXAMPLES = {
     "{cmd} edit epics/PS-CORE/stories/story-faster-login.md  # the body and its hash; nothing is written",
     "{cmd} edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef  # the plan",
     "{cmd} edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef --write",
+    "{cmd} edit epics/PS-CORE/stories/story-faster-login.md --from new.md --base 0123456789abcdef --attach shot.png --write",
   ],
   rank: [
     "{cmd} rank story PS-CORE/story-x --before PS-CORE/story-y  # the plan; nothing is written",

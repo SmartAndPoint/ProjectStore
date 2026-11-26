@@ -60,6 +60,7 @@ import {
   autoUpdateDefault,
 } from "./harness.mjs";
 import { escapeRe, INLINE_CODE_SPAN_RE } from "./grammar.mjs";
+import { isKeptShape } from "./attachment.mjs";
 
 // ─── Paths ─────────────────────────────────────────────────────────────
 
@@ -2410,6 +2411,19 @@ const relDirSegments = (rel) => {
   return segs;
 };
 
+// The vault-relative path a relative markdown link names when it is a kept
+// link: joined to the linking file's folder as the resolver joins it, the
+// path is `<attachments>/<a name of the kept shape>` (the attachments spec,
+// contracts 4 and 9). Null for any other link, or when the layout keeps no
+// attachments (`attachments` null).
+export function keptLinkTarget(sourceRel, target, attachments) {
+  if (!attachments) return null;
+  const rel = joinRel(relDirSegments(sourceRel), String(target).trim());
+  if (rel === null || !rel.startsWith(`${attachments}/`)) return null;
+  const name = rel.slice(attachments.length + 1);
+  return isKeptShape(name) ? rel : null;
+}
+
 // The graph's node universe (spec contract 2): layout artifact kinds,
 // walked the way each kind's real consumers walk them — flat kind folders
 // with README.md skipped (scanArtifacts parity), the epic folder via
@@ -2490,7 +2504,9 @@ export function buildNodeIndex(cfg, layout) {
     if (n.identity) add(byIdentity, n.identity, n);
     for (const r of n.stemReadings) add(byStem, r, n);
   }
-  return { nodes, byPath, byIdentity, byStem };
+  // The layout's attachments folder, read by the resolver's kept-link class.
+  const attachments = typeof layout.attachments?.path === "string" ? layout.attachments.path : null;
+  return { nodes, byPath, byIdentity, byStem, attachments };
 }
 
 // The ONE link resolver (spec contract 3), shared by the graph generator
@@ -2540,6 +2556,10 @@ export function resolveLinkTarget(rawTarget, linkType, ctx) {
     // by definition (contract 3): no probing beyond the vault root.
     const rel = joinRel(relDirSegments(sourceRel), target);
     if (rel === null) return { outcome: "out-of-scope" };
+    // A kept link (the attachments spec, contract 9): an `attachment` edge
+    // when the kept file exists, `dead` when it does not; never a node.
+    if (keptLinkTarget(sourceRel, target, index.attachments ?? null))
+      return exists(rel) ? { outcome: "attachment", path: rel } : { outcome: "dead" };
     if (fileSet.has(rel)) return finish(rel);
     if (exists(rel)) return { outcome: "out-of-scope", path: rel };
     return { outcome: "dead" };
