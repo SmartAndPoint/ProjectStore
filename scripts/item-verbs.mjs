@@ -63,7 +63,7 @@ import { replaceWithRetry, syncEpicRow, CHANGED_MEANWHILE, EPIC_ROW_MISSING } fr
 import { applyFields, applyEpicInitiative, initiativeTarget } from "./initiative-verbs.mjs";
 import { nodeWriteRecorder } from "./write-record.mjs";
 import { MARK_KEY, isMarked } from "./verb-mark.mjs";
-import { EDIT_KINDS, splitForEdit, bodyHash, guardEdit, changedSections, normalise } from "./edit-cut.mjs";
+import { editRefusal, splitForEdit, bodyHash, guardEdit, changedSections, normalise } from "./edit-cut.mjs";
 
 const KINDS = Object.freeze(["initiative", "epic", "story"]);
 // The options each kind takes, beside --write and --json.
@@ -739,7 +739,11 @@ export async function runEdit(ctx) {
   const { values, positionals, cfg, project, env, confirm, afterCompute = null } = ctx;
   const now = ctx.now ?? null;
   const [arg, ...extra] = positionals;
-  if (!arg || extra.length) return { usage: "edit takes one path: a story, an epic or an initiative in the vault" };
+  if (!arg || extra.length)
+    return {
+      usage:
+        "edit takes one path in the vault: a story, an epic, an initiative, a proposed ADR, a draft spec or a draft research note",
+    };
   const from = values.from;
   const base = values.base;
   if (given(from) !== given(base))
@@ -818,18 +822,22 @@ export async function runEdit(ctx) {
   } catch {
     return fail(`${rel} is not there`);
   }
+  // The kind and the status, trimmed and in lower case as the dashboard's `readItem` reads them;
+  // `refusal` is the one predicate of edit-cut.mjs the page asks too (contract 3).
   const kindOf = (t) => {
     const n = normalise(t);
     const fm = /^---\n[\s\S]*?\n---\n/.exec(n);
-    const type = fm ? String(parseFrontmatter(n).data.type ?? "").trim() : "";
-    return { fm: fm ? fm[0] : null, type, rest: fm ? n.slice(fm[0].length) : n };
+    const data = fm ? parseFrontmatter(n).data : {};
+    const type = String(data.type ?? "")
+      .trim()
+      .toLowerCase();
+    const refusal = fm
+      ? editRefusal(type, data.status)
+      : "it has no frontmatter, so it is no artifact the edit verb writes";
+    return { fm: fm ? fm[0] : null, type, refusal, rest: fm ? n.slice(fm[0].length) : n };
   };
   const k = kindOf(raw);
-  if (!k.fm || !EDIT_KINDS.includes(k.type))
-    return fail(
-      `${rel} is ${k.type ? `of the kind ${k.type}` : "no artifact with a type"}; edit writes only a story, an epic or an initiative`,
-      { path: abs, rel, kind: k.type || null },
-    );
+  if (k.refusal) return fail(`${rel}: ${k.refusal}`, { path: abs, rel, kind: k.type || null });
   const parts = splitForEdit(k.rest);
   const hash = bodyHash(parts.body);
   const found = { path: abs, rel, kind: k.type, hash };
@@ -996,6 +1004,8 @@ export async function runEdit(ctx) {
       abs,
       (b) => {
         const kk = kindOf(b);
+        // A status is no part of the body's hash: one that moved since the plan is its own refusal.
+        if (kk.fm && kk.type === k.type && kk.refusal) return { refused: `${rel}: ${kk.refusal}` };
         if (!kk.fm || kk.type !== k.type) return { refused: changed };
         const p = splitForEdit(kk.rest);
         if (bodyHash(p.body) !== base) return { refused: changed };
@@ -1009,7 +1019,7 @@ export async function runEdit(ctx) {
     throw e;
   }
   if (r.refused || r.error) undoAttachments(made);
-  if (r.refused) return fail(changed, found);
+  if (r.refused) return fail(typeof r.refused === "string" ? r.refused : changed, found);
   if (r.error)
     return fail(
       r.error === CHANGED_MEANWHILE

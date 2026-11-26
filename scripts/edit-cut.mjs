@@ -4,7 +4,7 @@
 // (through grammar.mjs), so the dashboard's page imports it through the core
 // root the launcher gives and holds no copy.
 //
-// The text after the frontmatter of a story, an epic or an initiative is cut in
+// The text after the frontmatter of a file the edit verb takes (editRefusal) is cut in
 // three parts: the head (the H1 and the field table, up to the first `## `
 // line), the body (every `## ` section: what an edit replaces) and the foot (a
 // last `---` line with the "Last updated" line under it, as the gates read it).
@@ -14,7 +14,48 @@ import { createHash } from "node:crypto";
 import { sectionOf, footerDateRe } from "./grammar.mjs";
 import { checklistItems, stripCodeSpans, linesOutsideFences } from "./lib.mjs";
 
-export const EDIT_KINDS = Object.freeze(["story", "epic", "initiative"]);
+// The kinds the edit verb writes, each with the statuses it takes them in (null: any): an ADR while
+// `proposed`, a spec and a research note while `draft`. Past that, an ADR, a spec or a note others
+// cite changes by a dated note or a `> amended` marker in a session, which no editor writes, and a
+// closed one does not change (the edit spec, contract 3, as amended 2026-11-25).
+export const EDIT_STATUSES = Object.freeze({
+  story: null,
+  epic: null,
+  initiative: null,
+  adr: Object.freeze(["proposed"]),
+  spec: Object.freeze(["draft"]),
+  research: Object.freeze(["draft"]),
+});
+export const EDIT_KINDS = Object.freeze(Object.keys(EDIT_STATUSES));
+const lower = (s) =>
+  String(s ?? "")
+    .trim()
+    .toLowerCase();
+const NAME = { adr: "ADR", spec: "spec", research: "research note" };
+const A = { adr: "an ADR", spec: "a spec", research: "a research note" };
+const HOW = {
+  adr: "An ADR past proposed changes by a dated note under its decision, written in a session; no editor writes one.",
+  spec: "A spec past draft changes by a `> amended` marker on its contract, written in a session; no editor writes one.",
+  research:
+    "A research note that is no longer a draft is cited by its findings, and changes by a dated note written in a session; no editor writes one.",
+};
+// Statuses that close a file: nothing changes it, not even a note.
+const CLOSED = new Set(["superseded", "rejected", "deprecated"]);
+
+// Why the edit verb does not write a file of this kind and status, or null when it does: the one
+// predicate the verb and the dashboard's server ask, so the two cannot disagree.
+export function editRefusal(type, status) {
+  const t = lower(type);
+  if (!t) return "it has no type, so it is no artifact the edit verb writes";
+  if (!Object.hasOwn(EDIT_STATUSES, t))
+    return `it is of the kind ${t}; edit writes a story, an epic, an initiative, a proposed ADR, a draft spec or a draft research note`;
+  const open = EDIT_STATUSES[t];
+  // A status is one word: a list or a number is no status.
+  const s = typeof status === "string" ? lower(status) : "";
+  if (open === null || open.includes(s)) return null;
+  const why = CLOSED.has(s) ? `A ${s} ${NAME[t]} is closed: nothing changes it.` : HOW[t];
+  return `this ${NAME[t]} is ${s || "of no status"}, and edit writes ${A[t]} only while it is ${open[0]}. ${why}`;
+}
 
 export const normalise = (s) => String(s ?? "").replace(/\r\n?/g, "\n");
 
@@ -61,7 +102,7 @@ const sectionText = (body, id) => {
 const checkedTexts = (body, id) => {
   const s = sectionOf(normalise(body), id);
   if (s === null) return [];
-  const lines = id === "acceptance" ? linesOutsideFences(s) : stripCodeSpans(s).split("\n");
+  const lines = id === "acceptance" || id === "spec_acceptance" ? linesOutsideFences(s) : stripCodeSpans(s).split("\n");
   return checklistItems(lines)
     .filter((i) => i.checked)
     .map((i) => i.text.trim());
@@ -81,13 +122,21 @@ function within(next, was) {
 
 // What gates and verbs own in each kind (contract 5): a section kept as it is,
 // and sections whose checked items a text may not add to or change.
-const KEPT = { story: ["status_log"], epic: [], initiative: ["initiative_outcome"] };
-const CHECKED = { story: ["acceptance"], epic: ["expected_results"], initiative: [] };
+const KEPT = { story: ["status_log"], epic: [], initiative: ["initiative_outcome"], adr: [], spec: [], research: [] };
+const CHECKED = {
+  story: ["acceptance"],
+  epic: ["expected_results"],
+  initiative: [],
+  adr: [],
+  spec: ["spec_acceptance"],
+  research: [],
+};
 const PART = {
   status_log: "the Status log",
   initiative_outcome: "the Outcome",
   acceptance: "the Acceptance Criteria",
   expected_results: "the Expected Results",
+  spec_acceptance: "the spec's Acceptance",
 };
 
 // Why a new body is refused, as { part, error }, or null. `was` is the body the

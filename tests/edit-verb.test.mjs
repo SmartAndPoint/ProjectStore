@@ -521,3 +521,154 @@ test("edit: a story a review cleared, then edited, is marked again with review_s
   assert.match(fm(fx.at(STORY)).written_by_verb, /^edit /);
   assert.equal(fm(fx.at(STORY)).review_status, "pending");
 });
+
+// ─── An ADR, a spec and a research note (contracts 3, 5 and 6, as amended 2026-11-25) ───
+
+const ADR = "adr/an-adr.md";
+const SPEC = "specs/a-spec.md";
+const NOTE = "research/a-note.md";
+// A document as its template renders it, with `status` set as written.
+function doc(fx, kind, rel, status) {
+  mkdirSync(join(fx.vault, rel, ".."), { recursive: true });
+  let t = renderTemplate(loadTemplate("en", kind), {
+    id: rel.split("/").pop().replace(/\.md$/, ""),
+    title: `A ${kind}`,
+    date: "2026-11-25",
+    tags: [],
+    author: "T",
+  });
+  t = status === null ? t.replace(/^status: .*\n/m, "") : t.replace(/^status: .*$/m, `status: ${status}`);
+  writeFileSync(fx.at(rel), t);
+}
+
+// [edit#3]
+test("edit: an accepted ADR, an active spec, a spec with no status, a final research note, a superseded ADR and a concept are refused, naming the status (failure)", async () => {
+  const fx = await vault();
+  doc(fx, "adr", ADR, "accepted");
+  doc(fx, "spec", SPEC, "active");
+  doc(fx, "spec", "specs/no-status.md", null);
+  doc(fx, "concept", "concepts/a-concept.md", "draft");
+  doc(fx, "research", NOTE, "final");
+  doc(fx, "adr", "adr/old.md", "superseded");
+  const before = snapshot(fx.vault);
+  const cases = [
+    [
+      ADR,
+      /this ADR is accepted, and edit writes an ADR only while it is proposed\. An ADR past proposed changes by a dated note/,
+    ],
+    [
+      SPEC,
+      /this spec is active, and edit writes a spec only while it is draft\. A spec past draft changes by a `> amended` marker/,
+    ],
+    ["specs/no-status.md", /this spec is of no status/],
+    [
+      "concepts/a-concept.md",
+      /of the kind concept; edit writes a story, an epic, an initiative, a proposed ADR, a draft spec or a draft research note/,
+    ],
+    [
+      NOTE,
+      /this research note is final, and edit writes a research note only while it is draft\. A research note that is no longer a draft is cited by its findings/,
+    ],
+    ["adr/old.md", /this ADR is superseded, .* A superseded ADR is closed: nothing changes it\./],
+  ];
+  for (const [rel, match] of cases) {
+    const r = await cli(fx.proj, ["edit", rel]);
+    assert.equal(r.code, 1, rel);
+    assert.match(r.json.result.error, match, rel);
+  }
+  assert.deepEqual(snapshot(fx.vault), before);
+});
+
+// [edit#3]
+test("edit: a proposed ADR, a draft spec, a research note and a story whose type is Story are written and marked", async () => {
+  const fx = await vault();
+  doc(fx, "adr", ADR, "Proposed");
+  doc(fx, "spec", SPEC, "draft");
+  doc(fx, "research", NOTE, "draft");
+  writeFileSync(fx.at(STORY), read(fx.at(STORY)).replace(/^type: story$/m, "type: Story"));
+  for (const rel of [ADR, SPEC, NOTE, STORY]) {
+    const r = await edit(fx, rel, (b) => b.replace(/^## (\S.*)\n/m, "## $1\n\nNew words.\n"));
+    assert.equal(r.code, 0, `${rel}: ${r.out}${r.err}`);
+    const t = read(fx.at(rel));
+    assert.match(t, /New words\./, rel);
+    assert.match(fm(fx.at(rel)).written_by_verb, /^edit /, rel);
+    assert.equal(fm(fx.at(rel)).review_status, "pending", rel);
+  }
+  // The head and the foot are the file's own: the ADR's field table and its "Last updated" line stay.
+  assert.match(read(fx.at(ADR)), /\| \*\*Status\*\* \| proposed \|/);
+  // [edit#6] The ADR template carries the review keys: the mark goes just before them, as on an epic.
+  assert.match(read(fx.at(ADR)), /\nwritten_by_verb: "edit [^"]+"\nreview_status: pending\nreviewed_at: null\n/);
+  assert.match(read(fx.at(ADR)), /\n---\n\n\*Last updated: 2026-11-25\*\n$/);
+});
+
+// [edit#3] [edit#4]
+test("edit: an ADR accepted between the plan and the write is refused naming accepted, and is as the other writer left it (failure)", async () => {
+  const fx = await vault();
+  doc(fx, "adr", ADR, "proposed");
+  const cfg = { vault_path: fx.vault, layout: "engineering", language: "en" };
+  const was = await readBody(fx, ADR);
+  const text = tmpText(was.body.replace("## Context\n", "## Context\n\nNew words.\n"));
+  let accepted = null;
+  const r = await runEdit({
+    values: { from: text, base: was.hash, write: true },
+    positionals: [ADR],
+    cfg,
+    project: fx.proj,
+    env: { ...process.env, CI: "1" },
+    afterCompute: () => {
+      if (accepted) return;
+      accepted = read(fx.at(ADR)).replace(/^status: proposed$/m, "status: accepted");
+      writeFileSync(fx.at(ADR), accepted);
+    },
+  });
+  assert.equal(r.code, 1, r.text);
+  assert.match(r.result.error, /this ADR is accepted/);
+  assert.equal(read(fx.at(ADR)), accepted);
+});
+
+// [edit#5]
+test("edit: a draft spec's text that checks an Acceptance item, or rewords a checked one under ## Приёмка, is refused (failure)", async () => {
+  const fx = await vault();
+  doc(fx, "spec", SPEC, "draft");
+  writeFileSync(
+    fx.at(SPEC),
+    read(fx.at(SPEC)).replace(
+      /## Acceptance\n[\s\S]*?\n## References/,
+      "## Acceptance\n\n- [ ] One thing holds.\n\n## References",
+    ),
+  );
+  await refuses(
+    fx,
+    SPEC,
+    (b) => b.replace("- [ ] One thing holds.", "- [x] One thing holds."),
+    /the spec's Acceptance/,
+  );
+  doc(fx, "spec", "specs/ru.md", "draft");
+  writeFileSync(
+    fx.at("specs/ru.md"),
+    read(fx.at("specs/ru.md")).replace(
+      /## Acceptance\n[\s\S]*?\n## References/,
+      "## Приёмка\n\n- [x] Одно держится. — evidence: test\n\n## References",
+    ),
+  );
+  await refuses(fx, "specs/ru.md", (b) => b.replace("Одно держится.", "Другое держится."), /the spec's Acceptance/);
+  // Unchecking is not refused.
+  const r = await edit(fx, "specs/ru.md", (b) => b.replace("- [x] Одно", "- [ ] Одно"));
+  assert.equal(r.code, 0, r.out);
+});
+
+// [edit#6]
+test("edit: a research note with no review keys and no plan_updated_at gets the three mark lines last in its frontmatter (edge)", async () => {
+  const fx = await vault();
+  mkdirSync(fx.at("research"), { recursive: true });
+  writeFileSync(
+    fx.at(NOTE),
+    "---\ntype: research\ntitle: An old note\nstatus: draft\ndate: 2026-01-01\n---\n\n# An old note\n\n## Question\n\nWhy?\n",
+  );
+  const r = await edit(fx, NOTE, (b) => b.replace("Why?", "Why not?"));
+  assert.equal(r.code, 0, r.out);
+  assert.match(
+    read(fx.at(NOTE)),
+    /\ndate: 2026-01-01\nwritten_by_verb: "edit [^"]+"\nreview_status: pending\nreviewed_at: null\n---\n/,
+  );
+});

@@ -2028,6 +2028,8 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
     load: async () => {},
     fetchState: () => new Promise(() => {}),
     MOD: "⌘",
+    // The drawer itself: with no item open, a redraw only hides it.
+    $: () => ({}),
     MD: { render: () => null, fromHtml: () => "", kindOf: () => "file" },
     // app.js's store, over the shared storage: `ws:` before every key, JSON values.
     store: {
@@ -2074,13 +2076,23 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
   };
   vm.createContext(ctx);
   vm.runInContext(
-    `${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor; globalThis.PASTED_ = PASTED;`,
+    `${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor; globalThis.PASTED_ = PASTED; globalThis.textMode_ = textMode; globalThis.refusedNote_ = refusedNote; globalThis.editorFor_ = editorFor; globalThis.endRefused_ = endRefusedEditor; globalThis.ED_ = () => ED;`,
     ctx,
     {
       filename: "item.js",
     },
   );
-  return { open: (item) => ctx.makeEditor(item), saves, toasts, pasted: ctx.PASTED_ };
+  return {
+    open: (item) => ctx.makeEditor(item),
+    saves,
+    toasts,
+    pasted: ctx.PASTED_,
+    textMode: ctx.textMode_,
+    refusedNote: ctx.refusedNote_,
+    editorFor: ctx.editorFor_,
+    endRefused: ctx.endRefused_,
+    live: () => ctx.ED_(),
+  };
 }
 // A file as a paste or a drop hands it: its name and its bytes.
 const fileFrom = (name, bytes) => ({
@@ -2553,4 +2565,77 @@ test("dashboard page: Reports asks with exactly the address's filters, drops an 
     reports.query(),
     `asof=${new Date(Date.parse(F.weekly[0].from) + 7 * 86400000).toISOString().slice(0, 10)}`,
   );
+});
+
+// [dashboard-editor#14] [dashboard-editor#10]
+test("dashboard page: a file the edit verb refuses is its text with the reason; a proposed ADR is an editor; the old-server note is for a story, an epic or an initiative only", () => {
+  const { textMode } = loadEditor("/work/a", "/vaults/one", new Map());
+  const write = { can: true, verbs: [{ verb: "edit-doc" }] };
+  const edit = { head: "", body: "## A\n", hash: "h" };
+  const cases = [
+    [{ type: "adr", status: "proposed", edit }, "editor"],
+    [{ type: "research", edit }, "editor"],
+    [{ type: "adr", status: "accepted", editRefused: "this ADR is accepted, …" }, "refused"],
+    [{ type: "spec", status: "active", editRefused: "this spec is active, …" }, "refused"],
+    [{ type: "concept" }, "text"],
+    [{ type: "adr", status: "accepted" }, "text"],
+    [{ type: "story" }, "old-server"],
+    [{ type: "epic", edit }, "editor"],
+  ];
+  for (const [item, want] of cases) assert.equal(textMode(item, "doc", write, true), want, JSON.stringify(item));
+  assert.equal(textMode({ type: "story", edit }, "doc", { can: true, verbs: [] }, true), "old-server", "no edit-doc");
+  assert.equal(
+    textMode({ type: "adr", editRefused: "x" }, "doc", { can: false }, true),
+    "text",
+    "a page that cannot write gives no reason",
+  );
+  assert.equal(textMode({ type: "story", edit }, "doc", write, false), "no-editor");
+});
+
+// [dashboard-editor#14]
+test("dashboard page: the reason of a refused file is drawn as text, and says when text not saved for it is kept", () => {
+  const storage = new Map();
+  const rel = "adr/ADR-002-x.md";
+  const { refusedNote } = loadEditor("/work/a", "/vaults/one", storage);
+  const reason = "this ADR is accepted, and edit writes an ADR only while it is proposed. <img src=x onerror=alert(1)>";
+  const bare = refusedNote({ rel, editRefused: reason });
+  assert.match(bare.text, /^Not edited here\. This ADR is accepted/);
+  assert.ok(bare.text.includes("<img src=x onerror=alert(1)>"), "drawn as text");
+  assert.ok(!bare.querySelectorAll("img").length);
+  assert.doesNotMatch(bare.text, /kept in this browser/);
+  const key = `ws:draft:${JSON.stringify(["/work/a", "/vaults/one", rel])}`;
+  storage.set(key, JSON.stringify({ body: "## Context\n\nMine <b>here</b>.\n", saved: "", hash: "h" }));
+  const kept = refusedNote({ rel, editRefused: reason });
+  assert.match(kept.text, /Your text not saved for it is kept in this browser/);
+  // The kept text is shown as text, to copy or to drop.
+  assert.ok(kept.querySelector("pre").text.includes("Mine <b>here</b>."));
+  assert.ok(!kept.querySelectorAll("b").some((b) => b.text === "here"));
+  assert.ok(kept.querySelectorAll("button").some((b) => b.text === "Copy"));
+  kept
+    .querySelectorAll("button")
+    .find((b) => b.text === "Discard")
+    .click();
+  assert.equal(storage.has(key), false, "Discard drops the kept text");
+});
+
+// [dashboard-editor#14]
+test("dashboard page: a file that turns read-only while its editor is open ends that editor, so a Discard of its kept text is not written back", () => {
+  const storage = new Map();
+  const page = loadEditor("/work/a", "/vaults/one", storage);
+  const item = { ...EDIT_ITEM, rel: "adr/ADR-002-x.md", type: "adr", status: "proposed" };
+  page.editorFor({ kind: "doc", id: item.rel }, item);
+  page.live().ed.type("Mine, not saved.\n");
+  // Get latest brings the ADR accepted: the drawer draws its text and ends the editor, its text kept once.
+  page.endRefused({ ...item, status: "accepted", editRefused: "this ADR is accepted, …" });
+  assert.equal(page.live(), null, "no live editor is left to write the text back");
+  const key = `ws:draft:${JSON.stringify(["/work/a", "/vaults/one", item.rel])}`;
+  assert.ok(storage.has(key), "the text is kept once");
+  const note = page.refusedNote({ rel: item.rel, editRefused: "this ADR is accepted, …" });
+  note
+    .querySelectorAll("button")
+    .find((b) => b.text === "Discard")
+    .click();
+  assert.equal(storage.has(key), false);
+  page.endRefused({ ...item, status: "accepted" });
+  assert.equal(storage.has(key), false, "nothing writes it back");
 });

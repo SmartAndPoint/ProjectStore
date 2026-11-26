@@ -163,7 +163,7 @@ export const WRITE_VERBS = freezeDeep([
     ],
   },
   // The editor's save (the spec dashboard-editor, contract 9): the core's edit
-  // verb replaces the body of a story, an epic or an initiative when the file's
+  // verb replaces the body of a file it takes (its editRefusal) when the file's
   // body still has the hash the editor's text was taken from. Pictures and
   // PDFs pasted into the text go with it (the spec dashboard-attachments,
   // contract 5): `files`, each `{ name, data }`, kept by the verb's --attach.

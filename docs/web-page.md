@@ -35,8 +35,8 @@ start it, its launcher protocol and how to run it by hand: the README's section
   Code block's read and its kept list, under the same token and `Origin` check, with no call of its
   own; a GET or HEAD of it gets 404. The spec "The dashboard's Reports…" (alias
   `dashboard-reports`) holds the rules.
-- `POST /api/base` (`{ rel }`) reads, for the editor, a story's, an epic's or an initiative's
-  text where your changes started, under the same token and `Origin` check: `git merge-base`,
+- `POST /api/base` (`{ rel }`) reads, for the editor, the text of a file the edit verb takes (a
+  story, an epic, an initiative, a proposed ADR, a draft spec or a research note) where your changes started, under the same token and `Origin` check: `git merge-base`,
   `git cat-file -e` and `git show` in the page's own clone. With `saves: true` it lists the file's
   earlier saves instead, by one `git log` there (at most 30: each commit's hash, author time, author's
   name and subject, an email-shaped word said as "an email-shaped name"), and with `at` (a full
