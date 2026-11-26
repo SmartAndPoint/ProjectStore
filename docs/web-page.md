@@ -189,17 +189,19 @@ lib/state.mjs     readState, readItem, readArtifacts and the path rule, each tak
 lib/related.mjs   related(ctx, rel): an item's specs, ADRs and documents, and the contracts it touched
 lib/write.mjs     the write module: the page's clone, the lock, the refresh, preview, action, Send, Discard
 lib/code.mjs      openCode({ reader }): the Code block's read, a story's pull requests and a spec's files
+lib/reports.mjs   Reports' two reads: the core's flow counts for a window, and the board against the code
 public/           the page: index.html, styles.css and classic scripts that share one global scope
   icons.js        the icons: kinds of artifacts, git objects, host marks
   md.js           Markdown to DOM nodes, never through innerHTML
   app.js          helpers, the dialog, the backlog tree
-  views.js        the shell; filters, lanes and the address; board, list, My work, Initiatives
+  views.js        the shell; filters, lanes and the address; board, list, My work, Initiatives, Reports' menu row
   write.js        writeUi: a move with its preview, the batch strip, Send, Discard, kept branches
   item.js         the item pane: the document, its fields, the address bar; the editor's drawer and its pictures
   editor.bundle.js  the editor, built from editor/src/
   selftest.js     "Check the editor", from the palette
   related.js      Related: short in the side panel, in full beside the text
   code.js         codeUi: the Code block in the side panel, links apart from leads
+  reports.js      reportsUi: the Reports page, its filters in the address, its charts and checks
   keys.js         the command palette (⌘K), the selection and the keys
 ```
 

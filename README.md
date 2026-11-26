@@ -311,14 +311,15 @@ From a checkout of this repository, name the project:
 node bin/projectstore.mjs dashboard <project dir>
 ```
 
-**What is on the page.** The sidebar holds four views:
+**What is on the page.** The sidebar holds five views:
 
 - **Backlog**: initiatives, their epics and the epics' stories, as a tree you can fold. While the page can write, **New** there makes an initiative, an epic or a story with `create` and opens it in the editor.
 - **Board**: the stories that are not done, in columns by status.
 - **My work**: your stories that are not done. The page starts with the binding's default author as your name; choose another under **Your name** at the foot of the sidebar, and this browser remembers it.
 - **Initiatives**: the same board, with initiatives for cards.
+- **Reports**: how the work flows, and the board against the code.
 
-Click a story, an epic or an initiative to open it: its document (while the page can write, its text is an editor, as is a proposed ADR's or a draft spec's or research note's: Save runs `edit`, and text not saved yet stays in this browser), its fields, and what is related to it (its specs, its ADRs, the documents that link to it). A bookmark keeps the view and the open item. The page reads the vault when it loads, and R reads it again: the bound vault while the page cannot write, so R shows a change made there; its own clone while it can, which R reads again without fetching (how the clone is fetched is below).
+Click a story, an epic or an initiative to open it: its document (while the page can write, its text is an editor, as is a proposed ADR's or a draft spec's or research note's: Save runs `edit`, and text not saved yet stays in this browser), its fields, and what is related to it (its specs, its ADRs, the documents that link to it). A bookmark keeps the view and the open item. The page reads the vault when it loads, and R reads it again: the bound vault while the page cannot write, its own clone with no fetch while it can.
 
 | Key | What it does |
 |---|---|
