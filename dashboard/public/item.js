@@ -223,6 +223,7 @@ function askTemplate(st) {
 const newItem = (st) => ({ rel: st.tpl.rel, type: st.kind, title: `New ${st.kind}`, fresh: st, edit: { head: "", body: st.tpl.body, hash: "" } });
 // What the panel draws for a new item: "editor", or why not (contract 2).
 function newMode(st) {
+  if (st.made) return "made"; // saved: its file opens once the state is read again (contract 4)
   const entry = S.write?.can ? writeUi.createEntry(st.kind) : null;
   if (!entry) return "cannot-write";
   if (!entry.fields?.text) return "old-server";
@@ -232,6 +233,7 @@ function newMode(st) {
 }
 const oldServerNote = () => h("div", { class: "ed-draft bad" }, h("b", null, "The server is older than this page. "), "Stop it (Ctrl+C), start it again and reload this page.");
 function newNote(st, mode) {
+  if (mode === "made") return h("div", { class: "ed-draft" }, h("b", null, "Saved. "), `The ${st.kind} is a draft change now, in ${st.madeRel || "the vault"}. It opens here once the page reads the backlog again; if it does not, reload the page.`);
   if (mode === "reading") return h("div", { class: "faint" }, "reading the template…");
   if (mode === "old-server") return oldServerNote();
   if (mode === "no-editor") return h("div", { class: "ed-draft bad" }, h("b", null, "The editor did not load. "), "Reload this page to write a new item.");
@@ -667,6 +669,7 @@ function makeEditor(item) {
         // Made: the state is gone, its kept text with it; text typed while Save ran, and the views'
         // note, go to the made item's editor (contracts 4 and 6). Then the made item opens.
         fresh.made = true;
+        fresh.madeRel = a.result?.rel || null;
         NEW.delete(fresh.key);
         store.set(draftKey, null);
         const typed = ed.text();
@@ -675,6 +678,7 @@ function makeEditor(item) {
         notice.replaceChildren();
         notice.classList.remove("bad");
         paint();
+        renderDrawer(); // the panel says it is saved, with no editor to type into, until the made item opens
         return writeUi.finishNew(fresh.kind, a, sent);
       }
       // The written body's hash is the one the next save carries, whatever was typed meanwhile.

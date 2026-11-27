@@ -264,7 +264,7 @@ document.addEventListener("keydown", (e) => {
     if (ui.sel) (done(), openSelected());
   } else if (k === "Escape") {
     if (!ui.drawer && ui.sel) setSel(null);
-  } else if (k === "c") {
+  } else if (k === "c" || k === "C") {
     // New (the spec dashboard-new, contract 1): the palette's New level, while the page can write.
     const lvl = writeUi.newLevel();
     if (lvl) (done(), openPalette(lvl));

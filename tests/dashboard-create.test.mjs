@@ -799,7 +799,7 @@ test("dashboard new page: an epic's panel offers New story… and an initiative'
   assert.match(keys, /\["C", "New: add an initiative, an epic or a story"\]/);
   assert.match(
     keys,
-    /else if \(k === "c"\) \{[\s\S]{0,200}const lvl = writeUi\.newLevel\(\);\s*if \(lvl\) \(done\(\), openPalette\(lvl\)\);/,
+    /else if \(k === "c" \|\| k === "C"\) \{[\s\S]{0,200}const lvl = writeUi\.newLevel\(\);\s*if \(lvl\) \(done\(\), openPalette\(lvl\)\);/,
   );
   assert.match(src("views.js"), /writeUi\.newButton\(\)/, "the top bar of every view draws + New");
   assert.doesNotMatch(src("app.js"), /newInToolbar/);
