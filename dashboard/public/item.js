@@ -233,7 +233,7 @@ function newMode(st) {
 }
 const oldServerNote = () => h("div", { class: "ed-draft bad" }, h("b", null, "The server is older than this page. "), "Stop it (Ctrl+C), start it again and reload this page.");
 function newNote(st, mode) {
-  if (mode === "made") return h("div", { class: "ed-draft" }, h("b", null, "Saved. "), `The ${st.kind} is a draft change now, in ${st.madeRel || "the vault"}. It opens here once the page reads the backlog again; if it does not, reload the page.`);
+  if (mode === "made") return h("div", { class: "ed-draft" }, h("b", null, "Saved. "), `The ${st.kind} is a draft change now, in ${st.madeRel || "the vault"}. Open it from the backlog once the page reads it again; if it is not there, reload the page.`);
   if (mode === "reading") return h("div", { class: "faint" }, "reading the template…");
   if (mode === "old-server") return oldServerNote();
   if (mode === "no-editor") return h("div", { class: "ed-draft bad" }, h("b", null, "The editor did not load. "), "Reload this page to write a new item.");
