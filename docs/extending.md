@@ -291,7 +291,9 @@ each key activates.
   `scripts/draft.mjs`, so a new kind's template reaches the verb and the agent
   command alike. The mark's key and the one predicate every reader asks,
   `isMarked`, live in `scripts/verb-mark.mjs`; only `item-verbs.mjs` writes
-  the key, and only its `reviewed` removes it.
+  the key, and only its `reviewed` removes it. With `--from` and `--attach`
+  it runs `edit`'s checks of a text and its kept files against the
+  template's body, through the same helpers, before it writes anything.
 - `edit` (`scripts/item-verbs.mjs`) cuts a file and guards its text through
   `scripts/edit-cut.mjs`, which reads sections with `sectionOf` and checkboxes
   with `checklistItems`, as the gates do; a new section a gate writes needs a

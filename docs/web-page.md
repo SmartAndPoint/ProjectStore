@@ -31,6 +31,11 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   a path that names no story or spec, and a GET or HEAD of it gets 404. `lib/code.mjs` reads the
   project's repository as last fetched and one `gh pr list` of its pull requests, kept for 10
   minutes; the spec "The dashboard's Code block…" (alias `dashboard-code`) holds the rules.
+- `GET /api/template?kind=<initiative|epic|story>` gives a new item's panel its template: the
+  body after the head of the file the core's `renderDraft` gives that kind (for the title
+  "Untitled"), its `status`, `priority` and `assignee` or `owner`, and the draft's path, used only
+  for the depth of a pasted picture's link. It runs no process; another kind, or a story in a
+  vault with no epic, answers 404.
 - Reports reads twice. `GET /api/reports?asof&weeks&epic&initiative&assignee&priority` counts the
   vault with the core's flow functions and starts no process. `POST /api/reports/code` (the same
   six filters as strings, and `fresh`) joins the board with the project's pull requests through the
@@ -51,9 +56,11 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   `before` and `after`, offered by a drop or a key, never a button; `edit-doc`, the editor's Save,
   with `path`, `text` and `base`, and `files`, the pictures and PDFs pasted into the text, each
   `{ name, data }`, run as the core's `edit` with one `--attach` per file; and
-  `create-initiative`, `create-epic` and `create-story`, the backlog tree's New, with `title`, an
-  epic's `epic` and optional `initiative`, and a story's `epic`, each run as the core's `create`
-  with its kind's word first, as the spec "The page's New…" (alias `dashboard-create`) says;
+  `create-initiative`, `create-epic` and `create-story`, the Save of a new item's panel, with
+  `title`, an epic's `epic` and optional `initiative`, a story's `epic`, and optional `text` and
+  `files` (pictures only with a text), each run as the core's `create` with its kind's word first
+  and, with a text, `--from` and one `--attach` per file, as the specs "The page's New…" (alias
+  `dashboard-create`) and "The page's New in the item panel…" (alias `dashboard-new`) say;
   `initiative-decide`, `initiative-fields`, `epic-initiative` and `epic-unlink`, an initiative's
   decision and title, owner and priority and an epic's initiative, run as the core's `initiative`
   and `epic`, the last with a fixed `--initiative=`, as the spec "The page's initiative and epic
@@ -108,7 +115,7 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.
-- For a save it writes the text, and each pasted file under its written name, into a folder of
+- For a save, and for a new item's Save, it writes the text, and each pasted file under its written name, into a folder of
   its own in the system's temporary folder, mode 0600, and removes the folder when the verb ends,
   however it ends. When the verb created a file, or changed `.gitattributes`, and the commit
   would not hold it (git ignores it), nothing is committed: the clone is put back, and the answer
@@ -126,8 +133,8 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   ignored ones included, is lost at the next step.
 - The bridge (`lib/core.mjs`) imports from `<core>/scripts/` exactly `lib.mjs`, `stages.mjs`,
   `flow-stories.mjs`, `flow-policy.mjs`, `flow-counts.mjs`, `graph.mjs`, `binding.mjs`,
-  `rank.mjs`, `follow-plan.mjs`, `code-refs.mjs`, `spec-drift.mjs`, `edit-cut.mjs` and
-  `attachment.mjs`, after the version check. Layouts are read from `<core>` by name; the core's
+  `rank.mjs`, `follow-plan.mjs`, `code-refs.mjs`, `spec-drift.mjs`, `edit-cut.mjs`,
+  `attachment.mjs` and `draft.mjs`, after the version check. Layouts are read from `<core>` by name; the core's
   other in-process reads (the headings registry) find their root as the core always does, from
   the harness's plugin-root variable when the launcher's environment sets it, else from the
   core's own place.
@@ -142,7 +149,14 @@ One file takes at most 5 MiB, one save 16 MiB. The page holds a pasted picture u
 reloaded: a text kept in the browser over a reload names the pictures to paste again before Save.
 A video or a sound is linked from where it lives, never kept. When the vault's `.gitignore`
 ignores the attachments folder, the save is refused and names the rule (`git check-ignore -v`).
-A vault whose pictures go through Git LFS is not covered: the clone runs no hooks.
+A vault whose pictures go through Git LFS is not covered: the clone runs no hooks. A new item's
+panel takes pictures the same way: their links start from the path the template route gives, and
+Save sends them with the text to `create --attach`.
+
+**Which copies fetch the page.** A tarball packed in a checkout, a copy npm installed from git,
+and the registration setup lays from a checkout or from either of those fetch no page package:
+`dashboard` exits 1 and names the command that runs the registry's copy. A version folder stays
+in the cache until you delete it.
 
 ## Kept branches ("Kept aside" on the page), by hand
 
