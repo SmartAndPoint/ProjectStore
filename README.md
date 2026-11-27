@@ -288,7 +288,7 @@ What the directory itself reports about a copy installed this way: [What Anthrop
 
 ## The dashboard
 
-The dashboard is a page over your project's vault, in your browser: the backlog as initiatives, epics and stories, a board, your own work, and each document with what links to it. On it you can also move a story from the backlog to ToDo, or back, hand a story someone holds to another person, and add an initiative, an epic or a story. A move is committed in the page's own clone of the vault and reaches the vault only through a pull request that you send from the page and a person merges; [Moving stories from the page](#moving-stories-from-the-page) below says how. Apart from that clone and its folder, and the line `state/` that it adds to `.projectstore/.gitignore` when that line is missing, the page changes nothing in the project or in ProjectStore.
+The dashboard is a page over your project's vault: the backlog as initiatives, epics and stories, a board, your own work, and each document with what links to it. On it you can also move a story from the backlog to ToDo, or back, hand a story someone holds to another person, add an initiative, an epic or a story, decide an initiative, and set an epic's initiative. A change is committed in the page's own clone of the vault and reaches the vault only through a pull request that you send from the page and a person merges; [Moving stories from the page](#moving-stories-from-the-page) below says how. Apart from that clone and its folder, and the line `state/` that it adds to `.projectstore/.gitignore` when that line is missing, the page changes nothing in the project or in ProjectStore.
 
 From a terminal in a project bound to a vault:
 

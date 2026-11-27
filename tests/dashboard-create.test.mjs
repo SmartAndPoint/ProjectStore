@@ -1052,3 +1052,117 @@ test("dashboard create page: an action with ok and no new commit says nothing wa
   assert.doesNotMatch(r.dialog().text(), /of this name already/);
   assert.match(r.dialog().text(), /could not be written: EACCES/, "create's own words stand");
 });
+
+// ─── The page's initiative and epic rows (the spec dashboard-initiative, contract 2) ───
+// They run in this file's page harness, beside New.
+
+const linked = () => {
+  const S = STATE(writeOf());
+  S.epics[0].initiative = "faster-onboarding";
+  S.initiatives[0].status = "proposed";
+  return S;
+};
+
+// [dashboard-initiative#2]
+test("dashboard initiative page: an initiative's panel offers Accept, Reject, Defer and Edit fields; an epic offers Set initiative, or Change and No initiative once it has one; the palette has the same lines; a page that cannot write offers none", () => {
+  const w = page(linked());
+  const words = (root) => (root ? w.words(root) : []);
+  assert.deepEqual(words(w.ui.itemButtons("initiative", "faster-onboarding")), [
+    "Accept…",
+    "Reject…",
+    "Defer…",
+    "Edit fields…",
+  ]);
+  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-L")), ["Set initiative…"]);
+  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-X")), ["Change initiative…", "No initiative…"]);
+  assert.deepEqual(
+    [...w.ui.itemCommands("initiative", "faster-onboarding").map((c) => c.label)],
+    ["Accept…", "Reject…", "Defer…", "Edit fields…"],
+  );
+  assert.deepEqual(
+    [...w.ui.itemCommands("epic", "PS-X").map((c) => c.label)],
+    ["Change initiative…", "No initiative…"],
+  );
+  const ro = page(STATE(writeOf(undefined, { can: false, reason: "read-only for the test" })));
+  assert.equal(ro.ui.itemButtons("initiative", "faster-onboarding"), null);
+  assert.equal(ro.ui.itemButtons("epic", "PS-X"), null);
+  assert.deepEqual([...ro.ui.itemCommands("epic", "PS-X")], []);
+});
+
+// [dashboard-initiative#2] [dashboard-initiative#3]
+test("dashboard initiative page: Edit fields starts from the item's values, offers no Preview until a field changes, and sends only the changed field (edge)", async () => {
+  const w = page(linked(), {
+    answers: { "/api/preview": { ok: true, result: { changes: [{ field: "priority", from: "p2", to: "p1" }] } } },
+  });
+  w.ui.openFields("faster-onboarding");
+  const inputs = inputsOf(w);
+  assert.deepEqual(
+    inputs.map((i) => i.value),
+    ["Faster onboarding", "", "p2"],
+  );
+  assert.equal(primaryOf(w).disabled, true, "nothing changed: no preview");
+  type(inputs[2], "p1");
+  assert.equal(primaryOf(w).disabled, false);
+  primaryOf(w).click();
+  await settleUi();
+  assert.deepEqual(w.posts.at(-1), {
+    url: "/api/preview",
+    verb: "initiative-fields",
+    fields: { initiative: "faster-onboarding", priority: "p1" },
+  });
+  assert.match(w.dialog().text(), /Priority\s*p2 → p1/);
+});
+
+// [dashboard-initiative#2] [dashboard-initiative#3]
+test("dashboard initiative page: Reject opens the decide dialog titled by its label with the decision fixed, and its preview sends the initiative, the decision and the reason", async () => {
+  const w = page(linked(), {
+    answers: {
+      "/api/preview": { ok: true, result: { changes: [{ field: "status", from: "proposed", to: "rejected" }] } },
+    },
+  });
+  w.ui.openDecide("faster-onboarding", "rejected");
+  const inputs = inputsOf(w);
+  assert.equal(inputs.length, 1, "one input, the reason");
+  type(inputs[0], "not now");
+  assert.match(w.dialog().text(), /Commit: decide faster-onboarding: rejected: not now/);
+  primaryOf(w).click();
+  await settleUi();
+  assert.deepEqual(w.posts.at(-1), {
+    url: "/api/preview",
+    verb: "initiative-decide",
+    fields: { initiative: "faster-onboarding", decision: "rejected", reason: "not now" },
+  });
+  assert.equal(primaryOf(w).text(), "Reject");
+});
+
+// [dashboard-initiative#2]
+test("dashboard initiative page: Set initiative takes a typed id offered from the vault's initiatives; No initiative sends the epic alone", async () => {
+  const w = page(linked(), { answers: { "/api/preview": { ok: true, result: { changes: [] } } } });
+  w.ui.openLink("PS-L");
+  const lists = w
+    .dialog()
+    .all()
+    .filter((e) => e.tag === "option");
+  assert.deepEqual(
+    lists.map((o) => o.value),
+    ["faster-onboarding"],
+  );
+  type(inputsOf(w)[0], "faster-onboarding");
+  primaryOf(w).click();
+  await settleUi();
+  assert.deepEqual(w.posts.at(-1), {
+    url: "/api/preview",
+    verb: "epic-initiative",
+    fields: { epic: "PS-L", initiative: "faster-onboarding" },
+  });
+  assert.match(w.dialog().text(), /Nothing changes/);
+  const u = page(linked(), {
+    answers: {
+      "/api/preview": { ok: true, result: { changes: [{ field: "initiative", from: "faster-onboarding", to: null }] } },
+    },
+  });
+  u.ui.openUnlink("PS-X");
+  primaryOf(u).click();
+  await settleUi();
+  assert.deepEqual(u.posts.at(-1), { url: "/api/preview", verb: "epic-unlink", fields: { epic: "PS-X" } });
+});

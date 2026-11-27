@@ -53,7 +53,11 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   `{ name, data }`, run as the core's `edit` with one `--attach` per file; and
   `create-initiative`, `create-epic` and `create-story`, the backlog tree's New, with `title`, an
   epic's `epic` and optional `initiative`, and a story's `epic`, each run as the core's `create`
-  with its kind's word first, as the spec "The page's New…" (alias `dashboard-create`) says) and
+  with its kind's word first, as the spec "The page's New…" (alias `dashboard-create`) says;
+  `initiative-decide`, `initiative-fields`, `epic-initiative` and `epic-unlink`, an initiative's
+  decision and title, owner and priority and an epic's initiative, run as the core's `initiative`
+  and `epic`, the last with a fixed `--initiative=`, as the spec "The page's initiative and epic
+  rows…" (alias `dashboard-initiative`) says) and
   gives every required field of it as a value. Each entry also carries the labels and the commit
   subject (or a list of subjects, one for each set of fields) the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400). A file whose
@@ -97,7 +101,7 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
 - It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
   `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
-  points the core's `move`, `handover`, `rank`, `edit` and `create` at the vault inside the clone, and the lock file
+  points the core's `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` at the vault inside the clone, and the lock file
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.
