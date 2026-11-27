@@ -22,7 +22,7 @@ The fix is not a smarter agent. It is a loop with verification in it.
 |---|---|---|---|
 | **Agent memory** | What does this agent recall? | Notes the model keeps from its sessions, for an agent, a user or a machine. | Mem0, Zep, Codex and Claude Code memory |
 | **Instruction files** | How should an agent behave here? | Standing rules for an agent, kept in the repository. | `CLAUDE.md`, `AGENTS.md`, rules, steering files |
-| **Spec-driven tools** | How do we build this change? | A spec, a plan and tasks for one feature. | Spec Kit, Kiro, OpenSpec, BMAD |
+| **Spec-driven tools** | How do we build this change? | A spec, a plan and tasks; in BMAD, also a backlog of epics and stories. | Spec Kit, Kiro, OpenSpec, BMAD |
 | **ProjectStore** | What has the project decided, what is in flight, and was it checked? | Decisions, specs and work items with a status, a date and links, in git. A person approves each before ProjectStore writes it; a fresh-context critic reviews it by rule. | — |
 
 Keep your agent's memory for you and your machine, and the project in the vault.
