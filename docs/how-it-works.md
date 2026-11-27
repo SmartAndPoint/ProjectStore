@@ -113,7 +113,7 @@ by hash (a file over 512 KiB, and anything past 64 MiB a session, keeps its
 hashes only). The tool hooks write it for `Edit`, `Write`, `MultiEdit` and
 `NotebookEdit`: PreToolUse stores the file as it is, keyed by the call's
 `tool_use_id`, and PostToolUse appends the event. The plugin's own writers add
-to it too (`move`, `handover`, `groom`, the epic row, `configure`'s vault settings, `guide eject`),
+to it too (`move`, `handover`, `assign`, `groom`, the epic row, `configure`'s vault settings, `guide eject`),
 and the story close brackets the clerk's copy, which no hook sees, with
 `session snapshot <story> --for <scratch>` before the spawn and
 `session record <story> --from <scratch>` after it. Derived views are not
@@ -294,6 +294,19 @@ resistance. v0.13 makes that safe instead of forbidden:
   `gh`, and it has no MCP tool. Doctor's `assignee-left` lists the open work
   of each person `flow.people[<name>].left` marks as left, and it and
   `assignee-idle` end with the `handover` command to run.
+- **`assign`** names who holds one story in ToDo:
+  `assign <EPIC>/<id> <name> --reason "<why>"`, or empties the assignee of a
+  story in the Backlog or ToDo with `--clear`. A story elsewhere is refused:
+  one in the Backlog names `move … todo`, a started one names `handover`. A
+  name of the form `agent:<name>` is an agent. A name's load is its stories
+  in In Progress and Review (awaiting close not counted) plus its stories in
+  ToDo; an agent whose load is at its WIP limit is refused, and a person in
+  the same case is warned and assigned. It writes the
+  `assignee:`, the Assignee row and one line
+  `assignee: <from> → <to> — <why> (assign)` through the same read-again
+  writer, and moves no status, no stamp, no `updated` and no review mark.
+  It is not a reservation: the plan gate still makes the person who starts
+  the work its assignee. It has no MCP tool.
 - **`groom`** is the weekly grooming pass. Every ToDo story whose age in
   status meets `flow.age_days.todo` goes back to `planned`, with one Status
   log line, `status: todo → planned — groomed: in ToDo for <n> days (groom)`,

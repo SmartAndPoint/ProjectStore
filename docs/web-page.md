@@ -8,6 +8,8 @@ start it, its launcher protocol and how to run it by hand: the README's section
 
 ## What the server reads, what it runs, and for whom
 
+On a large vault kept in iCloud, the first read can be slow while iCloud downloads the files.
+
 - It listens on `127.0.0.1` only. A request whose `Host` is not `127.0.0.1:<port>` or
   `localhost:<port>` gets 403, before anything else is looked at.
 - The read routes take GET and HEAD, and nothing else (404): `/` and the page's own files under
@@ -51,13 +53,20 @@ start it, its launcher protocol and how to run it by hand: the README's section
   `{ name, data }`, run as the core's `edit` with one `--attach` per file; and
   `create-initiative`, `create-epic` and `create-story`, the backlog tree's New, with `title`, an
   epic's `epic` and optional `initiative`, and a story's `epic`, each run as the core's `create`
-  with its kind's word first, as the spec "The page's New…" (alias `dashboard-create`) says) and
+  with its kind's word first, as the spec "The page's New…" (alias `dashboard-create`) says;
+  `initiative-decide`, `initiative-fields`, `epic-initiative` and `epic-unlink`, an initiative's
+  decision and title, owner and priority and an epic's initiative, run as the core's `initiative`
+  and `epic`, the last with a fixed `--initiative=`, as the spec "The page's initiative and epic
+  rows…" (alias `dashboard-initiative`) says) and
   gives every required field of it as a value. Each entry also carries the labels and the commit
   subject (or a list of subjects, one for each set of fields) the page draws its dialog from.
   The server builds the argv, and refuses a verb or a field outside the table (400). A file whose
   bytes are of no kept type, over 5 MiB, or named otherwise than the core's `nameOf` names them
   is refused (400) before any process starts; the spec "The page's pictures…" (alias
-  `dashboard-attachments`) holds the rules.
+  `dashboard-attachments`) holds the rules. The derived views are never part of the page's
+  commit, so a verb whose only failure is that it could not rebuild them (its whole message is
+  `left: the derived views`, with or without its reason in brackets) still commits the files it
+  wrote, and the page shows the core's reason, `views_left`.
 - One path rule for every route that takes a path (`readableRel` in `lib/state.mjs`): not empty,
   not absolute, no `\`, no NUL, no `.`, `..` or hidden segment, and after every link is followed
   still a file inside the vault under no hidden segment. `/api/item` and `/api/related` take a
@@ -95,7 +104,7 @@ start it, its launcher protocol and how to run it by hand: the README's section
   `pr list`, `pr create` and `pr close` only, never `pr merge`, and `pr close` keeps the branch.
 - It writes, under `<main checkout>/.projectstore/state/dashboard/<person>/`, the clone (made in
   `clone.tmp/`, renamed to `clone/` once git ends with 0), the binding folder `project/` that
-  points the core's `move`, `handover`, `rank`, `edit` and `create` at the vault inside the clone, and the lock file
+  points the core's `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` at the vault inside the clone, and the lock file
   `projectstore-dashboard.lock`; it adds `state/` to `.projectstore/.gitignore` when that line is
   missing, and removes a `clone.tmp/` left behind and a stale `index.lock` in the clone. It
   writes no file of the vault, and changes no setting of the vault's repository.
