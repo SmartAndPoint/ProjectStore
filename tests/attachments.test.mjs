@@ -938,12 +938,14 @@ test("attachments: a create's story, its epic, each kept file and .gitattributes
   const name = await nameOf(FIXTURES.png);
   const r = await createWith(fx, `![shot](${UP}/${name})`, [png], { sid: "s-create" });
   assert.equal(r.code, 0, r.out + r.err);
+  // The record keeps its events in no order (readEvents): compared as a set.
   const events = readEvents(fx.proj, "s-create").filter((e) => e.tool === "create");
   assert.deepEqual(
-    events.map((e) => e.rel),
-    [NEW_STORY, `attachments/${name}`, ".gitattributes", "epics/PS-X/epic.md"],
+    events.map((e) => e.rel).sort(),
+    [NEW_STORY, `attachments/${name}`, ".gitattributes", "epics/PS-X/epic.md"].sort(),
   );
-  assert.equal(events[1].before ?? null, null, "a kept file has no before");
+  const kept = events.find((e) => e.rel === `attachments/${name}`);
+  assert.equal(kept.before ?? null, null, "a kept file has no before");
   const c = await cli(fx.proj, ["session", "check"], { sid: "s-create" });
   const files = c.json.result.copies[0].files;
   for (const rel of [NEW_STORY, "epics/PS-X/epic.md", ".gitattributes", `attachments/${name}`])
