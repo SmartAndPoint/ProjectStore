@@ -257,7 +257,7 @@ test("dashboard create: a story in an epic whose story list is no table is one c
   });
 });
 
-// [dashboard-create#1] [dashboard-create#4]
+// [dashboard-create#1] [dashboard-new#5]
 test("dashboard create: a title within 200 characters whose file name passes the core's byte limit is refused by create, ok false, with its words and the clone as it was", async () => {
   await withWorld({}, async (w) => {
     const writer = await writable(w);
