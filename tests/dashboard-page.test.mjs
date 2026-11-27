@@ -330,6 +330,8 @@ test("dashboard page: the page imports only the core modules the spec lists, and
     "edit-cut.mjs",
     // The pictures (dashboard-attachments): a kept file's type, name and limit.
     "attachment.mjs",
+    // New in the item panel (dashboard-new): a new item's template.
+    "draft.mjs",
   ]);
   const seen = new Set();
   let size = 0;

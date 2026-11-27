@@ -1561,6 +1561,9 @@ test("dashboard writes: on a writable vault, answering every GET route after the
       assert.equal((await call(page, `/api/related?rel=${encodeURIComponent(rel)}`)).status, 200, rel);
       await call(page, `/vault/${rel}`, { method: "HEAD" });
     }
+    // [dashboard-new#3] A new item's template is a read too.
+    for (const kind of ["initiative", "epic", "story"])
+      assert.equal((await call(page, `/api/template?kind=${kind}`)).status, 200, kind);
     assert.deepEqual(snapshot(), before);
     assert.equal(w.record.length, from, "no GET starts a process");
   });
@@ -1698,6 +1701,7 @@ test("dashboard writes: write.verbs holds only verbs the core has, each a writin
       );
     // [dashboard-attachments#5] edit-doc's files are a field of the kind files, optional, labelled,
     // and reach the core's edit as one --attach=<file> each: an option that takes a value, repeatable.
+    // [dashboard-new#7] The three create rows' text and files reach create as --from and --attach the same way.
     if (call.attach) {
       assert.deepEqual(entry.fields[call.attach], { kind: "files", optional: true, label: "Pictures" });
       assert.ok(

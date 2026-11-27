@@ -16,7 +16,10 @@
 // own cut and hash of a file, so the page holds no copy; and for the page's
 // pictures (the spec "The page's pictures…", alias `dashboard-attachments`),
 // attachment, whose type, name and limit the server checks a save's files
-// with, and whose file `GET /attachment.js` serves to the page as it is. Layouts are read
+// with, and whose file `GET /attachment.js` serves to the page as it is; and for
+// New in the item panel (the spec "The page's New in the item panel…", alias
+// `dashboard-new`), draft, whose renderDraft gives a new item's template, so
+// the page holds no copy of a template. Layouts are read
 // from `core` by name. The core's other in-process reads (the headings
 // registry) find their root as the core always does: the harness's plugin-root
 // variable when the launcher's environment sets it, else the core these
@@ -27,7 +30,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const OWN_PACKAGE = new URL("../package.json", import.meta.url);
-const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs", "follow-plan.mjs", "code-refs.mjs", "spec-drift.mjs", "edit-cut.mjs", "attachment.mjs"];
+const CORE_MODULES = ["lib.mjs", "stages.mjs", "flow-stories.mjs", "flow-policy.mjs", "flow-counts.mjs", "graph.mjs", "binding.mjs", "rank.mjs", "follow-plan.mjs", "code-refs.mjs", "spec-drift.mjs", "edit-cut.mjs", "attachment.mjs", "draft.mjs"];
 
 function versionAt(file) {
   try {
@@ -64,7 +67,7 @@ export async function openCore({ core, project } = {}) {
     throw new Error(`version mismatch: the core at ${root} is ${theirs}, the dashboard is ${mine ?? "unknown"}. The two ship together; run the dashboard of that core.`);
 
   const load = (name) => import(pathToFileURL(join(root, "scripts", name)).href);
-  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank, followPlan, codeRefs, specDrift, editCut, attachment] = await Promise.all(CORE_MODULES.map(load));
+  const [lib, stages, flowStories, flowPolicy, flowCounts, graph, binding, rank, followPlan, codeRefs, specDrift, editCut, attachment, draft] = await Promise.all(CORE_MODULES.map(load));
 
   const bound = lib.readConfigAt(dir);
   if (!bound || typeof bound !== "object") throw new Error(`${dir} is not bound to a vault: it has no readable .projectstore/projectstore.json. Bind it first (projectstore bind <vault>).`);
@@ -93,6 +96,7 @@ export async function openCore({ core, project } = {}) {
     specDrift,
     editCut,
     attachment,
+    draft,
     // The core's own file, served to the page byte for byte (dashboard-attachments, contract 1).
     attachmentFile: join(root, "scripts", "attachment.mjs"),
   };

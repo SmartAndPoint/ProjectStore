@@ -178,14 +178,18 @@ export const WRITE_VERBS = freezeDeep([
       files: { kind: "files", optional: true, label: "Pictures" },
     },
   },
-  // New on the backlog tree (the spec dashboard-create, contract 1): the
-  // core's create, with its kind's word before the positionals.
+  // New (the spec dashboard-create, contract 1): the core's create, with its
+  // kind's word before the positionals. Save in the item panel's new state
+  // sends the editor's text and the pictures it links (the spec dashboard-new,
+  // contract 7), which reach the core as --from and --attach.
   {
     verb: "create-initiative",
     label: "Create initiative",
     subject: "create initiative {title}",
     fields: {
       title: { kind: "line", max: 200, label: "Title" },
+      text: { kind: "text", max: 500000, label: "Text", optional: true },
+      files: { kind: "files", optional: true, label: "Pictures" },
     },
   },
   {
@@ -196,6 +200,8 @@ export const WRITE_VERBS = freezeDeep([
       epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic ID" },
       title: { kind: "line", max: 200, label: "Title" },
       initiative: { kind: "initiative", label: "Initiative", optional: true },
+      text: { kind: "text", max: 500000, label: "Text", optional: true },
+      files: { kind: "files", optional: true, label: "Pictures" },
     },
   },
   {
@@ -205,6 +211,8 @@ export const WRITE_VERBS = freezeDeep([
     fields: {
       epic: { kind: "epic", form: "<EPIC-ID>", label: "Epic" },
       title: { kind: "line", max: 200, label: "Title" },
+      text: { kind: "text", max: 500000, label: "Text", optional: true },
+      files: { kind: "files", optional: true, label: "Pictures" },
     },
   },
   // An initiative's decision and fields, and an epic's initiative (the spec
@@ -271,9 +279,9 @@ export const VERB_ARGV = freezeDeep({
   handover: { positionals: [], options: ["story", "from", "to", "reason"] },
   rank: { word: ["story", "epic"], positionals: [], options: ["before", "after"] },
   "edit-doc": { cli: "edit", positionals: ["path"], options: ["base"], file: "text", attach: "files" },
-  "create-initiative": { cli: "create", lead: "initiative", positionals: ["title"], options: [] },
-  "create-epic": { cli: "create", lead: "epic", positionals: ["epic", "title"], options: ["initiative"] },
-  "create-story": { cli: "create", lead: "story", positionals: ["epic", "title"], options: [] },
+  "create-initiative": { cli: "create", lead: "initiative", positionals: ["title"], options: [], file: "text", attach: "files" },
+  "create-epic": { cli: "create", lead: "epic", positionals: ["epic", "title"], options: ["initiative"], file: "text", attach: "files" },
+  "create-story": { cli: "create", lead: "story", positionals: ["epic", "title"], options: [], file: "text", attach: "files" },
   "initiative-decide": { cli: "initiative", positionals: ["initiative", "decision"], options: ["reason"] },
   "initiative-fields": { cli: "initiative", positionals: ["initiative"], options: ["title", "owner", "priority"] },
   "epic-initiative": { cli: "epic", positionals: ["epic"], options: ["initiative"] },
@@ -435,6 +443,8 @@ export function checkRequest(body, verbs = WRITE_VERBS) {
       fields[name] = v;
     } else return no(`${name} has a kind the page does not know: ${kind.kind}`);
   }
+  // Pictures go with a text (the spec dashboard-new, contract 7): a create given files and no text is refused.
+  if (fields.files && entry.fields.text?.optional && fields.text === undefined) return no(`${entry.verb} takes files only with a text: the pictures the text links`);
   return { ok: true, verb: entry.verb, fields };
 }
 
@@ -1513,7 +1523,8 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
     let dir = null;
     let r;
     try {
-      if (call.file) {
+      // A create with no text writes no file and passes no --from (the spec dashboard-new, contract 7).
+      if (call.file && req.fields[call.file] !== undefined) {
         dir = mkdtempSync(join(tmpdir(), "projectstore-edit-"));
         const from = join(dir, "text.md");
         writeFileSync(from, req.fields[call.file], { encoding: "utf8", mode: 0o600 });

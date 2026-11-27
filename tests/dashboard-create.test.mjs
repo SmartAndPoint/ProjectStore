@@ -78,9 +78,10 @@ test("dashboard create: the three entries are labelled, run create with the kind
   assert.equal(by["create-initiative"].label, "Create initiative");
   assert.equal(by["create-epic"].label, "Create epic");
   assert.equal(by["create-story"].label, "Create story");
-  assert.deepEqual(Object.keys(by["create-initiative"].fields), ["title"]);
-  assert.deepEqual(Object.keys(by["create-epic"].fields), ["epic", "title", "initiative"]);
-  assert.deepEqual(Object.keys(by["create-story"].fields), ["epic", "title"]);
+  // [dashboard-new#7] Each create row also takes the editor's text and its pictures.
+  assert.deepEqual(Object.keys(by["create-initiative"].fields), ["title", "text", "files"]);
+  assert.deepEqual(Object.keys(by["create-epic"].fields), ["epic", "title", "initiative", "text", "files"]);
+  assert.deepEqual(Object.keys(by["create-story"].fields), ["epic", "title", "text", "files"]);
   assert.equal(by["create-epic"].fields.initiative.optional, true);
   for (const v of ["create-initiative", "create-epic", "create-story"]) assert.equal(by[v].fields.title.max, 200);
   const ok = (req) => {

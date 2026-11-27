@@ -23,7 +23,9 @@
 // block…", alias `dashboard-code`, contract 1), takes the same guard, writes
 // nothing and takes no lock. `POST /api/base`, the editor's base read (the spec
 // "The dashboard's editor…", alias `dashboard-editor`, contract 6), takes the
-// same guard and reads the clone. Only lib/write.mjs starts a process or writes a
+// same guard and reads the clone. `GET /api/template?kind=<kind>` gives New in the item
+// panel its template (the spec "The page's New in the item panel…", alias
+// `dashboard-new`, contract 3). Only lib/write.mjs starts a process or writes a
 // file; lib/code.mjs names the read's calls and hands them to it.
 
 import { createServer } from "node:http";
@@ -32,7 +34,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { extname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openCore } from "./lib/core.mjs";
-import { readState, readItem, readArtifacts, readableRel, MEDIA_TYPES } from "./lib/state.mjs";
+import { readState, readItem, readArtifacts, readableRel, readTemplate, MEDIA_TYPES } from "./lib/state.mjs";
 import { related } from "./lib/related.mjs";
 import { FULL_HASH, openWriter } from "./lib/write.mjs";
 import { openCode } from "./lib/code.mjs";
@@ -394,6 +396,11 @@ export function handler({ writer, token, port, started = Promise.resolve(), code
         if (twice) return send(req, res, 400, { error: `${twice} is given twice` });
         const r = reports.flow(ctx, Object.fromEntries(url.searchParams));
         return r.status === 200 ? send(req, res, 200, { copy: copyOf(ctx), ...r.result }) : send(req, res, r.status, { error: r.error });
+      }
+      // A new item's template, read from the clone by the core's draft module; no process (dashboard-new, contract 3).
+      if (p === "/api/template") {
+        const r = readTemplate(ctx, url.searchParams.get("kind"));
+        return r.status === 200 ? send(req, res, 200, r.result) : send(req, res, r.status, { error: r.error });
       }
       if (p === "/api/related") {
         const r = related(ctx, url.searchParams.get("rel") || "");
