@@ -327,6 +327,9 @@ label.chk input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
 .kv { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 9px 10px; margin: 0 0 14px; align-items: center; }
 .kv > span:nth-child(odd) { color: var(--faint); font-size: 12px; }
 .kv select { width: 100%; }
+/* New in the item panel (dashboard-new): the title in the heading, the inputs beside their names. */
+.kv .new-in { width: 100%; }
+h2 .new-title { width: 100%; font: inherit; font-weight: 600; padding: 4px 8px; }
 .stack { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
 .linklist { display: flex; flex-direction: column; gap: 5px; }
 .linklist .line { display: flex; gap: 7px; align-items: baseline; }
@@ -393,6 +396,7 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border: 1px solid var(--line-2);
 .pal-g { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 10px 10px 4px; }
 .pal-i { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; min-width: 0; }
 .pal-i.on { background: var(--accent-bg); }
+.pal-i.off { opacity: .55; cursor: default; }
 .pal-i .ic { width: 16px; text-align: center; color: var(--faint); flex: none; }
 .pal-i .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-i .gp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); flex: none; }

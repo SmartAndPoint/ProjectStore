@@ -2002,10 +2002,21 @@ test("dashboard page: item.js asks for the Code block in fetchItem and draws it 
 // For the pictures (dashboard-attachments, contracts 2–4): `attachments` is the state's folder,
 // `files` whether the server's edit-doc has a files field; the page's attachmentModule() is the
 // core's scripts/attachment.mjs; the stub editor takes a paste or a drop at its cursor; toasts are kept.
-function loadEditor(dir, vault, storage, { attachments = null, files = false, answer = null } = {}) {
+// For New in the item panel (dashboard-new): the create rows (`oldServer`: with no text field), the
+// template route's answer, `made` the answer to a new item's Save, the vault's epics and initiatives,
+// and the drawer an element of its own; writeUi's New rules are stand-ins that record what they get.
+function loadEditor(
+  dir,
+  vault,
+  storage,
+  { attachments = null, files = false, answer = null, oldServer = false, template = NEW_TEMPLATE, made = null } = {},
+) {
   const h = (tag, attrs, ...kids) => Object.assign(new FakeEl(tag, attrs, kids), { style: {} });
   const saves = [];
   const toasts = [];
+  const created = [];
+  const finished = [];
+  const drawer = h("aside");
   const verbs = [
     {
       verb: "edit-doc",
@@ -2016,9 +2027,32 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
         ...(files ? { files: { kind: "files", optional: true, label: "Pictures" } } : {}),
       },
     },
+    ...["initiative", "epic", "story"].map((k) => ({
+      verb: `create-${k}`,
+      fields: {
+        title: {},
+        ...(oldServer ? {} : { text: {} }),
+        ...(files && !oldServer ? { files: { kind: "files", optional: true, label: "Pictures" } } : {}),
+      },
+    })),
   ];
   const ctx = {
-    S: { project: { dir, name: "proj" }, vault, write: { batch: null, verbs }, attachments },
+    S: {
+      project: { dir, name: "proj" },
+      vault,
+      write: { can: true, batch: null, verbs },
+      attachments,
+      epics: [
+        { id: "PS-X", title: "X", status: "planned" },
+        { id: "PS-Y", title: "Y", status: "planned" },
+        { id: "PS-D", title: "Done one", status: "done" },
+      ],
+      initiatives: [
+        { id: "faster", title: "Faster", stage: "proposed" },
+        { id: "nope", title: "Nope", stage: "rejected" },
+        { id: "later", title: "Later", stage: "deferred" },
+      ],
+    },
     ui: { view: "backlog" },
     h,
     fill: (el, ...kids) => el.replaceChildren(...kids),
@@ -2031,7 +2065,15 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
     fetchState: () => new Promise(() => {}),
     MOD: "⌘",
     // The drawer itself: with no item open, a redraw only hides it.
-    $: () => ({}),
+    $: (sel) => (sel === "#drawer" ? drawer : {}),
+    epic: (id) => ctx.S.epics.find((e) => e.id === id),
+    chipP: (p) => p,
+    avatar: () => "",
+    kindIco: () => "",
+    viewQuery: () => "",
+    location: { hash: "" },
+    history: { replaceState() {} },
+    codeUi: { block: () => null, ask() {} },
     MD: { render: () => null, fromHtml: () => "", kindOf: () => "file" },
     // app.js's store, over the shared storage: `ws:` before every key, JSON values.
     store: {
@@ -2040,12 +2082,41 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
     },
     writeUi: {
       saveDoc: async (fields) => (saves.push(fields), answer ? answer(fields) : { ok: true, result: { hash: "h2" } }),
+      createEntry: (kind) => ctx.S.write.verbs.find((v) => v.verb === `create-${kind}`) || null,
+      newHint: (kind, f) =>
+        !f.title.trim()
+          ? `Give the ${kind} a title.`
+          : kind === "epic" && !f.id.trim()
+            ? "Give the epic an ID."
+            : kind === "story" && !f.epic.trim()
+              ? "Pick the epic."
+              : null,
+      newFields: (kind, f, text, list) => ({
+        kind,
+        title: f.title.trim(),
+        text,
+        ...(kind === "epic" ? { epic: f.id } : kind === "story" ? { epic: f.epic } : {}),
+        ...(list.length ? { files: list } : {}),
+      }),
+      saveNew: async (kind, fields) => (
+        created.push(fields),
+        made ? made(fields) : { ok: true, wrote: true, result: { rel: "epics/PS-X/stories/story-t.md" } }
+      ),
+      finishNew: async (kind, a, sent) => finished.push({ kind, a, sent }),
+      createRefusal: (kind, error) =>
+        /exists/.test(error) ? [h("div", null, "There is a story of this name already.")] : null,
+      viewsNote: (a) => (a.views_left ? `views left: ${a.views_left}` : null),
     },
     window: { addEventListener() {}, removeEventListener() {} },
     document: { addEventListener() {}, querySelector: () => null, activeElement: null },
     setTimeout: () => 0,
     clearTimeout: () => {},
-    fetch: async () => ({ status: 200, json: async () => ({ ok: true, base: null, disk: null }) }),
+    fetch: async (url) =>
+      String(url).startsWith("/api/template")
+        ? template
+          ? { ok: true, status: 200, json: async () => template }
+          : { ok: false, status: 404, json: async () => ({ error: "no template" }) }
+        : { status: 200, json: async () => ({ ok: true, base: null, disk: null }) },
     WSEditor: {
       create: ({ doc, onChange, onFiles, ctx: edCtx }) => {
         let text = doc;
@@ -2078,7 +2149,7 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
   };
   vm.createContext(ctx);
   vm.runInContext(
-    `${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor; globalThis.PASTED_ = PASTED; globalThis.textMode_ = textMode; globalThis.refusedNote_ = refusedNote; globalThis.editorFor_ = editorFor; globalThis.endRefused_ = endRefusedEditor; globalThis.ED_ = () => ED;`,
+    `${readFileSync(join(PUBLIC, "item.js"), "utf8")}\nglobalThis.makeEditor = makeEditor; globalThis.PASTED_ = PASTED; globalThis.textMode_ = textMode; globalThis.refusedNote_ = refusedNote; globalThis.editorFor_ = editorFor; globalThis.endRefused_ = endRefusedEditor; globalThis.ED_ = () => ED; globalThis.openNew_ = openNew; globalThis.NEW_ = NEW; globalThis.ui_ = ui; globalThis.newMode_ = newMode; globalThis.CARRY_ = () => CARRY;`,
     ctx,
     {
       filename: "item.js",
@@ -2094,8 +2165,27 @@ function loadEditor(dir, vault, storage, { attachments = null, files = false, an
     editorFor: ctx.editorFor_,
     endRefused: ctx.endRefused_,
     live: () => ctx.ED_(),
+    openNew: ctx.openNew_,
+    NEW: ctx.NEW_,
+    ui: ctx.ui_,
+    newMode: ctx.newMode_,
+    carry: () => ctx.CARRY_(),
+    created,
+    finished,
+    drawer,
+    S: ctx.S,
   };
 }
+// What GET /api/template answers for a story (dashboard-new, contract 3).
+const NEW_TEMPLATE = {
+  kind: "story",
+  body: "## Description\n\n## Acceptance Criteria\n\n- [ ]\n",
+  fields: { status: "planned", priority: "p2", assignee: "Ada" },
+  rel: "epics/PS-X/stories/story-untitled.md",
+};
+const settleNew = async () => {
+  for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+};
 // A file as a paste or a drop hands it: its name and its bytes.
 const fileFrom = (name, bytes) => ({
   name,
@@ -2640,4 +2730,222 @@ test("dashboard page: a file that turns read-only while its editor is open ends 
   assert.equal(storage.has(key), false);
   page.endRefused({ ...item, status: "accepted" });
   assert.equal(storage.has(key), false, "nothing writes it back");
+});
+
+// ── New in the item panel (dashboard/public/item.js; the spec alias `dashboard-new`) ──
+// openNew draws the drawer of loadEditor's harness; the editor is its stub. The rules New asks of
+// write.js (the hints, the request, the step after Save) are stand-ins here: write.js's own are
+// tested in tests/dashboard-create.test.mjs.
+const inputsIn = (el) => el.all().filter((e) => e.tag === "input" || e.tag === "select");
+const newDraftKey = (dir, vault, key) => `ws:draft:${JSON.stringify([dir, vault, key])}`;
+async function openedNew(page, kind, preset = {}) {
+  page.openNew(kind, preset);
+  await settleNew();
+  return { st: page.ui.drawer.st, ed: page.live(), drawer: page.drawer };
+}
+const setInput = (page, name, value) => {
+  const el = inputsIn(page.drawer).find((e) => e.attrs["data-focus"] === `new-${name}`);
+  assert.ok(el, `an input for ${name}`);
+  el.value = value;
+  el.fire(el.tag === "select" ? "change" : "input");
+};
+
+// [dashboard-new#2]
+test("dashboard page: [dashboard-new#2] New story opens the item panel in its new state: its kind and new, a title input, an epic input offering the open epics, the template's fields, and the editor with the template's body", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map());
+  const { st, ed, drawer } = await openedNew(page, "story");
+  assert.equal(page.ui.drawer.kind, "new");
+  assert.match(drawer.text, /story · new/);
+  const inputs = inputsIn(drawer);
+  assert.deepEqual(
+    inputs.map((e) => e.attrs["data-focus"]),
+    ["new-title", "new-epic"],
+  );
+  const options = drawer
+    .all()
+    .filter((e) => e.tag === "option")
+    .map((o) => o.value);
+  assert.deepEqual(options, ["PS-X", "PS-Y"], "the open epics, no done one");
+  assert.match(drawer.text, /planned/);
+  assert.match(drawer.text, /p2/);
+  assert.ok(ed, "the editor is open");
+  assert.equal(ed.key, st.key);
+  assert.equal(ed.ed.text(), NEW_TEMPLATE.body);
+  assert.match(ed.host.text, /new document/);
+  assert.ok(!ed.host.all().some((e) => e.tag === "select"), "no choice of what the marks compare with");
+  assert.ok(!/Preview/.test(drawer.text), "no Preview");
+  assert.ok(
+    ed.host.buttons.some((b) => b.text === "Save"),
+    "Save, as in an edit",
+  );
+});
+
+// [dashboard-new#2]
+test("dashboard page: [dashboard-new#2] New story in PS-X shows its epic as text; New epic has an ID input and an initiative choice with no rejected or deferred one; an old server, a failed template read, and a page that cannot write give a note and no editor (edge, failure)", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map());
+  const a = await openedNew(page, "story", { epic: "PS-X" });
+  assert.deepEqual(
+    inputsIn(a.drawer).map((e) => e.attrs["data-focus"]),
+    ["new-title"],
+    "no epic input when it is preset",
+  );
+  assert.match(a.drawer.text, /PS-X · X/);
+  const e = await openedNew(page, "epic");
+  assert.deepEqual(
+    inputsIn(e.drawer).map((x) => x.attrs["data-focus"]),
+    ["new-title", "new-id", "new-initiative"],
+  );
+  const offered = e.drawer
+    .all()
+    .filter((x) => x.tag === "option")
+    .map((o) => o.value);
+  assert.deepEqual(offered, ["", "faster"], "none, and no rejected or deferred initiative");
+
+  const old = loadEditor("/work/a", "/vaults/one", new Map(), { oldServer: true });
+  const o = await openedNew(old, "story");
+  assert.equal(old.newMode(o.st), "old-server");
+  assert.match(o.drawer.text, /The server is older than this page/);
+  assert.equal(o.ed, null, "no editor");
+  const failed = loadEditor("/work/a", "/vaults/one", new Map(), { template: null });
+  const f = await openedNew(failed, "story");
+  assert.equal(failed.newMode(f.st), "failed");
+  assert.match(f.drawer.text, /template could not be read/);
+  assert.equal(f.ed, null);
+  const ro = loadEditor("/work/a", "/vaults/one", new Map());
+  ro.S.write.can = false;
+  const r = await openedNew(ro, "story");
+  assert.equal(ro.newMode(r.st), "cannot-write");
+  assert.equal(r.ed, null);
+});
+
+// [dashboard-new#4]
+test("dashboard page: [dashboard-new#4] Save is off with the hint until the inputs are given, then sends the inputs, the text and the pictures the text links by the draft's depth, and hands the answer on; the state is gone after", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), PICTURES);
+  const { st, ed } = await openedNew(page, "story", { epic: "PS-X" });
+  const save = buttonOf(ed, "Save");
+  assert.equal(save.disabled, true);
+  assert.match(ed.host.text, /Give the story a title\./);
+  await ed.save();
+  assert.equal(page.created.length, 0, "nothing is sent while the hint stands");
+  assert.match(ed.host.text, /Not saved\. Give the story a title\./);
+  setInput(page, "title", "Faster login");
+  assert.equal(save.disabled, false, "Save is on once the title is given");
+  const name = await nameOfBytes(PNG_BYTES);
+  ed.ed.cursor = "## Description\n".length; // under the section heading, as a person pastes
+  await pasteInto(ed, [fileFrom("shot.png", PNG_BYTES)]);
+  assert.ok(ed.ed.text().includes(`](../../../attachments/${name})`), "linked from the new story's depth");
+  await ed.save();
+  assert.equal(page.created.length, 1);
+  const sent = JSON.parse(JSON.stringify(page.created[0]));
+  assert.equal(sent.title, "Faster login");
+  assert.equal(sent.epic, "PS-X");
+  assert.ok(sent.text.startsWith("## Description\n"));
+  assert.deepEqual(
+    sent.files.map((x) => x.name),
+    [name],
+  );
+  assert.equal(page.finished.length, 1, "the answer goes on to open the made item");
+  assert.equal(st.made, true);
+  assert.equal(page.NEW.has(st.key), false, "the new state is gone");
+  assert.equal(page.pasted.size, 0, "the sent picture is forgotten");
+  assert.equal(ed.dirty(), false);
+  await ed.save();
+  assert.equal(page.created.length, 1, "a second ⌘S sends nothing");
+});
+
+// [dashboard-new#5]
+test("dashboard page: [dashboard-new#5] a refusal stands above the text in New's plain words, nothing is made, and the inputs, the text and the pictures stay (failure)", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map(), {
+    ...PICTURES,
+    made: () => ({ ok: false, error: "epics/PS-X/stories/story-faster-login.md exists; a create never overwrites" }),
+  });
+  const { st, ed } = await openedNew(page, "story", { epic: "PS-X" });
+  setInput(page, "title", "Faster login");
+  await pasteInto(ed, [fileFrom("shot.png", PNG_BYTES)]);
+  ed.ed.type(`${ed.ed.text()}\nMy words.\n`);
+  const text = ed.ed.text();
+  await ed.save();
+  assert.match(ed.host.text, /Not saved\. There is a story of this name already\./);
+  assert.equal(page.finished.length, 0);
+  assert.equal(st.made, false);
+  assert.equal(page.NEW.has(st.key), true);
+  assert.equal(st.fields.title, "Faster login");
+  assert.equal(ed.ed.text(), text);
+  assert.equal(page.pasted.size, 1, "the picture is kept for the next Save");
+  const other = loadEditor("/work/a", "/vaults/one", new Map(), {
+    made: () => ({
+      ok: false,
+      error: "The Status log is written by gates and verbs, and this text adds it. Put it back as it was.",
+    }),
+  });
+  const o = await openedNew(other, "story", { epic: "PS-X" });
+  setInput(other, "title", "T");
+  await o.ed.save();
+  assert.match(
+    o.ed.host.text,
+    /Not saved\. The Status log is written by gates and verbs/,
+    "the core's words when New has none of its own",
+  );
+});
+
+// [dashboard-new#6]
+test("dashboard page: [dashboard-new#6] a new story's text and inputs are kept under its kind and epic: PS-Y does not offer PS-X's, PS-X offers them back after a reload, and Save clears them", async () => {
+  const storage = new Map();
+  const page = loadEditor("/work/a", "/vaults/one", storage);
+  const x = await openedNew(page, "story", { epic: "PS-X" });
+  setInput(page, "title", "Kept title");
+  x.ed.ed.type("## Description\n\nKept words.\n");
+  x.ed.destroy();
+  const key = newDraftKey("/work/a", "/vaults/one", "new:story:PS-X");
+  assert.ok(storage.has(key), [...storage.keys()].join(", "));
+  assert.deepEqual(JSON.parse(storage.get(key)).inputs.title, "Kept title");
+  const y = await openedNew(page, "story", { epic: "PS-Y" });
+  assert.equal(y.st.fields.title, "");
+  assert.equal(y.ed.ed.text(), NEW_TEMPLATE.body, "PS-Y's new state does not offer PS-X's text");
+  // A reload: a page of its own over the same storage.
+  const again = loadEditor("/work/a", "/vaults/one", storage);
+  const back = await openedNew(again, "story", { epic: "PS-X" });
+  assert.equal(back.st.fields.title, "Kept title");
+  assert.equal(back.ed.ed.text(), "## Description\n\nKept words.\n");
+  assert.match(back.ed.host.text, /This is your text from/);
+  await back.ed.save();
+  assert.equal(storage.has(key), false, "cleared after Save");
+});
+
+// [dashboard-new#6]
+test("dashboard page: [dashboard-new#6] text typed while a new item's Save ran stays for the made item's editor, with the views' note (edge)", async () => {
+  const storage = new Map();
+  let typedDuring = null;
+  const page = loadEditor("/work/a", "/vaults/one", storage, {
+    made: () => {
+      typedDuring?.();
+      return {
+        ok: true,
+        wrote: true,
+        views_left: "kanban.md: EISDIR",
+        result: { rel: "epics/PS-X/stories/story-t.md" },
+      };
+    },
+  });
+  const { ed } = await openedNew(page, "story", { epic: "PS-X" });
+  setInput(page, "title", "T");
+  typedDuring = () => ed.ed.replaceAll("## Description\n\nTyped while saving.\n");
+  await ed.save();
+  assert.deepEqual(JSON.parse(JSON.stringify(page.carry())), {
+    rel: "epics/PS-X/stories/story-t.md",
+    typed: "## Description\n\nTyped while saving.\n",
+    note: "views left: kanban.md: EISDIR",
+  });
+  const madeItem = {
+    rel: "epics/PS-X/stories/story-t.md",
+    title: "T",
+    edit: { body: NEW_TEMPLATE.body, hash: "h9", head: "" },
+  };
+  const opened = page.open(madeItem);
+  assert.equal(opened.ed.text(), "## Description\n\nTyped while saving.\n", "the made item's editor offers it");
+  assert.equal(page.carry(), null);
+  assert.ok(
+    page.toasts.some((x) => x.title === "Saved" && /EISDIR/.test(x.text)),
+    "the views' note as after an edit",
+  );
 });

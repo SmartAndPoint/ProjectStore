@@ -157,7 +157,7 @@ function openPalette(level) {
       rows.push(
         h(
           "div",
-          { class: `pal-i${i === pal.idx ? " on" : ""}`, role: "option", onmousemove: () => i !== pal.idx && ((pal.idx = i), paint()), onclick: () => run(it) },
+          { class: `pal-i${i === pal.idx ? " on" : ""}${it.off ? " off" : ""}`, role: "option", "aria-disabled": it.off ? "true" : null, onmousemove: () => i !== pal.idx && ((pal.idx = i), paint()), onclick: () => run(it) },
           h("span", { class: "ic" }, it.mark ? "✓" : it.icon ? kindIco(it.icon) : ""),
           h("span", { class: "lb" }, it.label),
           words.length && it.group ? h("span", { class: "gp" }, it.group) : null,
@@ -172,6 +172,7 @@ function openPalette(level) {
     list.querySelector(".pal-i.on")?.scrollIntoView({ block: "nearest" });
   };
   const run = (it) => {
+    if (it.off) return; // a line that cannot run now says why in its hint (dashboard-new, contract 1)
     if (it.children) {
       pal.stack.push({ title: it.label.replace(/…$/, ""), items: it.children() });
       input.value = "";
@@ -215,6 +216,7 @@ const KEYS = [
   ["↵  or  O", "Open the selected item"],
   ["Esc", "Close the item, or drop the selection"],
   [`${MAC ? "⌥" : "Alt+"}↑  ${MAC ? "⌥" : "Alt+"}↓`, "Backlog: move the selected epic or open story above or below its neighbour (a change to publish later; it asks first only when other rows get a place too)"],
+  ["C", "New: add an initiative, an epic or a story"],
   ["R", "Read the vault again"],
   ["?", "This list"],
 ];
@@ -262,6 +264,10 @@ document.addEventListener("keydown", (e) => {
     if (ui.sel) (done(), openSelected());
   } else if (k === "Escape") {
     if (!ui.drawer && ui.sel) setSel(null);
+  } else if (k === "c") {
+    // New (the spec dashboard-new, contract 1): the palette's New level, while the page can write.
+    const lvl = writeUi.newLevel();
+    if (lvl) (done(), openPalette(lvl));
   } else if (k === "r") (done(), ui.view === "reports" && reportsUi.again(), load());
 });
 // A click selects too, so the keys act on what was last touched.

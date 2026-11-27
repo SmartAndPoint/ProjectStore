@@ -89,6 +89,7 @@ function render() {
     h("button", { class: "btn nav-toggle", "aria-label": "menu", onclick: () => document.body.classList.toggle("nav-open") }, "☰"),
     h("h1", null, title),
     h("span", { class: "grow" }),
+    writeUi.newButton(), // write.js: + New, while the page can write (dashboard-new, contract 1)
     h("button", { class: "btn kbtn", onclick: () => openPalette(), title: "Search anything, go anywhere" }, h("span", { class: "kt" }, "Search or go to"), h("kbd", null, `${MOD}K`)),
     h("button", { class: "btn", onclick: () => (ui.view === "reports" && reportsUi.again(), load()), title: "Read the vault again (R)" }, "↻"),
   );

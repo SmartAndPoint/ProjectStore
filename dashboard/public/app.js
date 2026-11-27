@@ -368,7 +368,6 @@ function viewBacklog() {
     h(
       "div",
       { class: "toolbar" },
-      writeUi.newInToolbar(),
       h("input", {
         type: "search",
         placeholder: "Filter by title or epic…",

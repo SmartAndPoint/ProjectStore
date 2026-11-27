@@ -113,7 +113,8 @@ let hashQuiet = false;
 function syncHash(quiet) {
   const d = ui.drawer;
   const q = viewQuery(ui.view); // views.js
-  const want = `#/${ui.view}${d ? `/${d.kind}/${encodeURIComponent(d.id)}` : ""}${q ? `?${q}` : ""}`;
+  // A new item's panel is no place: a reload ends it, and its kept text is offered again (dashboard-new, contract 2).
+  const want = `#/${ui.view}${d && d.kind !== "new" ? `/${d.kind}/${encodeURIComponent(d.id)}` : ""}${q ? `?${q}` : ""}`;
   if (location.hash === want) return;
   const place = (hash) => hash.split("?")[0];
   if (quiet) {
@@ -159,6 +160,7 @@ const getJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : null));
 // The document and what belongs to it, read beside each other.
 function fetchItem() {
   const d = ui.drawer;
+  if (d?.kind === "new") return; // no file yet: its template is read once, by openNew
   const rel = d && relOf(d.kind, d.id);
   if (!rel) return;
   getJson(`/api/item?rel=${encodeURIComponent(rel)}`).then((item) => {
@@ -178,11 +180,89 @@ function fetchItem() {
 }
 function closeDrawer() {
   // Closing a document with an edit that is not saved keeps the edit, and says so.
-  if (ED && ED.host.isConnected && ED.dirty()) toast("info", "Not saved yet", "Your edit is kept in this browser. Open the document again to save it.");
+  if (ED && ED.host.isConnected && ED.dirty()) toast("info", "Not saved yet", ui.drawer?.kind === "new" ? `Your new ${ui.drawer.st.kind} is kept in this browser. Open New ${ui.drawer.st.kind} again to save it.` : "Your edit is kept in this browser. Open the document again to save it.");
   ui.drawer = null;
   syncHash();
   renderDrawer();
   return true;
+}
+
+// ── New in the item panel (the spec dashboard-new) ──
+// One new state per kind and preset, until Save or a reload: the side panel's inputs and the editor
+// read the same object (contract 2). Its unsaved text and inputs are kept in this browser under
+// `new:<kind>:<preset>`, the preset being a story's epic or an epic's initiative (contract 6).
+const NEW = new Map();
+const newKey = (kind, preset) => `new:${kind}:${(kind === "story" ? preset.epic : kind === "epic" ? preset.initiative : "") || ""}`;
+const str = (v) => (typeof v === "string" ? v : "");
+// The text and the pictures typed while a new item's Save ran, and the views' note, for the made item's editor.
+let CARRY = null;
+function openNew(kind, preset = {}) {
+  const key = newKey(kind, preset);
+  let st = NEW.get(key);
+  if (!st) {
+    const kept = store.get(draftKeyOf(key), null);
+    const was = kept && kept.inputs && typeof kept.inputs === "object" ? kept.inputs : {};
+    st = { kind, preset: { ...preset }, key, fields: { title: str(was.title), id: str(was.id), epic: preset.epic || str(was.epic), initiative: preset.initiative || str(was.initiative) }, tpl: null, failed: null, made: false };
+    NEW.set(key, st);
+  }
+  ui.drawer = { kind: "new", id: key, st, item: null, tab: "doc" };
+  syncHash();
+  renderDrawer();
+  if (!st.tpl) askTemplate(st);
+  $("#drawer").querySelector?.('[data-focus="new-title"]')?.focus?.();
+  return true;
+}
+// The kind's template, from the core through the server (contract 3), read once per state.
+function askTemplate(st) {
+  st.failed = null;
+  getJson(`/api/template?kind=${st.kind}`)
+    .then((j) => (j && typeof j.body === "string" && typeof j.rel === "string" ? (st.tpl = j) : (st.failed = "the server gave no template")))
+    .catch((e) => (st.failed = String(e?.message || e)))
+    .then(() => ui.drawer?.st === st && renderDrawer());
+}
+const newItem = (st) => ({ rel: st.tpl.rel, type: st.kind, title: `New ${st.kind}`, fresh: st, edit: { head: "", body: st.tpl.body, hash: "" } });
+// What the panel draws for a new item: "editor", or why not (contract 2).
+function newMode(st) {
+  const entry = S.write?.can ? writeUi.createEntry(st.kind) : null;
+  if (!entry) return "cannot-write";
+  if (!entry.fields?.text) return "old-server";
+  if (st.failed) return "failed";
+  if (!st.tpl) return "reading";
+  return typeof WSEditor !== "undefined" ? "editor" : "no-editor";
+}
+const oldServerNote = () => h("div", { class: "ed-draft bad" }, h("b", null, "The server is older than this page. "), "Stop it (Ctrl+C), start it again and reload this page.");
+function newNote(st, mode) {
+  if (mode === "reading") return h("div", { class: "faint" }, "reading the template…");
+  if (mode === "old-server") return oldServerNote();
+  if (mode === "no-editor") return h("div", { class: "ed-draft bad" }, h("b", null, "The editor did not load. "), "Reload this page to write a new item.");
+  if (mode === "failed") return h("div", { class: "ed-draft bad" }, h("b", null, `The ${st.kind} template could not be read. `), "Reload this page; until then Save is off. ", h("span", { class: "faint" }, st.failed));
+  return h("div", { class: "ed-draft bad" }, h("b", null, "This page cannot write now. "), "A new item is made only while the page can save into your changes.");
+}
+// The side panel of a new item: the title, an epic's ID, a story's epic, an epic's initiative, and the
+// template's fields as text (contract 2). The values live in the state, so a redraw keeps them.
+function sideNew(d) {
+  const st = d.st;
+  if (!st) return null;
+  const { kind, fields: f, preset } = st;
+  const changed = () => ED && ED.key === st.key && (ED.paint(), ED.keep());
+  const field = (name, attrs) => h("input", { class: "new-in", type: "text", value: f[name] || "", "data-focus": `new-${name}`, autocomplete: "off", disabled: st.made, oninput: (e) => ((f[name] = e.target.value), changed()), ...attrs });
+  const rows = [];
+  if (kind === "epic") rows.push(["Epic ID", field("id", { placeholder: "such as PS-CORE", "aria-label": "The new epic's ID", spellcheck: "false" })]);
+  if (kind === "story")
+    rows.push(["Epic", preset.epic ? `${preset.epic} · ${epic(preset.epic)?.title || ""}` : [field("epic", { list: "new-epics", placeholder: "the epic's ID", "aria-label": "The epic the story goes in", spellcheck: "false" }), h("datalist", { id: "new-epics" }, (S.epics || []).filter((e) => e.status !== "done").map((e) => h("option", { value: e.id }, `${e.id} · ${e.title}`)))]]);
+  if (kind === "epic")
+    rows.push(["Initiative", preset.initiative ? S.initiatives.find((i) => i.id === preset.initiative)?.title || preset.initiative : h("select", { class: "new-in", "data-focus": "new-initiative", "aria-label": "The initiative the epic belongs to", disabled: st.made, onchange: (e) => ((f.initiative = e.target.value), changed()) }, h("option", { value: "" }, "none"), S.initiatives.filter((i) => i.stage !== "rejected" && i.stage !== "deferred").map((i) => h("option", { value: i.id, selected: f.initiative === i.id }, i.title)))]);
+  const tf = st.tpl?.fields || {};
+  if (tf.status) rows.push(["Status", tf.status]);
+  if (tf.priority) rows.push(["Priority", chipP(tf.priority)]);
+  if (tf.assignee) rows.push(["Assignee", who(tf.assignee)]);
+  if (tf.owner) rows.push(["Owner", who(tf.owner)]);
+  return {
+    kind: `${kind} · new`,
+    title: field("title", { class: "new-in new-title", placeholder: `The ${kind}'s title`, "aria-label": `The new ${kind}'s title` }),
+    name: f.title.trim() || `New ${kind}`,
+    fields: [kv(...rows), h("div", { class: "faint" }, `Save makes the ${kind} with this text. Until then nothing is written.`)],
+  };
 }
 
 // The text, or Related in full in its place. The new content starts at its top.
@@ -240,23 +320,27 @@ function renderDrawer() {
   // The tab says what is open: the item, or the view behind it.
   document.title = `${ui.viewTitle || "Dashboard"} · ${project}`;
   if (!d) return void (pane.hidden = true);
-  const side = { story: sideStory, epic: sideEpic, initiative: sideInitiative, doc: sideDoc }[d.kind] || sideDoc;
+  const side = { story: sideStory, epic: sideEpic, initiative: sideInitiative, doc: sideDoc, new: sideNew }[d.kind] || sideDoc;
   const info = side(d);
   if (!info) return void (pane.hidden = true);
+  // A new item (dashboard-new): its template as the editor's item, once it is read.
+  const st = d.kind === "new" ? d.st : null;
+  if (st) d.item = st.tpl ? newItem(st) : null;
   const item = d.item;
-  document.title = `${info.title} · ${project}`;
+  document.title = `${info.name || info.title} · ${project}`;
   const main = h("div", { class: "item-main" });
   // While the page can write, a file the edit verb takes is the editor itself, as in Obsidian (dashboard-editor):
   // the server says which by `edit`, and why not by `editRefused` (contracts 1 and 14). A server started before
   // the page's code sends a story, an epic or an initiative with neither, or no `edit-doc`: the text is then
   // shown with no editor, and a note says why (contract 10).
-  const mode = textMode(item, d.tab, S.write, typeof WSEditor !== "undefined");
+  const mode = st ? newMode(st) : textMode(item, d.tab, S.write, typeof WSEditor !== "undefined");
   if (mode === "refused") endRefusedEditor(item);
   const editable = mode === "editor";
   const oldServer = mode === "old-server";
   // The editor's built file did not load (a failed request, a blocked script): said, never silent.
   const noEditor = mode === "no-editor";
-  if (!item) main.append(h("div", { class: "faint" }, "reading…"));
+  if (st) main.append(editable ? editorFor(d, item) : newNote(st, mode));
+  else if (!item) main.append(h("div", { class: "faint" }, "reading…"));
   else if (item.missing) main.append(h("div", { class: "faint" }, "The file could not be read."));
   else if (editable) main.append(editorFor(d, item));
   else
@@ -265,12 +349,15 @@ function renderDrawer() {
       main,
       // What belongs to the item stands in the side panel. Its long form opens here, in place of the text.
       d.tab !== "doc" ? h("div", { class: "doc-bar" }, h("button", { class: "tog on", onclick: () => showTab(d, "doc") }, "← Back to the text"), h("b", null, "Related, in full")) : null,
-      oldServer ? h("div", { class: "ed-draft bad" }, h("b", null, "The server is older than this page. "), "Stop it (Ctrl+C), start it again and reload this page.") : null,
+      oldServer ? oldServerNote() : null,
       mode === "refused" ? refusedNote(item) : null,
       noEditor ? h("div", { class: "ed-draft bad" }, h("b", null, "The editor did not load. "), "Reload this page; until then the text is shown with no editor.") : null,
       d.tab === "rel" ? relatedView(d) : MD.render(bodyOf(d, item), docCtx(item.rel)),
     );
   const scroll = pane.scrollTop;
+  // An input of a new item's panel keeps the focus and the caret over a redraw (dashboard-new, contract 2).
+  const act = document.activeElement;
+  const keep = st && act && pane.contains?.(act) && act.getAttribute?.("data-focus") ? [act.getAttribute("data-focus"), act.selectionStart, act.selectionEnd] : null;
   pane.replaceChildren(
     h(
       "div",
@@ -282,10 +369,15 @@ function renderDrawer() {
     h("h2", null, info.title),
     // The side panel in three parts. Beside the text they stand in one column; in a narrow pane
     // the fields go above the text and the rest below it, so the text is not pushed out of sight.
-    h("div", { class: "item-grid" }, main, h("div", { class: "item-side" }, h("div", { class: "side-fields" }, info.fields), item && !item.missing ? relatedSide(d) : null, item && !item.missing ? codeUi.block(d) : null, info.more ? h("div", { class: "side-more" }, info.more) : null)),
+    h("div", { class: "item-grid" }, main, h("div", { class: "item-side" }, h("div", { class: "side-fields" }, info.fields), item && !item.missing && !st ? relatedSide(d) : null, item && !item.missing ? codeUi.block(d) : null, info.more ? h("div", { class: "side-more" }, info.more) : null)),
   );
   pane.hidden = false;
   pane.scrollTop = scroll;
+  if (keep) {
+    const el = pane.querySelector?.(`[data-focus="${keep[0]}"]`);
+    el?.focus?.();
+    if (el && typeof keep[1] === "number") el.setSelectionRange?.(keep[1], keep[2]);
+  }
 }
 
 // ── the document is the editor (dashboard-editor; CodeMirror, built from dashboard/editor/) ──
@@ -303,7 +395,7 @@ function endRefusedEditor(item) {
   ED = null;
 }
 function editorFor(d, item) {
-  if (ED && ED.rel === item.rel) {
+  if (ED && ED.key === (item.fresh ? item.fresh.key : item.rel)) {
     ED.sync(item);
     return ED.host;
   }
@@ -313,20 +405,24 @@ function editorFor(d, item) {
 }
 function makeEditor(item) {
   const rel = item.rel;
+  // A new item's state (the spec dashboard-new): no file yet, its path the draft's, for its links'
+  // depth only. Its unsaved text and its pasted pictures are its own, under its key (`owner`).
+  const fresh = item.fresh || null;
+  const owner = fresh ? fresh.key : rel;
   // The editor holds the `## ` sections of a file the edit verb takes (a story, an epic, an initiative,
   // a proposed ADR, a draft spec or research note), cut by its own module (scripts/edit-cut.mjs); the
   // rest is kept by gates and verbs.
   const partOf = (it) => it.edit.body;
   let saved = partOf(item); // the text as your changes hold it
   let opened = item.edit?.hash || ""; // the save is refused when the file changed since
-  let base = null; // where your changes start: asked of POST /api/base, null until it answers
+  let base = fresh ? "" : null; // where your changes start: asked of POST /api/base, null until it answers; a new item's is empty
   let saving = false;
   const ctx = docCtx(rel);
   // Unsaved text is kept per project, vault and file (contract 12): pages of different projects,
   // started one after another on one port, share this browser's storage, as the viewer's name
   // knows (views.js, meKey). A text kept by 0.30.22 under `draft:<path>` alone is not read, since
   // nothing in it names its project, and not removed, since a 0.30.22 page at this address reads it.
-  const draftKey = draftKeyOf(rel);
+  const draftKey = draftKeyOf(owner);
   const tools = h("div", { class: "ed-tools" });
   const notice = h("div", { class: "ed-draft" });
   // The file reads otherwise in the vault folder (Obsidian, or not pulled yet): said once, above the text.
@@ -386,14 +482,14 @@ function makeEditor(item) {
   // ── pictures (the spec dashboard-attachments) ──
   // Kept only where they can be saved (contract 2): the layout names an attachments folder, and
   // this server's save takes files.
-  const picturesKept = () => !!S.attachments && !!S.write?.verbs?.find((v) => v && v.verb === "edit-doc")?.fields?.files;
+  const picturesKept = () => !!S.attachments && !!(fresh ? writeUi.createEntry(fresh.kind) : S.write?.verbs?.find((v) => v && v.verb === "edit-doc"))?.fields?.files;
   const linkOf = (f) => relFrom(rel, `${S.attachments}/${f.name}`);
   // The remembered files whose relative path from this item appears in the text: what a Save sends (contract 4).
   // Of the same bytes pasted into two items, this item's entry is the one sent and forgotten.
   const linkedPasted = (text = ed.text()) => {
     const seen = new Map();
     if (S.attachments)
-      for (const f of PASTED.values()) if ((!seen.has(f.name) || f.item === rel) && text.includes(linkOf(f))) seen.set(f.name, f);
+      for (const f of PASTED.values()) if ((!seen.has(f.name) || f.item === owner) && text.includes(linkOf(f))) seen.set(f.name, f);
     return [...seen.values()];
   };
   const unsaved = () => dirty() || linkedPasted().length > 0;
@@ -462,7 +558,7 @@ function makeEditor(item) {
         continue;
       }
       const name = await A.nameOf(bytes);
-      const entry = { item: rel, name, alt: (f.name || "picture").replace(/[[\]`\r\n]/g, ""), type, data: toBase64(bytes) };
+      const entry = { item: owner, name, alt: (f.name || "picture").replace(/[[\]`\r\n]/g, ""), type, data: toBase64(bytes) };
       entry.url = `data:${MIME[type]};base64,${entry.data}`;
       // The save request with the text and every file it would send, under the server's limit.
       const would = new Map(linkedPasted(`${ed.text()}\n${links.join("\n")}`).map((x) => [x.name, x.data.length + x.name.length + 24]));
@@ -472,7 +568,7 @@ function makeEditor(item) {
         refuse(`${label}: with the text and the other pictures, the save would be ${size} bytes, over the ${SAVE_LIMIT} bytes (16 MiB) one save takes. Save the text first, then paste it.`);
         continue;
       }
-      PASTED.set(`${rel}\n${name}`, entry);
+      PASTED.set(`${owner}\n${name}`, entry);
       const path = linkOf(entry);
       // Linked already (pasted again after a reload, or twice): only the bytes are kept.
       if (ed.text().includes(path) || links.some((l) => l.includes(path))) continue;
@@ -496,7 +592,9 @@ function makeEditor(item) {
     return true;
   };
   const trim = (t) => String(t || "").replace(/\s+$/, "");
-  const dirty = () => trim(ed.text()) !== trim(saved);
+  // A new item's inputs count as unsaved too; once Save made it, nothing of the new state is.
+  const typedIn = () => !!fresh && (!!fresh.fields.title.trim() || !!fresh.fields.id.trim() || (!fresh.preset.epic && !!fresh.fields.epic.trim()) || (!fresh.preset.initiative && !!fresh.fields.initiative));
+  const dirty = () => (fresh?.made ? false : trim(ed.text()) !== trim(saved) || typedIn());
   // The path from this document to another, as a link in the text writes it.
   const here = rel.split("/").slice(0, -1);
   const relTo = (r) => {
@@ -516,7 +614,7 @@ function makeEditor(item) {
     if (window.WS_SELFTEST) return; // its sample text is not the person's
     // The pictures the text links go by their written names, not their bytes (contract 8).
     const pasted = linkedPasted().map((f) => ({ name: f.name, alt: f.alt }));
-    const kept = store.set(draftKey, dirty() ? { body: ed.text(), saved, hash: opened, at: Date.now(), ...(pasted.length ? { pasted } : {}) } : null);
+    const kept = store.set(draftKey, dirty() ? { body: ed.text(), saved, hash: opened, at: Date.now(), ...(fresh ? { inputs: { ...fresh.fields } } : {}), ...(pasted.length ? { pasted } : {}) } : null);
     // A text this browser cannot keep is said above the text, for as long as it cannot (contract 12).
     keepNote.replaceChildren(...(!kept && dirty() ? [h("b", null, "This browser does not keep your text. "), "Its storage is full or turned off: save the text before you leave this page."] : []));
   };
@@ -530,7 +628,17 @@ function makeEditor(item) {
   // Hashes of bodies this editor's own saves wrote over (contract 9).
   const superseded = new Set();
   async function save() {
-    if (!unsaved() || saving || window.WS_SELFTEST) return;
+    if (saving || window.WS_SELFTEST) return;
+    if (fresh) {
+      // A new item (dashboard-new, contract 4): Save makes it, once, when its inputs are given.
+      if (fresh.made) return;
+      const hint = writeUi.newHint(fresh.kind, fresh.fields);
+      if (hint) {
+        notice.classList.add("bad");
+        fill(notice, h("b", null, "Not saved. "), hint);
+        return paint();
+      }
+    } else if (!unsaved()) return;
     // Text kept over a body that changed since (contract 9): refused here, in the page's words, with nothing sent.
     if (stale) {
       notice.classList.add("bad");
@@ -542,10 +650,12 @@ function makeEditor(item) {
     const text = ed.text();
     // Pictures pasted into this item that its text no longer links are forgotten; those pasted into
     // other items stay. The text's own pictures go with it (contract 4).
-    for (const [k, f] of PASTED) if (f.item === rel && !text.includes(linkOf(f))) PASTED.delete(k);
+    for (const [k, f] of PASTED) if (f.item === owner && !text.includes(linkOf(f))) PASTED.delete(k);
     const sending = linkedPasted(text);
-    const fields = { path: rel, text, base: opened, ...(sending.length ? { files: sending.map((f) => ({ name: f.name, data: f.data })) } : {}) };
-    const a = await writeUi.saveDoc(fields);
+    const files = sending.map((f) => ({ name: f.name, data: f.data }));
+    // A new item's Save runs its kind's create row with the inputs, the text and its pictures (contract 4).
+    const sent = fresh ? writeUi.newFields(fresh.kind, fresh.fields, text, files) : null;
+    const a = fresh ? await writeUi.saveNew(fresh.kind, sent) : await writeUi.saveDoc({ path: rel, text, base: opened, ...(files.length ? { files } : {}) });
     saving = false;
     if (a.ok) {
       // Kept by the verb, in the batch now: the page's copies of those bytes go, whichever item they
@@ -553,6 +663,20 @@ function makeEditor(item) {
       const kept = new Set(sending.map((f) => f.name));
       for (const [k, f] of PASTED) if (kept.has(f.name)) PASTED.delete(k);
       saved = text;
+      if (fresh) {
+        // Made: the state is gone, its kept text with it; text typed while Save ran, and the views'
+        // note, go to the made item's editor (contracts 4 and 6). Then the made item opens.
+        fresh.made = true;
+        NEW.delete(fresh.key);
+        store.set(draftKey, null);
+        const typed = ed.text();
+        CARRY = { rel: a.result?.rel || null, typed: trim(typed) !== trim(text) ? typed : null, note: writeUi.viewsNote(a) };
+        saved = typed;
+        notice.replaceChildren();
+        notice.classList.remove("bad");
+        paint();
+        return writeUi.finishNew(fresh.kind, a, sent);
+      }
       // The written body's hash is the one the next save carries, whatever was typed meanwhile.
       if (typeof a.result?.hash === "string") {
         // The item read before this save may still be drawn once while load() runs: its hash is not a change.
@@ -574,7 +698,9 @@ function makeEditor(item) {
       notice.classList.add("bad");
       // The edit verb's refusal of a changed file speaks to a terminal; the page says it in its own words.
       const said = /changed after it was read/.test(a.error || "") ? "The file changed after you opened it. Copy your text, open the document again and put your change into it." : a.error;
-      fill(notice, h("b", null, "Not saved. "), said || "The text could not be saved.");
+      // A new item's refusal in the plain words of New, the core's own under Details (contract 5).
+      if (fresh) fill(notice, h("b", null, "Not saved. "), writeUi.createRefusal(fresh.kind, a.error) || a.error || `The ${fresh.kind} could not be made.`);
+      else fill(notice, h("b", null, "Not saved. "), said || "The text could not be saved.");
     }
     paint();
   }
@@ -586,8 +712,13 @@ function makeEditor(item) {
     store.set(draftKey, null);
     notice.replaceChildren();
     if (trim(ed.text()) !== trim(saved)) ed.replaceAll(saved);
+    if (fresh) clearInputs();
     showChanged();
     applyBase();
+  }
+  function clearInputs() {
+    Object.assign(fresh.fields, { title: "", id: "", epic: fresh.preset.epic || "", initiative: fresh.preset.initiative || "" });
+    renderDrawer();
   }
   const discard = () => {
     if (!dirty()) return;
@@ -600,6 +731,7 @@ function makeEditor(item) {
             ed.replaceAll(saved);
             store.set(draftKey, null);
             notice.replaceChildren();
+            if (fresh) clearInputs();
           }
           paint();
         },
@@ -637,7 +769,7 @@ function makeEditor(item) {
   const saveBtn = h("button", { class: "btn primary", type: "button", title: `Save into your changes (${MOD}S)`, onclick: save }, "Save");
   const dropBtn = h("button", { class: "btn ghost", type: "button", onclick: discard }, "Discard");
   const modeBtn = h("button", { class: "tog", type: "button", title: `Show the Markdown as it is written (${MOD}E)`, onclick: () => (ed.setLive(!ed.live), paint()) }, "Source");
-  let mode = store.get("diffMode", "vault");
+  let mode = fresh ? "vault" : store.get("diffMode", "vault");
   const count = h("button", { class: "ed-count", type: "button", title: "Go to the next changed part", onclick: () => ed.nextChange() });
   const opt = (v, t) => h("option", { value: v, selected: v === mode }, t);
   // The file's earlier saves (the spec dashboard-editor, contract 13): listed below the three
@@ -716,9 +848,11 @@ function makeEditor(item) {
     const dy = dirty();
     // A text that links pictures the page holds is not saved either, though it reads as saved (contract 4).
     const due = dy || linkedPasted().length > 0;
-    state.textContent = saving ? "saving…" : due ? "not saved" : "saved";
-    state.className = `ed-state${due ? " dy" : ""}`;
-    saveBtn.disabled = !due || saving;
+    // A new item's Save is on once its inputs are given, whatever the text (dashboard-new, contract 4).
+    const hint = fresh && !fresh.made ? writeUi.newHint(fresh.kind, fresh.fields) : null;
+    state.textContent = saving ? "saving…" : fresh ? (fresh.made ? "saved" : hint || "not saved") : due ? "not saved" : "saved";
+    state.className = `ed-state${due || (fresh && !fresh.made) ? " dy" : ""}`;
+    saveBtn.disabled = fresh ? saving || fresh.made || !!hint : !due || saving;
     // Discard keeps its place when there is nothing to throw away, so the first key typed
     // does not move the bar (and the text under it) when the bar wraps in a narrow pane.
     dropBtn.style.visibility = dy ? "visible" : "hidden";
@@ -738,7 +872,7 @@ function makeEditor(item) {
     h("span", { class: "sep" }),
     tool("🔗 Link", `Link (${MOD}K)`, () => ed.link()),
     h("span", { class: "grow" }),
-    baseSel,
+    ...(fresh ? [] : [baseSel]),
     count,
     modeBtn,
     state,
@@ -754,10 +888,22 @@ function makeEditor(item) {
       document.activeElement.blur();
     }
   });
+  // After a new item's Save (dashboard-new, contracts 4 and 6): the text typed meanwhile is offered
+  // as this file's unsaved text, and the views' note is said as after an edit.
+  if (!fresh && CARRY && CARRY.rel === rel) {
+    const c = CARRY;
+    CARRY = null;
+    if (c.typed) store.set(draftKey, { body: c.typed, saved, hash: opened, at: Date.now() });
+    if (c.note) {
+      if (!window.WS_SELFTEST) toast("info", "Saved", c.note);
+      fill(notice, h("b", null, "Saved. "), c.note);
+    }
+  }
   // A draft from an earlier visit comes back over the same saved text.
   const draft = store.get(draftKey, null);
   if (draft && typeof draft.body === "string" && trim(draft.body) !== trim(saved)) {
-    const same = draft.hash ? draft.hash === opened : trim(draft.saved) === trim(saved);
+    // A new item has no file to change under it: its kept text is always its own.
+    const same = fresh ? true : draft.hash ? draft.hash === opened : trim(draft.saved) === trim(saved);
     if (!same) {
       // Kept over the body it was taken from: its save is refused, and the note says why.
       stale = true;
@@ -776,9 +922,12 @@ function makeEditor(item) {
   const baseKeyOf = (it) => `${it.edit?.hash || ""}|${S.write?.batch?.head || ""}|${S.write?.fetched_at || ""}`;
   let baseKey = baseKeyOf(item);
   applyBase();
-  loadBase();
+  if (!fresh) loadBase();
   return {
     rel,
+    key: owner, // editorFor: the same file, or the same new item, keeps its editor
+    paint,
+    keep: keepDraft,
     host,
     ed, // selftest.js reads the editor and whether text is unsaved
     dirty,
@@ -790,7 +939,7 @@ function makeEditor(item) {
     // The item read again (after a save, a refresh): the saved text and the base follow it;
     // the editor's text changes only when nothing unsaved is in it.
     sync(next) {
-      if (window.WS_SELFTEST) return; // "Check the editor" owns the text and its earlier text meanwhile
+      if (window.WS_SELFTEST || fresh) return; // a new item has no file to follow // "Check the editor" owns the text and its earlier text meanwhile
       latest = next;
       const hash = next.edit?.hash || "";
       if (hash !== opened && !superseded.has(hash)) {
@@ -806,7 +955,7 @@ function makeEditor(item) {
     destroy({ quiet = false } = {}) {
       // Leaving a text that is not saved: it is kept in this browser, and the person is told so
       // (quiet when the edit verb now refuses the file: the drawer's note says it, contract 14).
-      if (!quiet && dirty() && !window.WS_SELFTEST) toast("info", "Not saved yet", `Your edit of "${item.title || rel}" is kept in this browser. Open it again to save it.`);
+      if (!quiet && dirty() && !window.WS_SELFTEST) toast("info", "Not saved yet", fresh ? `Your new ${fresh.kind} is kept in this browser. Open New ${fresh.kind} again to save it.` : `Your edit of "${item.title || rel}" is kept in this browser. Open it again to save it.`);
       writeDraft();
       window.removeEventListener("pagehide", onHide);
       ed.destroy();
