@@ -255,30 +255,41 @@ const ROWS = {
       ["No git hook runs in the clone", "core.hooksPath=${NO_HOOKS}", code(WRITE_MODULE)],
       ["no call can stop to ask for a password", "GIT_TERMINAL_PROMPT", code(WRITE_MODULE)],
       [
-        "ProjectStore's own `move`, `handover`, `rank`, `edit` and `create` in the clone through the same Node",
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone through the same Node",
         'verb: "move"',
         code(WRITE_MODULE),
       ],
       [
-        "ProjectStore's own `move`, `handover`, `rank`, `edit` and `create` in the clone",
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
         'verb: "handover"',
         code(WRITE_MODULE),
       ],
       [
-        "ProjectStore's own `move`, `handover`, `rank`, `edit` and `create` in the clone",
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
         'verb: "rank"',
         code(WRITE_MODULE),
       ],
       // The editor's save and its base (dashboard-editor, contracts 6 and 9).
       [
-        "ProjectStore's own `move`, `handover`, `rank`, `edit` and `create` in the clone",
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
         'verb: "edit-doc"',
         code(WRITE_MODULE),
       ],
       // New on the backlog tree (dashboard-create, contract 1): the core's create, three entries.
       [
-        "ProjectStore's own `move`, `handover`, `rank`, `edit` and `create` in the clone",
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
         'cli: "create", lead: "story"',
+        code(WRITE_MODULE),
+      ],
+      // The initiative and epic rows (dashboard-initiative, contract 1): the core's initiative and epic.
+      [
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
+        'cli: "initiative"',
+        code(WRITE_MODULE),
+      ],
+      [
+        "ProjectStore's own `move`, `handover`, `rank`, `edit`, `create`, `initiative` and `epic` in the clone",
+        'cli: "epic"',
         code(WRITE_MODULE),
       ],
       // [dashboard-attachments#6] The text and each pasted picture, in the request's own folder.
