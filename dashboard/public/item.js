@@ -397,7 +397,8 @@ function endRefusedEditor(item) {
   ED = null;
 }
 function editorFor(d, item) {
-  if (ED && ED.key === (item.fresh ? item.fresh.key : item.rel)) {
+  // A new item keeps its editor only for its own state object: after a Save the same key is a new state.
+  if (ED && (item.fresh ? ED.fresh === item.fresh : ED.key === item.rel)) {
     ED.sync(item);
     return ED.host;
   }
@@ -930,6 +931,7 @@ function makeEditor(item) {
   return {
     rel,
     key: owner, // editorFor: the same file, or the same new item, keeps its editor
+    fresh,
     paint,
     keep: keepDraft,
     host,

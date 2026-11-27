@@ -862,6 +862,35 @@ test("attachments: create with an attached file the text does not link, or a lin
   assert.deepEqual(bytesSnapshot(fx.vault), before);
 });
 
+// [create#12] [attachments#4]
+test("attachments: create --attach with a layout that keeps no attachments, or a .gitattributes that is a folder, is refused and writes nothing (failure)", async () => {
+  const fx = await storyVault();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const body = (await readStory(fx)).body;
+  const from = tmpFile("t.md", body.replace("## Description\n", `## Description\n\n![shot](${UP}/${name})\n`));
+  const run = (layout) =>
+    runCreate({
+      values: { write: true, from, attach: [png] },
+      positionals: ["story", "PS-X", "A picture story"],
+      cfg: CFG(fx, layout),
+      project: fx.proj,
+      env: { ...process.env, CI: "1" },
+      confirm: null,
+    });
+  const before = bytesSnapshot(fx.vault);
+  const plain = await run(layoutWithoutKey());
+  assert.equal(plain.code, 1, plain.text);
+  assert.match(plain.result.error, /this layout keeps no attachments/);
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+  mkdirSync(fx.at(".gitattributes"));
+  const folder = await run("engineering");
+  assert.equal(folder.code, 1, folder.text);
+  assert.match(folder.result.error, /\.gitattributes is not a plain file of the vault/);
+  assert.equal(existsSync(fx.at(NEW_STORY)), false);
+  assert.equal(existsSync(fx.at(`attachments/${name}`)), false);
+});
+
 // [create#12] [attachments#6]
 test("attachments: a create whose story another writer made after the plan leaves no kept file, no folder, and .gitattributes as it was (failure)", async () => {
   const fx = await storyVault();

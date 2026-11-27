@@ -2860,6 +2860,23 @@ test("dashboard page: [dashboard-new#4] Save is off with the hint until the inpu
   assert.equal(page.created.length, 1, "a second ⌘S sends nothing");
 });
 
+// [dashboard-new#4]
+test("dashboard page: [dashboard-new#4] after a Save whose made item could not be opened, the same New opens a new state with an editor of its own and Save on (edge)", async () => {
+  const page = loadEditor("/work/a", "/vaults/one", new Map());
+  const first = await openedNew(page, "story", { epic: "PS-X" });
+  setInput(page, "title", "One");
+  await first.ed.save();
+  assert.equal(first.st.made, true);
+  const again = await openedNew(page, "story", { epic: "PS-X" });
+  assert.notEqual(again.st, first.st, "a new state");
+  assert.equal(again.st.made, false);
+  assert.notEqual(again.ed, first.ed, "not the made state's editor");
+  setInput(page, "title", "Two");
+  assert.equal(buttonOf(again.ed, "Save").disabled, false);
+  await again.ed.save();
+  assert.equal(page.created.length, 2);
+});
+
 // [dashboard-new#5]
 test("dashboard page: [dashboard-new#5] a refusal stands above the text in New's plain words, nothing is made, and the inputs, the text and the pictures stay (failure)", async () => {
   const page = loadEditor("/work/a", "/vaults/one", new Map(), {
