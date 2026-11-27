@@ -21,7 +21,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planScaffold } from "../scripts/scaffold.mjs";
 import { run } from "../scripts/cli.mjs";
-import { runEdit } from "../scripts/item-verbs.mjs";
+import { runEdit, runCreate } from "../scripts/item-verbs.mjs";
 import { readEvents } from "../scripts/write-record.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { buildNodeIndex, loadLayout, loadTemplate, renderTemplate } from "../scripts/lib.mjs";
@@ -803,4 +803,154 @@ test("attachments: a declined write keeps files and gitattributes in its result,
   assert.equal(plan.code, 0, plan.out + plan.err);
   assert.equal(plan.json.result.same, true);
   assert.deepEqual(plan.json.result.sections, []);
+});
+
+// ─── create --from --attach (the create spec, contract 12) ───────────
+
+const NEW_STORY = "epics/PS-X/stories/story-a-picture-story.md";
+// A create of the story "A picture story" whose Description gains `line`, with the files attached.
+async function createWith(fx, line, attach = [], { write = true, sid = null } = {}) {
+  const body = (await readStory(fx)).body;
+  const args = ["create", "story", "PS-X", "A picture story"];
+  args.push("--from", tmpFile("text.md", body.replace("## Description\n", `## Description\n\n${line}\n`)));
+  for (const a of attach) args.push("--attach", a);
+  if (write) args.push("--write");
+  return cli(fx.proj, args, { sid });
+}
+
+// [create#12] [attachments#3]
+test("attachments: create --attach plans the file and the line, then writes them with the story, named in files and gitattributes", async () => {
+  const fx = await storyVault();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const before = bytesSnapshot(fx.vault);
+  const plan = await createWith(fx, `![shot](${UP}/${name})`, [png], { write: false });
+  assert.equal(plan.code, 0, plan.out + plan.err);
+  assert.deepEqual(
+    plan.json.result.files.map((f) => [f.path, f.state]),
+    [[`attachments/${name}`, "to-create"]],
+  );
+  assert.equal(plan.json.result.gitattributes, "to-change");
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+  const r = await createWith(fx, `![shot](${UP}/${name})`, [png]);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.equal(r.json.result.rel, NEW_STORY);
+  assert.deepEqual(
+    r.json.result.files.map((f) => [f.path, f.state]),
+    [[`attachments/${name}`, "created"]],
+  );
+  assert.equal(r.json.result.gitattributes, "changed");
+  assert.deepEqual(readFileSync(fx.at(`attachments/${name}`)), Buffer.from(FIXTURES.png));
+  assert.equal(readFileSync(fx.at(".gitattributes"), "utf8"), "attachments/** -text\n");
+  assert.ok(readFileSync(fx.at(NEW_STORY), "utf8").includes(`![shot](${UP}/${name})`));
+});
+
+// [create#12] [attachments#4]
+test("attachments: create with an attached file the text does not link, or a link to a kept file not there, is refused and writes nothing (failure)", async () => {
+  const fx = await storyVault();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const other = await nameOf(FIXTURES.pdf);
+  const before = bytesSnapshot(fx.vault);
+  for (const write of [false, true]) {
+    const a = await createWith(fx, "No picture here.", [png], { write });
+    assert.equal(a.code, 1, a.out + a.err);
+    assert.match(a.json.result.error, /link/);
+    const b = await createWith(fx, `![doc](${UP}/${other})`, [], { write });
+    assert.equal(b.code, 1, b.out + b.err);
+    assert.match(b.json.result.error, /not in attachments\/ and not attached/);
+  }
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+});
+
+// [create#12] [attachments#4]
+test("attachments: create --attach with a layout that keeps no attachments, or a .gitattributes that is a folder, is refused and writes nothing (failure)", async () => {
+  const fx = await storyVault();
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const body = (await readStory(fx)).body;
+  const from = tmpFile("t.md", body.replace("## Description\n", `## Description\n\n![shot](${UP}/${name})\n`));
+  const run = (layout) =>
+    runCreate({
+      values: { write: true, from, attach: [png] },
+      positionals: ["story", "PS-X", "A picture story"],
+      cfg: CFG(fx, layout),
+      project: fx.proj,
+      env: { ...process.env, CI: "1" },
+      confirm: null,
+    });
+  const before = bytesSnapshot(fx.vault);
+  const plain = await run(layoutWithoutKey());
+  assert.equal(plain.code, 1, plain.text);
+  assert.match(plain.result.error, /this layout keeps no attachments/);
+  assert.deepEqual(bytesSnapshot(fx.vault), before);
+  mkdirSync(fx.at(".gitattributes"));
+  const folder = await run("engineering");
+  assert.equal(folder.code, 1, folder.text);
+  assert.match(folder.result.error, /\.gitattributes is not a plain file of the vault/);
+  assert.equal(existsSync(fx.at(NEW_STORY)), false);
+  assert.equal(existsSync(fx.at(`attachments/${name}`)), false);
+});
+
+// [create#12] [attachments#6]
+test("attachments: a create whose story another writer made after the plan leaves no kept file, no folder, and .gitattributes as it was (failure)", async () => {
+  const fx = await storyVault();
+  writeFileSync(fx.at(".gitattributes"), "*.md text\n");
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const body = (await readStory(fx)).body;
+  const theirs = "---\nid: theirs\n---\n";
+  const r = await runCreate({
+    values: {
+      write: true,
+      from: tmpFile("t.md", body.replace("## Description\n", `## Description\n\n![shot](${UP}/${name})\n`)),
+      attach: [png],
+    },
+    positionals: ["story", "PS-X", "A picture story"],
+    cfg: CFG(fx),
+    project: fx.proj,
+    env: { ...process.env, CI: "1" },
+    confirm: async () => {
+      writeFileSync(fx.at(NEW_STORY), theirs);
+      return true;
+    },
+  });
+  assert.equal(r.code, 1, r.text);
+  assert.match(r.text, /made by another writer/);
+  assert.equal(readFileSync(fx.at(NEW_STORY), "utf8"), theirs);
+  assert.equal(existsSync(fx.at("attachments")), false);
+  assert.equal(readFileSync(fx.at(".gitattributes"), "utf8"), "*.md text\n");
+});
+
+// [create#12] [attachments#8]
+test("attachments: a create's story, its epic, each kept file and .gitattributes are events of create, and session check calls each own", async () => {
+  const fx = await storyVault();
+  const sh = (...args) => {
+    const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], {
+      cwd: fx.vault,
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  sh("init", "-q");
+  sh("add", "-A");
+  sh("commit", "-qm", "base");
+  const png = tmpFile("shot.png", Buffer.from(FIXTURES.png));
+  const name = await nameOf(FIXTURES.png);
+  const r = await createWith(fx, `![shot](${UP}/${name})`, [png], { sid: "s-create" });
+  assert.equal(r.code, 0, r.out + r.err);
+  // The record keeps its events in no order (readEvents): compared as a set.
+  const events = readEvents(fx.proj, "s-create").filter((e) => e.tool === "create");
+  assert.deepEqual(
+    events.map((e) => e.rel).sort(),
+    [NEW_STORY, `attachments/${name}`, ".gitattributes", "epics/PS-X/epic.md"].sort(),
+  );
+  const kept = events.find((e) => e.rel === `attachments/${name}`);
+  assert.equal(kept.before ?? null, null, "a kept file has no before");
+  const c = await cli(fx.proj, ["session", "check"], { sid: "s-create" });
+  const files = c.json.result.copies[0].files;
+  for (const rel of [NEW_STORY, "epics/PS-X/epic.md", ".gitattributes", `attachments/${name}`])
+    assert.equal(files.find((x) => x.path === rel)?.verdict, "own", `${rel}: ${JSON.stringify(files)}`);
+  const fx2 = await storyVault();
+  const r2 = await createWith(fx2, `![shot](${UP}/${name})`, [png]);
+  assert.equal(r2.code, 0, "with no session id nothing is recorded and the create is not refused");
 });

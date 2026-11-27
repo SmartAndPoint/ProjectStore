@@ -162,7 +162,6 @@ function page(S, { canRank = true } = {}) {
       canRank: () => canRank,
       // New's controls (dashboard-create): none here, this harness draws the order.
       newOnRow: () => null,
-      newInToolbar: () => [],
       dragTreeRow: (tr, item) => {
         dragged.push(item);
         tr.setAttribute("data-handle", item.ref);

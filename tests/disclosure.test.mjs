@@ -292,9 +292,9 @@ const ROWS = {
         'cli: "epic"',
         code(WRITE_MODULE),
       ],
-      // [dashboard-attachments#6] The text and each pasted picture, in the request's own folder.
+      // [dashboard-attachments#6] [dashboard-new#7] The text and each pasted picture, in the request's own folder.
       [
-        "for `edit` it writes the text you save, and each picture pasted into it, to a folder of its own in your system's temporary folder",
+        "for `edit` and `create` it writes the text you save, and each picture pasted into it, to a folder of its own in your system's temporary folder",
         'mkdtempSync(join(tmpdir(), "projectstore-edit-"))',
         code(WRITE_MODULE),
       ],

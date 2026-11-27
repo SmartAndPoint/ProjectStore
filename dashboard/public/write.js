@@ -972,56 +972,22 @@ const writeUi = (() => {
   }
   function itemButtons(kind, id) {
     const acts = itemActions(kind, id);
+    // New in it, in the panel (dashboard-new, contract 1): a story in an epic, an epic in an initiative.
+    const m = makesIn(kind, id);
+    if (m) acts.push({ label: `New ${m.make}…`, run: () => openCreate(m.make, m.preset), focus: `new-${m.make}` });
     if (!acts.length) return null;
     return h("div", { class: "row write-acts" }, acts.map((a) => h("button", { class: "btn", type: "button", "data-focus": a.focus, disabled: !!busy, onclick: a.run }, a.label)));
   }
   const itemCommands = (kind, id) => itemActions(kind, id).map(({ label, run, kw }) => ({ label, run, kw }));
 
-  // ── New: an initiative, an epic or a story (the spec dashboard-create) ──
+  // ── New: an initiative, an epic or a story (the specs dashboard-create and dashboard-new) ──
   const CREATES = { initiative: "create-initiative", epic: "create-epic", story: "create-story" };
-  // Where the new item goes, in words: the epic, the initiative, or none; an initiative stands at the top.
-  function whereWords(kind, fields) {
-    if (kind === "story") return `in the epic ${namedItem("epic", fields.epic)}`;
-    if (kind === "epic") return fields.initiative ? `in the initiative ${namedItem("initiative", fields.initiative)}` : "with no initiative";
-    return null;
-  }
-  // A note of `create`'s plan, a code, in plain words (contract 4).
+  // A note of `create`'s answer, a code, in plain words.
   const NOTE_WORDS = {
     "epic-row-missing": "The epic's story list is not a table, so the story is not added to it.",
     "epic-row-unlinkable": "The story cannot be linked from the epic's story list, so it is not added to it.",
   };
-  // Who a new item is for: the template makes the binding's default author a
-  // story's assignee and an initiative's owner (the spec create, contract 2).
-  function whoWords(kind) {
-    // With no default author in the binding, the draft takes the computer's login name.
-    const me = typeof S.me === "string" && S.me ? S.me : "your computer's login name (the binding names no default author)";
-    if (kind === "story") return `assigned to ${me}`;
-    if (kind === "initiative") return `owned by ${me}`;
-    return null;
-  }
-  // `create`'s plan (contract 4): what will be made, where and for whom, the
-  // mark in plain words, and the file, the epic's row and the notes under Details.
-  function createPlan(kind, result, sent) {
-    if (!result || typeof result !== "object") return h("div", { class: "faint" }, "The core gave no plan.");
-    const notes = Array.isArray(result.notes) ? result.notes.filter((n) => typeof n === "string" && n) : [];
-    const who = whoWords(kind);
-    const where = whereWords(kind, sent);
-    return h(
-      "div",
-      { class: "plan" },
-      kv(["New", kind], ["Title", sent.title || ""], where ? ["Where", where] : null, who ? ["Who", who] : null),
-      h("div", { class: "note" }, `The new ${kind} is marked as not reviewed until someone reviews it in an agent session. Its priority is the template's; a session can change it.`),
-      ...notes.map((n) => h("div", { class: "note warn" }, NOTE_WORDS[n] || n)),
-      details(
-        kv(
-          result.rel ? ["File", h("span", { class: "mono path" }, result.rel)] : null,
-          result.row ? ["Row in the epic's story list", h("span", { class: "mono" }, result.row)] : null,
-          ...notes.map((n) => ["Note", h("span", { class: "mono" }, n)]),
-        ),
-      ),
-    );
-  }
-  // A refusal of `create` in plain words, its own line under Details (contract 4).
+  // A refusal of `create` in plain words, its own line under Details (dashboard-new, contract 5).
   function createRefusal(kind, error) {
     const said = String(error || "");
     // create's own phrases (scripts/item-verbs.mjs, refusal), never the path, which holds the title's slug.
@@ -1029,8 +995,76 @@ const writeUi = (() => {
       ? `There is ${kind === "story" ? "a" : "an"} ${kind} of this name already. Choose another ${kind === "epic" ? "ID" : "title"}.`
       : /file name is \d+ bytes/i.test(said)
         ? "The title is too long for a file name. Shorten it."
-        : null;
+        : / names no epic in /.test(said)
+          ? "That epic is not in the vault. Pick an epic from the list."
+          : null;
     return plain ? [h("div", { class: "msg" }, plain), details(h("div", { class: "faint mono" }, said))] : null;
+  }
+  // ── New in the item panel (the spec dashboard-new): the rules item.js's new state asks ──
+  const createEntry = (kind) => (CREATES[kind] ? entryOf(CREATES[kind]) : null);
+  const openEpics = () => (S.epics || []).filter((e) => e && e.status !== "done");
+  // Why Save is off for these inputs, in plain words, or null (contract 4).
+  function newHint(kind, f) {
+    const title = String(f.title || "").trim();
+    if (!title) return `Give the ${kind} a title.`;
+    if ([...title].length > 200) return `The title is ${[...title].length} characters long; it takes at most 200.`;
+    if (kind === "epic") {
+      const id = String(f.id || "").trim();
+      if (!id) return "Give the epic an ID, such as PS-CORE.";
+      if (!EPIC_ID.test(id)) return `${id} cannot be an epic's ID: start with a letter or a digit, then use letters, digits, ".", "_" or "-".`;
+    }
+    if (kind === "story") {
+      const id = String(f.epic || "").trim();
+      if (!id) return "Pick the epic the story goes in.";
+      const e = (S.epics || []).find((x) => x && x.id === id);
+      if (!e) return `There is no epic ${id}. Pick one from the list.`;
+      if (e.status === "done") return `${id} is done. Pick an epic that is not done.`;
+    }
+    return null;
+  }
+  // The create row's fields for the inputs, the editor's text and its pictures; an epic's own ID is the row's `epic`.
+  function newFields(kind, f, text, files) {
+    const out = { title: String(f.title || "").trim(), text };
+    if (kind === "epic") {
+      out.epic = String(f.id || "").trim();
+      if (f.initiative) out.initiative = f.initiative;
+    }
+    if (kind === "story") out.epic = String(f.epic || "").trim();
+    if (files.length) out.files = files;
+    return out;
+  }
+  // Save on a new item (contract 4): one action of the kind's create row; `wrote` when the batch gained a commit.
+  async function saveNew(kind, fields) {
+    const before = w()?.batch?.commits || 0;
+    const a = await running("action", () => post("/api/action", { verb: CREATES[kind], fields }));
+    if (a.ok) a.wrote = (w()?.batch?.commits || 0) > before;
+    // A refusal in the core's whole words: what it left and why (the write path's contract 7).
+    else a.error = fullError(a);
+    return a;
+  }
+  // After a Save that made the item: the line, the backlog read again, then the made item opened (contract 4).
+  async function finishNew(kind, a, sent) {
+    const notes = (Array.isArray(a.result?.notes) ? a.result.notes : []).map((n) => NOTE_WORDS[n] || n);
+    const rel = a.result?.rel || "the vault";
+    say("ok", [`The ${kind} ${sent.title} is made.`, ...notes, viewsNote(a)].filter(Boolean).join(" "));
+    const read = await after(`The ${kind} ${sent.title} is saved as a draft change, in ${rel}; the page cannot open it yet.`);
+    if (read) openMade(kind, a.result, sent);
+  }
+  // + New and the key C (contract 1): the palette's New level, while the page can write and lists a create row.
+  function newLevel() {
+    const x = w();
+    if (!x || !x.can) return null;
+    const items = [];
+    for (const k of ["initiative", "epic", "story"]) {
+      if (!createEntry(k)) continue;
+      const off = k === "story" && !openEpics().length;
+      items.push({ label: `${k.charAt(0).toUpperCase()}${k.slice(1)}`, icon: k, off, hint: off ? "make an epic first" : null, run: () => openCreate(k, {}), kw: `create add new ${k} write` });
+    }
+    return items.length ? { title: "New", items } : null;
+  }
+  function newButton() {
+    if (!newLevel()) return null;
+    return h("button", { class: "btn primary new-btn", type: "button", "data-focus": "new", title: "Add an initiative, an epic or a story (C)", onclick: () => openPalette(newLevel()) }, "+ New");
   }
   // The item of the state whose file is `rel`, as [kind, id], or null.
   function itemAt(rel) {
@@ -1054,23 +1088,11 @@ const writeUi = (() => {
     render();
     if (typeof openDrawer === "function") openDrawer(found[0], found[1]); // item.js
   }
+  // Every New opens the item panel in its new state (item.js, openNew): the same panel and Save as an edit.
   function openCreate(kind, preset = {}) {
-    const verb = CREATES[kind];
-    if (!verb || !entryOf(verb)) return toast("refused", "This change is not offered", `The page cannot make a new ${kind} now.`);
-    const where = whereWords(kind, preset);
-    const what = () => h("div", { class: "move-what" }, h("b", null, `A new ${kind}`), where ? h("div", { class: "faint" }, where) : null);
-    return openVerb(verb, null, preset, {
-      what,
-      hint: `Give the ${kind} a title${kind === "epic" ? " and an ID" : ""}, then Preview to see what will change. Nothing is saved yet.`,
-      changed: "A field changed: Preview again to see what will change.",
-      planView: (result, sent) => createPlan(kind, result, sent),
-      busyWord: "Creating…",
-      errorView: (error) => createRefusal(kind, error),
-      doneText: (f) => `The ${kind} ${f.title} is made. Write its text in the editor.`,
-      sameText: (f) => `the ${kind} ${f.title} is there already.`,
-      savedText: (f) => `The ${kind} ${f.title} is saved as a draft change.`,
-      opened: (result, sent) => openMade(kind, result, sent),
-    });
+    if (!createEntry(kind)) return toast("refused", "This change is not offered", `The page cannot make a new ${kind} now.`);
+    if (kind === "story" && !preset.epic && !openEpics().length) return toast("refused", "No epic to put it in", "Make an epic first, then add stories to it.");
+    return openNew(kind, preset); // item.js
   }
   // What a row's New makes (contract 3), or null: an epic in an initiative that
   // is not rejected or deferred, or with none (id ""); a story in an epic that is not done.
@@ -1100,12 +1122,6 @@ const writeUi = (() => {
   function itemCreateCommands(kind, id) {
     const m = makesIn(kind, id);
     return m ? [{ label: `New ${m.make} in this ${kind}…`, run: () => openCreate(m.make, m.preset), kw: `create add new ${m.make} write` }] : [];
-  }
-  // The tree's toolbar: New initiative, and New epic with no initiative.
-  function newInToolbar() {
-    return ["initiative", "epic"]
-      .filter((k) => entryOf(CREATES[k]))
-      .map((k) => h("button", { class: "btn", type: "button", "data-focus": `new-${k}`, disabled: !!busy, onclick: () => openCreate(k, {}) }, `New ${k}`));
   }
 
   // ── Publish (Send) and Discard ──
@@ -1380,7 +1396,7 @@ const writeUi = (() => {
     if (x.batch && x.batch.commits) out.push({ label: "Publish my changes for review…", run: confirmSend, group: "My changes", kw: "send push pull request batch" });
     if (x.batch) out.push({ label: "Discard my changes…", run: confirmDiscard, group: "My changes", kw: "end close batch" });
     out.push({ label: "Get the latest backlog", run: refresh, group: "My changes", kw: "refresh fetch pull request state code host" });
-    for (const k of ["initiative", "epic"]) if (entryOf(CREATES[k])) out.push({ label: `New ${k}…`, run: () => openCreate(k, {}), group: "New", kw: `create add new ${k} write` });
+    for (const it of newLevel()?.items || []) if (!it.off) out.push({ label: `New ${it.label.toLowerCase()}…`, run: it.run, group: "New", kw: it.kw });
     return out;
   }
 
@@ -1391,5 +1407,5 @@ const writeUi = (() => {
 
   // The editor's save (dashboard-editor, contract 9): the core's edit verb as edit-doc, through the one POST.
   const saveDoc = (fields) => post("/api/action", { verb: "edit-doc", fields });
-  return { post, saveDoc, viewsNote, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, openDecide, openFields, openLink, openUnlink, itemButtons, itemCommands, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, saveDoc, viewsNote, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, openDecide, openFields, openLink, openUnlink, itemButtons, itemCommands, newOnRow, itemCreateCommands, createEntry, createRefusal, newHint, newFields, saveNew, finishNew, newLevel, newButton, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();

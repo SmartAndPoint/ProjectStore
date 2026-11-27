@@ -316,6 +316,40 @@ export function readItem(ctx, rel) {
   };
 }
 
+// ── a new item's template (the spec dashboard-new, contract 3) ──
+// The kinds New makes, and the frontmatter fields the panel shows of each.
+const NEW_KINDS = ["initiative", "epic", "story"];
+const TEMPLATE_FIELDS = ["status", "priority", "assignee", "owner"];
+// The body after the head, by the edit verb's cut, of the file the core's
+// renderDraft gives the kind in the bound language, for the title "Untitled"
+// (an epic's ID NEW, a story's epic the first epic folder in id order); its
+// fields; and the draft's vault-relative path, used only for its depth.
+// → { status: 200, result: { kind, body, fields, rel } } or { status: 404, error }.
+// It runs no process and writes nothing.
+export function readTemplate(ctx, kind) {
+  if (!NEW_KINDS.includes(kind)) return { status: 404, error: `New makes ${NEW_KINDS.join(", ")}; ${JSON.stringify(kind ?? null)} is none of them` };
+  let args = ["Untitled"];
+  if (kind === "epic") args = ["NEW", "Untitled"];
+  if (kind === "story") {
+    const epicsPath = epicsPathOf(ctx);
+    const first = epicsPath ? listDir(join(ctx.vault, epicsPath)).find((id) => !/^[._]/.test(id) && existsSync(join(ctx.vault, epicsPath, id, "epic.md"))) : null;
+    if (!first) return { status: 404, error: "no epic yet: make an epic first" };
+    args = [first, "Untitled"];
+  }
+  let d;
+  try {
+    d = ctx.draft.renderDraft(ctx.cfg, ctx.layout, kind, args);
+  } catch (e) {
+    if (e instanceof ctx.draft.DraftError) return { status: 404, error: `the ${kind} template could not be read: ${e.message}` };
+    throw e;
+  }
+  const { data, body } = ctx.lib.parseFrontmatter(d.content);
+  const fields = {};
+  for (const k of TEMPLATE_FIELDS) if (data[k] !== undefined && data[k] !== null && String(data[k]).trim()) fields[k] = String(data[k]);
+  const rel = relative(ctx.vault, d.path).split(sep).join("/");
+  return { status: 200, result: { kind, body: ctx.editCut.splitForEdit(body).body, fields, rel } };
+}
+
 // Every artifact by path, title and kind: for links between documents and
 // for the search.
 export function readArtifacts(ctx) {

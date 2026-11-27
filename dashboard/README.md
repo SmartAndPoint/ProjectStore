@@ -14,8 +14,8 @@ the list, My work, the initiatives, Reports (the flow, and the board against the
 document with what is related to it, and a command palette. It can also move a story between the backlog and ToDo, hand a story someone holds to
 another person, reorder the backlog tree by a drag or Alt+↑ and Alt+↓ (a reorder that writes
 one file is committed on its drop or key; one that also gives other rows a place asks first),
-save an item's text from its editor, make a new initiative, epic or story with the tree's
-New, decide an initiative or edit its fields, and set an epic's initiative. The core's own `move`,
+save an item's text from its editor, make a new initiative, epic or story with + New, in
+the same panel and with the same Save as an edit, decide an initiative or edit its fields, and set an epic's initiative. The core's own `move`,
 `handover`, `rank`, `edit`, `create`, `initiative` and `epic` run in
 the page's **own clone of the vault**, and the page commits the change there, on the person's own
 branch. **Send** (the button reads "Publish for review") pushes that branch and opens one pull request for it (with no `gh` to ask, it

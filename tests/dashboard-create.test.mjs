@@ -7,9 +7,12 @@
 // Contracts 1 and 2 run the write module over a world of
 // tests/fixtures/dashboard-world.mjs (a bare `origin`, a vault cloned from it,
 // a project bound to it, HOME and git's configuration inside the world), and
-// read the spawn record for "no call" and the argv. Contracts 3 to 5 load the
+// read the spawn record for "no call" and the argv. Contracts 3 and 5 load the
 // page's write.js in a `vm` context with a stub document, and read what it
-// draws and what it posts.
+// draws and what it posts. Since New opens the item panel (the spec
+// dashboard-new), the dialog of contract 4 is gone: the rules the panel's Save
+// asks of write.js (+ New, the hints, the request, the step after Save) are
+// tested here, the panel itself in tests/dashboard-page.test.mjs.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -78,9 +81,10 @@ test("dashboard create: the three entries are labelled, run create with the kind
   assert.equal(by["create-initiative"].label, "Create initiative");
   assert.equal(by["create-epic"].label, "Create epic");
   assert.equal(by["create-story"].label, "Create story");
-  assert.deepEqual(Object.keys(by["create-initiative"].fields), ["title"]);
-  assert.deepEqual(Object.keys(by["create-epic"].fields), ["epic", "title", "initiative"]);
-  assert.deepEqual(Object.keys(by["create-story"].fields), ["epic", "title"]);
+  // [dashboard-new#7] Each create row also takes the editor's text and its pictures.
+  assert.deepEqual(Object.keys(by["create-initiative"].fields), ["title", "text", "files"]);
+  assert.deepEqual(Object.keys(by["create-epic"].fields), ["epic", "title", "initiative", "text", "files"]);
+  assert.deepEqual(Object.keys(by["create-story"].fields), ["epic", "title", "text", "files"]);
   assert.equal(by["create-epic"].fields.initiative.optional, true);
   for (const v of ["create-initiative", "create-epic", "create-story"]) assert.equal(by[v].fields.title.max, 200);
   const ok = (req) => {
@@ -253,7 +257,7 @@ test("dashboard create: a story in an epic whose story list is no table is one c
   });
 });
 
-// [dashboard-create#1] [dashboard-create#4]
+// [dashboard-create#1] [dashboard-new#5]
 test("dashboard create: a title within 200 characters whose file name passes the core's byte limit is refused by create, ok false, with its words and the clone as it was", async () => {
   await withWorld({}, async (w) => {
     const writer = await writable(w);
@@ -502,6 +506,8 @@ function page(S, { answers = {}, state = null } = {}) {
   const posts = [];
   const opened = [];
   const toasts = [];
+  const newOpened = [];
+  const palettes = [];
   const meta = new El("meta");
   meta.setAttribute("content", "the-run-token");
   const document = Object.assign(doc, {
@@ -532,6 +538,8 @@ function page(S, { answers = {}, state = null } = {}) {
       return d;
     },
     openDrawer: (kind, id) => opened.push([kind, id]),
+    openNew: (kind, preset) => (newOpened.push([kind, JSON.parse(JSON.stringify(preset))]), true),
+    openPalette: (level) => palettes.push(level),
     loadArtifacts: async () => {},
     fetchItem() {},
     withAssignees: (s) => s,
@@ -573,21 +581,39 @@ function page(S, { answers = {}, state = null } = {}) {
   const buttons = (root) => root.all().filter((e) => e.tag === "button");
   const words = (root) => buttons(root).map((b) => b.text());
   const dialog = () => els["#modal"];
-  return { ctx, ui: ctx.__p.writeUi, p: ctx.__p, els, posts, opened, toasts, tree, rows, buttons, words, dialog };
+  return {
+    ctx,
+    ui: ctx.__p.writeUi,
+    p: ctx.__p,
+    els,
+    posts,
+    opened,
+    toasts,
+    newOpened,
+    palettes,
+    tree,
+    rows,
+    buttons,
+    words,
+    dialog,
+  };
 }
+// A value of the page's realm as plain JSON, for deepStrictEqual.
+const plain = (x) => JSON.parse(JSON.stringify(x));
 const settleUi = async () => {
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 };
 
-// [dashboard-create#3]
-test("dashboard create page: a writable page draws New initiative and New epic in the toolbar, New epic on each initiative row and on No initiative, New story on each epic row, none on a story row, and the palette's lines", () => {
+// [dashboard-create#3] [dashboard-new#1]
+test("dashboard create page: a writable page draws no New in the toolbar, New epic on each initiative row and on No initiative, New story on each epic row, none on a story row, and the palette's lines", () => {
   const w = page(STATE(writeOf()));
   w.p.ui.open = new Set(["i:faster-onboarding", "i:", "e:PS-X", "e:PS-L"]);
   const t = w.tree();
   const bar = t.all().find((e) => e.cls.has("toolbar"));
   assert.deepEqual(
-    w.words(bar).filter((x) => x.startsWith("New")),
-    ["New initiative", "New epic"],
+    w.words(bar).filter((x) => /New/.test(x)),
+    [],
+    "the toolbar has no New of its own: + New stands in the top bar",
   );
   const byKey = Object.fromEntries(w.rows().map((r) => [r.attrs["data-key"], r]));
   const newIn = (key) =>
@@ -615,7 +641,7 @@ test("dashboard create page: a writable page draws New initiative and New epic i
         .filter((c) => c.group === "New")
         .map((c) => c.label),
     ],
-    ["New initiative…", "New epic…"],
+    ["New initiative…", "New epic…", "New story…"],
   );
   // The palette's lines for a selected epic and initiative.
   assert.deepEqual([...w.ui.itemCreateCommands("epic", "PS-X").map((c) => c.label)], ["New story in this epic…"]);
@@ -668,7 +694,8 @@ test("dashboard create page: a page that cannot write draws no New and the palet
 });
 
 // [dashboard-create#3]
-test("dashboard create page: a search that narrows the tree keeps New on the rows it shows, and a click on a row's New opens the dialog and not the row's drawer", () => {
+// [dashboard-new#1]
+test("dashboard create page: a search that narrows the tree keeps New on the rows it shows, and a click on a row's New opens the new state with its epic and not the row's drawer", () => {
   const w = page(STATE(writeOf()));
   w.p.ui.filter = "X";
   const row = w.rows().find((r) => r.attrs["data-key"] === "e:PS-X");
@@ -679,15 +706,8 @@ test("dashboard create page: a search that narrows the tree keeps New on the row
   for (const fn of row.listeners.click || []) fn({ target: btn });
   assert.deepEqual(w.opened, [], "the row's drawer does not open");
   btn.click();
-  assert.equal(w.dialog().hidden, false, "the create dialog is open");
-  assert.equal(
-    w
-      .dialog()
-      .all()
-      .find((e) => e.tag === "h2")
-      .text(),
-    "Create story",
-  );
+  assert.equal(w.dialog().hidden, true, "no dialog");
+  assert.deepEqual(w.newOpened, [["story", { epic: "PS-X" }]], "the item panel's new state, its epic preset");
 });
 
 const PLAN = {
@@ -719,174 +739,155 @@ const type = (input, text) => {
   input.value = text;
   input.fire("input");
 };
+const BATCH = {
+  branch: "dashboard/p/20261125T080000Z",
+  started_at: "2026-11-25T08:00:00Z",
+  commits: 1,
+  pull_request: null,
+};
 
-// [dashboard-create#4]
-test("dashboard create page: New story shows the epic by its id and title, one title input counted against 200, and its plan says what, where and that it is not reviewed, with the file and the row under Details", async () => {
-  const w = page(STATE(writeOf()), { answers: { "/api/preview": { ok: true, result: PLAN } } });
-  w.ui.openCreate("story", { epic: "PS-X" });
-  const d = w.dialog();
-  assert.equal(
-    d
-      .all()
-      .find((e) => e.tag === "h2")
-      .text(),
-    "Create story",
-  );
-  assert.match(d.text(), /PS-X · X/);
-  const inputs = inputsOf(w);
-  assert.equal(inputs.length, 1, "one input, the title");
-  assert.ok(inputs[0].cls.has("field-title"));
-  assert.match(d.text(), /0\/200/);
-  assert.equal(primaryOf(w).text(), "Preview");
-  type(inputs[0], "Faster login");
-  assert.match(d.text(), /Commit: create story in PS-X: Faster login/);
-  primaryOf(w).click();
-  await settleUi();
-  assert.deepEqual(w.posts.at(-1), {
-    url: "/api/preview",
-    verb: "create-story",
-    fields: { epic: "PS-X", title: "Faster login" },
-  });
-  const text = d.text();
-  assert.match(text, /New\s*story/);
-  assert.match(text, /Faster login/);
-  assert.match(text, /in the epic PS-X · X/);
-  assert.match(text, /assigned to Test Person/);
-  assert.match(text, /marked as not reviewed/);
-  assert.match(text, /Its priority is the template's/);
-  assert.match(text, /epics\/PS-X\/stories\/story-faster-login\.md/);
-  assert.match(text, /story-faster-login\.md\) \| planned/);
-  assert.equal(primaryOf(w).text(), "Create story", "the button reads the entry's label once the plan is shown");
-  type(inputsOf(w)[0], "Faster login, again");
-  assert.equal(primaryOf(w).text(), "Preview", "a changed title asks for a new plan");
-});
-
-// [dashboard-create#4]
-test("dashboard create page: a plan's note is said in plain words with its code under Details, a title too long for a file name says to shorten it, and an initiative's plan names its owner", async () => {
-  const noted = { ...PLAN, row: null, notes: ["epic-row-missing"] };
-  const w = page(STATE(writeOf()), { answers: { "/api/preview": { ok: true, result: noted } } });
-  w.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(w)[0], "Faster login");
-  primaryOf(w).click();
-  await settleUi();
-  assert.match(w.dialog().text(), /The epic's story list is not a table, so the story is not added to it\./);
-  assert.ok(
-    w
-      .dialog()
-      .all()
-      .some((e) => e.tag === "details" && /epic-row-missing/.test(e.text())),
-  );
-
-  const long = "the file name is 273 bytes; it may be 239 (255 less 16 for the temporary name): shorten the title";
-  const i = page(STATE(writeOf()), {
-    answers: {
-      "/api/preview": { ok: false, status: 200, result: { ...PLAN, kind: "initiative", error: long }, error: long },
-    },
-  });
-  i.ui.openCreate("initiative", {});
-  assert.equal(
-    i
-      .dialog()
-      .all()
-      .find((e) => e.tag === "h2")
-      .text(),
-    "Create initiative",
-  );
-  type(inputsOf(i)[0], "漢".repeat(90));
-  primaryOf(i).click();
-  await settleUi();
-  assert.match(i.dialog().text(), /The title is too long for a file name\. Shorten it\./);
-  assert.equal(primaryOf(i).text(), "Preview");
-
-  const o = page(STATE(writeOf()), {
-    answers: {
-      "/api/preview": { ok: true, result: { ...PLAN, kind: "initiative", rel: "initiatives/x.md", row: null } },
-    },
-  });
-  o.ui.openCreate("initiative", {});
-  type(inputsOf(o)[0], "X");
-  primaryOf(o).click();
-  await settleUi();
-  assert.match(o.dialog().text(), /owned by Test Person/);
-  assert.doesNotMatch(o.dialog().text(), /Where/, "an initiative has no where");
-
-  // A binding with no default author: the draft takes the computer's login name (edge).
-  const anon = STATE(writeOf());
-  anon.me = null;
-  const n = page(anon, { answers: { "/api/preview": { ok: true, result: PLAN } } });
-  n.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(n)[0], "Y");
-  primaryOf(n).click();
-  await settleUi();
-  assert.match(n.dialog().text(), /assigned to your computer's login name \(the binding names no default author\)/);
-});
-
-// [dashboard-create#4]
-test("dashboard create page: New epic from an initiative row shows the initiative by its title and asks for the ID; from the toolbar it sends no initiative; an ID that exists shows create's words and the button stays Preview", async () => {
-  const said = "epics/PS-X/epic.md exists; a create never overwrites, and the agent command asks there";
-  const refused = { ok: false, status: 200, result: { ...PLAN, kind: "epic", rel: null, error: said }, error: said };
-  const w = page(STATE(writeOf()), { answers: { "/api/preview": refused } });
-  w.ui.openCreate("epic", { initiative: "faster-onboarding" });
-  const d = w.dialog();
-  assert.equal(
-    d
-      .all()
-      .find((e) => e.tag === "h2")
-      .text(),
-    "Create epic",
-  );
-  assert.match(d.text(), /Initiative\s*Faster onboarding/);
-  const [id, title] = inputsOf(w);
-  assert.ok(id.cls.has("field-epic") && title.cls.has("field-title"));
-  assert.match(d.text(), /its folder's name: a letter or a digit, then letters, digits/, "the typed ID names the rule");
-  type(title, "Onboarding");
-  assert.equal(primaryOf(w).disabled, true, "no ID yet: no preview");
-  type(id, "A B");
-  assert.equal(primaryOf(w).disabled, true, "an ID outside the rule: no preview");
-  type(id, "PS-X");
-  primaryOf(w).click();
-  await settleUi();
-  assert.deepEqual(w.posts.at(-1).fields, { epic: "PS-X", title: "Onboarding", initiative: "faster-onboarding" });
-  assert.match(
-    d.text(),
-    /Commit: create epic PS-X in faster-onboarding: Onboarding(?!,)/,
-    "the subject of the fields given, one of the list",
-  );
-  assert.match(d.text(), /There is an epic of this name already\. Choose another ID\./);
-  assert.ok(
-    d.all().some((e) => e.tag === "details" && /a create never overwrites/.test(e.text())),
-    "create's own line stands under Details",
-  );
-  assert.equal(primaryOf(w).text(), "Preview");
-  assert.equal(w.posts.filter((p) => p.url === "/api/action").length, 0, "nothing is sent as an action");
-
-  const t = page(STATE(writeOf()), { answers: { "/api/preview": { ok: true, result: { ...PLAN, kind: "epic" } } } });
-  t.ui.openCreate("epic", {});
-  assert.doesNotMatch(t.dialog().text(), /Initiative\s/);
-  const [tid, ttitle] = inputsOf(t);
-  type(tid, "PS-NEW");
-  type(ttitle, "New one");
-  primaryOf(t).click();
-  await settleUi();
-  assert.deepEqual(t.posts.at(-1).fields, { epic: "PS-NEW", title: "New one" }, "no initiative is sent");
-  assert.match(t.dialog().text(), /with no initiative/);
-  assert.match(t.dialog().text(), /Commit: create epic PS-NEW: New one/);
-  assert.doesNotMatch(t.dialog().text(), /\{initiative\}/);
-});
-
-// [dashboard-create#5]
-test("dashboard create page: after the action the page reads the state again, unfolds the story's epic and opens the story's drawer", async () => {
+// [dashboard-new#1]
+test("dashboard new page: + New and the key C's level offer an initiative, an epic and a story while the page can write; Story is off with no open epic; a page that cannot write, or lists no create row, has none", () => {
+  const w = page(STATE(writeOf()));
+  const lvl = w.ui.newLevel();
+  assert.equal(lvl.title, "New");
+  assert.deepEqual(plain(lvl.items.map((i) => [i.label, i.off])), [
+    ["Initiative", false],
+    ["Epic", false],
+    ["Story", false],
+  ]);
+  const btn = w.ui.newButton();
+  assert.equal(btn.text(), "+ New");
+  assert.ok(btn.cls.has("primary"), "a primary button");
+  btn.click();
+  assert.equal(w.palettes.length, 1, "it opens the palette");
+  assert.deepEqual(plain(w.palettes[0].items.map((i) => i.label)), ["Initiative", "Epic", "Story"]);
+  lvl.items[2].run();
+  lvl.items[1].run();
+  assert.deepEqual(w.newOpened, [
+    ["story", {}],
+    ["epic", {}],
+  ]);
   const S = STATE(writeOf());
-  const after = STATE(
-    writeOf(undefined, {
-      batch: {
-        branch: "dashboard/p/20261125T080000Z",
-        started_at: "2026-11-25T08:00:00Z",
-        commits: 1,
-        pull_request: null,
-      },
-    }),
+  for (const e of S.epics) e.status = "done";
+  const d = page(S);
+  const story = d.ui.newLevel().items.find((i) => i.label === "Story");
+  assert.equal(story.off, true);
+  assert.equal(story.hint, "make an epic first");
+  assert.ok(!d.ui.rootCommands().some((c) => c.label === "New story…"), "no palette line that cannot run");
+  const ro = page(STATE({ can: false, reason: "read-only for the test", verbs: [] }));
+  assert.equal(ro.ui.newLevel(), null);
+  assert.equal(ro.ui.newButton(), null);
+  const none = page(STATE(writeOf(plain(WRITE_VERBS.filter((v) => !v.verb.startsWith("create-"))))));
+  assert.equal(none.ui.newButton(), null);
+});
+
+// [dashboard-new#1]
+test("dashboard new page: an epic's panel offers New story… and an initiative's New epic…, each opening the new state with its preset; the keys list names C, and C opens the New level", () => {
+  const w = page(STATE(writeOf()));
+  const epicActs = w.buttons(w.ui.itemButtons("epic", "PS-X"));
+  const ns = epicActs.find((b) => b.text() === "New story…");
+  assert.ok(ns, w.words(w.ui.itemButtons("epic", "PS-X")).join(", "));
+  ns.click();
+  const ne = w.buttons(w.ui.itemButtons("initiative", "faster-onboarding")).find((b) => b.text() === "New epic…");
+  ne.click();
+  assert.deepEqual(w.newOpened, [
+    ["story", { epic: "PS-X" }],
+    ["epic", { initiative: "faster-onboarding" }],
+  ]);
+  const keys = src("keys.js");
+  assert.match(keys, /\["C", "New: add an initiative, an epic or a story"\]/);
+  assert.match(
+    keys,
+    /else if \(k === "c" \|\| k === "C"\) \{[\s\S]{0,200}const lvl = writeUi\.newLevel\(\);\s*if \(lvl\) \(done\(\), openPalette\(lvl\)\);/,
   );
+  assert.match(src("views.js"), /writeUi\.newButton\(\)/, "the top bar of every view draws + New");
+  assert.doesNotMatch(src("app.js"), /newInToolbar/);
+});
+
+// [dashboard-new#4]
+test("dashboard new page: Save is off with a hint for an empty or long title, an epic ID missing or outside the rule, and a story's epic missing, unknown or done; the request names the inputs, the text and the pictures", () => {
+  const w = page(STATE(writeOf()));
+  const hint = (kind, f) => w.ui.newHint(kind, { title: "", id: "", epic: "", initiative: "", ...f });
+  assert.match(hint("story", {}), /Give the story a title\./);
+  assert.match(hint("initiative", { title: "x".repeat(201) }), /201 characters long; it takes at most 200/);
+  assert.equal(hint("initiative", { title: " T " }), null);
+  assert.match(hint("epic", { title: "T" }), /Give the epic an ID/);
+  assert.match(hint("epic", { title: "T", id: "A B" }), /A B cannot be an epic's ID/);
+  assert.equal(hint("epic", { title: "T", id: "PS-NEW" }), null);
+  assert.match(hint("story", { title: "T" }), /Pick the epic the story goes in\./);
+  assert.match(hint("story", { title: "T", epic: "PS-NO" }), /There is no epic PS-NO\./);
+  assert.equal(hint("story", { title: "T", epic: "PS-X" }), null);
+  const S = STATE(writeOf());
+  S.epics[0].status = "done";
+  assert.match(page(S).ui.newHint("story", { title: "T", epic: "PS-X" }), /PS-X is done\./);
+  const files = [{ name: "0123456789abcdef.png", data: "AAAA" }];
+  const cases = [
+    [
+      "epic",
+      { title: " On ", id: "PS-NEW", initiative: "faster-onboarding" },
+      [],
+      { title: "On", text: "## Description\n", epic: "PS-NEW", initiative: "faster-onboarding" },
+    ],
+    [
+      "epic",
+      { title: "On", id: "PS-NEW", initiative: "" },
+      [],
+      { title: "On", text: "## Description\n", epic: "PS-NEW" },
+    ],
+    ["story", { title: "T", epic: "PS-X" }, files, { title: "T", text: "## Description\n", epic: "PS-X", files }],
+    ["initiative", { title: "I", epic: "PS-X" }, [], { title: "I", text: "## Description\n" }],
+  ];
+  for (const [kind, f, given, want] of cases) {
+    const fields = plain(w.ui.newFields(kind, f, "## Description\n", given));
+    assert.deepEqual(fields, want, kind);
+    const c = checkRequest({ verb: `create-${kind}`, fields });
+    assert.equal(c.ok, true, c.error);
+  }
+});
+
+// [dashboard-new#5]
+test("dashboard new page: a refusal is said in New's plain words with create's own under Details; a path that holds 'exists' is no taken name; a refusal keeps the reasons the core left; a story with no open epic opens nothing", async () => {
+  const w = page(STATE(writeOf()));
+  const words = (kind, e) => {
+    const r = w.ui.createRefusal(kind, e);
+    return r ? r.map((x) => x.text()).join(" | ") : null;
+  };
+  assert.match(
+    words("epic", "epics/PS-X/epic.md exists; a create never overwrites, and the agent command asks there"),
+    /There is an epic of this name already\. Choose another ID\. \| .*a create never overwrites/,
+  );
+  assert.match(
+    words("story", "the file name is 273 bytes; it may be 239 (255 less 16 for the temporary name): shorten the title"),
+    /The title is too long for a file name\. Shorten it\./,
+  );
+  assert.match(
+    words("story", '"PS-NO" names no epic in epics: there is no epics/PS-NO/epic.md'),
+    /That epic is not in the vault\./,
+  );
+  assert.equal(
+    words("story", "epics/PS-X/stories/story-collision-course-exists-now.md could not be written: EACCES"),
+    null,
+    "create's own words stand",
+  );
+  const left = { ...PLAN, left: [{ what: "the Stories row", error: "the epic file changed meanwhile", finish: "x" }] };
+  const r = page(STATE(writeOf()), {
+    answers: { "/api/action": { ok: false, result: left, error: "left: the Stories row", write: writeOf() } },
+  });
+  const a = await r.ui.saveNew("story", { epic: "PS-X", title: "Faster login", text: "## Description\n" });
+  assert.equal(a.ok, false);
+  assert.match(a.error, /left: the Stories row \(the Stories row: the epic file changed meanwhile\)/);
+  const S = STATE(writeOf());
+  for (const e of S.epics) e.status = "done";
+  const d = page(S);
+  d.ui.openCreate("story", {});
+  assert.deepEqual(d.newOpened, []);
+  assert.match(d.toasts.at(-1)[2], /Make an epic first/);
+});
+
+// [dashboard-create#5] [dashboard-new#4]
+test("dashboard new page: after Save the page reads the state again, unfolds the story's epic, opens the story's drawer and says the note in plain words", async () => {
+  const after = STATE(writeOf(undefined, { batch: BATCH }));
   after.stories.push({
     ref: "PS-X/story-faster-login",
     epic: "PS-X",
@@ -898,69 +899,44 @@ test("dashboard create page: after the action the page reads the state again, un
     subtasks: [],
     place: null,
   });
-  const w = page(S, {
+  const w = page(STATE(writeOf()), {
     answers: {
-      "/api/preview": { ok: true, result: PLAN },
-      "/api/action": { ok: true, result: { ...PLAN, write: true }, write: after.write },
+      "/api/action": { ok: true, result: { ...PLAN, write: true, notes: ["epic-row-missing"] }, write: after.write },
     },
     state: after,
   });
   w.p.ui.open = new Set();
-  w.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(w)[0], "Faster login");
-  primaryOf(w).click();
-  await settleUi();
-  primaryOf(w).click();
-  await settleUi();
-  assert.deepEqual(w.posts.at(-1), {
-    url: "/api/action",
-    verb: "create-story",
-    fields: { epic: "PS-X", title: "Faster login" },
-  });
-  assert.equal(w.dialog().hidden, true, "the dialog closed");
+  const sent = { epic: "PS-X", title: "Faster login", text: "## Description\n\nWhy.\n" };
+  const a = await w.ui.saveNew("story", sent);
+  assert.deepEqual(w.posts.at(-1), { url: "/api/action", verb: "create-story", fields: sent });
+  assert.equal(a.ok, true);
+  assert.equal(a.wrote, true);
+  await w.ui.finishNew("story", a, sent);
   assert.ok(w.p.ui.open.has("e:PS-X"), "the epic is unfolded");
   assert.ok(w.p.ui.open.has("i:faster-onboarding"), "and the epic's initiative");
   assert.deepEqual(w.opened, [["story", "PS-X/story-faster-login"]]);
-  const row = w.rows().find((r) => r.attrs["data-key"] === "s:PS-X/story-faster-login");
-  assert.ok(row, "the tree shows the story under its epic");
+  assert.match(w.els["#write"].text(), /The story Faster login is made\. The epic's story list is not a table/);
+  assert.ok(
+    w.rows().find((r) => r.attrs["data-key"] === "s:PS-X/story-faster-login"),
+    "the tree shows the story under its epic",
+  );
 });
 
-// [dashboard-create#5]
-test("dashboard create page: an epic made in an initiative unfolds it; a state with no item at the answer's rel opens nothing and names the file; a failed read says the item is saved and opens nothing", async () => {
-  const batch = {
-    branch: "dashboard/p/20261125T080000Z",
-    started_at: "2026-11-25T08:00:00Z",
-    commits: 1,
-    pull_request: null,
-  };
-  const epicPlan = {
-    ...PLAN,
-    kind: "epic",
-    rel: "epics/PS-NEW/epic.md",
-    row: null,
-    index: "| [PS-NEW](./PS-NEW/epic.md) | On | planned | 2026-11-25 |",
-  };
+// [dashboard-create#5] [dashboard-new#4]
+test("dashboard new page: an epic made in an initiative unfolds it; a state with no item at the answer's rel opens nothing and names the file; a failed read says the item is saved, names its file and opens nothing", async () => {
+  const epicPlan = { ...PLAN, kind: "epic", rel: "epics/PS-NEW/epic.md", row: null };
+  const sent = { epic: "PS-NEW", title: "On", initiative: "faster-onboarding", text: "## Goal\n" };
   const run = async (state) => {
-    const S = STATE(writeOf());
-    const w = page(S, {
-      answers: {
-        "/api/preview": { ok: true, result: epicPlan },
-        "/api/action": { ok: true, result: epicPlan, write: writeOf(undefined, { batch }) },
-      },
+    const w = page(STATE(writeOf()), {
+      answers: { "/api/action": { ok: true, result: epicPlan, write: writeOf(undefined, { batch: BATCH }) } },
       state,
     });
     w.p.ui.open = new Set();
-    w.ui.openCreate("epic", { initiative: "faster-onboarding" });
-    const [id, title] = inputsOf(w);
-    type(id, "PS-NEW");
-    type(title, "On");
-    primaryOf(w).click();
-    await settleUi();
-    primaryOf(w).click();
-    await settleUi();
+    const a = await w.ui.saveNew("epic", sent);
+    await w.ui.finishNew("epic", a, sent);
     return w;
   };
-  const found = STATE(writeOf(undefined, { batch }));
+  const found = STATE(writeOf(undefined, { batch: BATCH }));
   found.epics.push({
     id: "PS-NEW",
     title: "On",
@@ -975,26 +951,21 @@ test("dashboard create page: an epic made in an initiative unfolds it; a state w
   const a = await run(found);
   assert.ok(a.p.ui.open.has("i:faster-onboarding"), "the initiative is unfolded");
   assert.deepEqual(a.opened, [["epic", "PS-NEW"]]);
-
-  const b = await run(STATE(writeOf(undefined, { batch })));
+  const b = await run(STATE(writeOf(undefined, { batch: BATCH })));
   assert.deepEqual(b.opened, [], "nothing to open");
   assert.match(b.els["#write"].text(), /epics\/PS-NEW\/epic\.md/);
-
   const c = await run(new Error("the state could not be read"));
   assert.deepEqual(c.opened, [], "no drawer after a failed read");
-  assert.match(c.els["#write"].text(), /saved as a draft change\. But the page could not read the backlog again/);
+  assert.match(
+    c.els["#write"].text(),
+    /The epic On is saved as a draft change, in epics\/PS-NEW\/epic\.md; the page cannot open it yet\. But the page could not read the backlog again/,
+  );
 });
 
-// [dashboard-create#5]
-test("dashboard create page: an epic with no initiative unfolds No initiative, and the drawer opens whatever view the page shows (edge)", async () => {
-  const batch = {
-    branch: "dashboard/p/20261125T080000Z",
-    started_at: "2026-11-25T08:00:00Z",
-    commits: 1,
-    pull_request: null,
-  };
+// [dashboard-create#5] [dashboard-new#4]
+test("dashboard new page: an epic with no initiative unfolds No initiative, and the drawer opens whatever view the page shows (edge)", async () => {
   const plan = { ...PLAN, kind: "epic", rel: "epics/PS-NEW/epic.md", row: null };
-  const found = STATE(writeOf(undefined, { batch }));
+  const found = STATE(writeOf(undefined, { batch: BATCH }));
   found.epics.push({
     id: "PS-NEW",
     title: "On",
@@ -1007,50 +978,15 @@ test("dashboard create page: an epic with no initiative unfolds No initiative, a
     counts: { done: 0, active: 0, backlog: 0 },
   });
   const w = page(STATE(writeOf()), {
-    answers: {
-      "/api/preview": { ok: true, result: plan },
-      "/api/action": { ok: true, result: plan, write: found.write },
-    },
+    answers: { "/api/action": { ok: true, result: plan, write: found.write } },
     state: found,
   });
   w.p.ui.open = new Set();
   w.p.ui.view = "board";
-  w.ui.openCreate("epic", {});
-  const [id, title] = inputsOf(w);
-  type(id, "PS-NEW");
-  type(title, "On");
-  primaryOf(w).click();
-  await settleUi();
-  primaryOf(w).click();
-  await settleUi();
+  const sent = { epic: "PS-NEW", title: "On", text: "## Goal\n" };
+  await w.ui.finishNew("epic", await w.ui.saveNew("epic", sent), sent);
   assert.ok(w.p.ui.open.has("i:"), "No initiative is unfolded");
   assert.deepEqual(w.opened, [["epic", "PS-NEW"]], "the drawer opens on the board too");
-});
-
-// [dashboard-create#4] [dashboard-create#5]
-test("dashboard create page: an action with ok and no new commit says nothing was written and opens nothing; a refusal whose path holds 'collision' or 'exists' is not taken for a taken name (edge)", async () => {
-  const w = page(STATE(writeOf()), {
-    answers: { "/api/preview": { ok: true, result: PLAN }, "/api/action": { ok: true, result: PLAN } },
-  });
-  w.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(w)[0], "Faster login");
-  primaryOf(w).click();
-  await settleUi();
-  primaryOf(w).click();
-  await settleUi();
-  assert.match(w.els["#write"].text(), /Nothing was written: the story Faster login is there already\./);
-  assert.deepEqual(w.opened, [], "no drawer opens");
-
-  const said = "epics/PS-X/stories/story-collision-course-exists-now.md could not be written: EACCES";
-  const r = page(STATE(writeOf()), {
-    answers: { "/api/preview": { ok: false, status: 200, result: { ...PLAN, error: said }, error: said } },
-  });
-  r.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(r)[0], "Collision course exists now");
-  primaryOf(r).click();
-  await settleUi();
-  assert.doesNotMatch(r.dialog().text(), /of this name already/);
-  assert.match(r.dialog().text(), /could not be written: EACCES/, "create's own words stand");
 });
 
 // ─── The page's initiative and epic rows (the spec dashboard-initiative, contract 2) ───
@@ -1067,14 +1003,16 @@ const linked = () => {
 test("dashboard initiative page: an initiative's panel offers Accept, Reject, Defer and Edit fields; an epic offers Set initiative, or Change and No initiative once it has one; the palette has the same lines; a page that cannot write offers none", () => {
   const w = page(linked());
   const words = (root) => (root ? w.words(root) : []);
+  // [dashboard-new#1] Each panel also offers New in it.
   assert.deepEqual(words(w.ui.itemButtons("initiative", "faster-onboarding")), [
     "Accept…",
     "Reject…",
     "Defer…",
     "Edit fields…",
+    "New epic…",
   ]);
-  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-L")), ["Set initiative…"]);
-  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-X")), ["Change initiative…", "No initiative…"]);
+  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-L")), ["Set initiative…", "New story…"]);
+  assert.deepEqual(words(w.ui.itemButtons("epic", "PS-X")), ["Change initiative…", "No initiative…", "New story…"]);
   assert.deepEqual(
     [...w.ui.itemCommands("initiative", "faster-onboarding").map((c) => c.label)],
     ["Accept…", "Reject…", "Defer…", "Edit fields…"],
@@ -1167,15 +1105,9 @@ test("dashboard initiative page: Set initiative takes a typed id offered from th
   assert.deepEqual(u.posts.at(-1), { url: "/api/preview", verb: "epic-unlink", fields: { epic: "PS-X" } });
 });
 
-// [dashboard-writes#7]
-test("dashboard views left: a create the core made while the views were left closes the dialog and says, with the core's reason, that the views were not rebuilt; a refusal shows the reason from left[].error", async () => {
-  const batch = {
-    branch: "dashboard/p/20261127T080000Z",
-    started_at: "2026-11-27T08:00:00Z",
-    commits: 1,
-    pull_request: null,
-  };
-  const after = STATE(writeOf(undefined, { batch }));
+// [dashboard-writes#7] [dashboard-new#4]
+test("dashboard views left: a new item the core made while the views were left says, with the core's reason, that the views were not rebuilt", async () => {
+  const after = STATE(writeOf(undefined, { batch: BATCH }));
   after.stories.push({
     ref: "PS-X/story-faster-login",
     epic: "PS-X",
@@ -1189,7 +1121,6 @@ test("dashboard views left: a create the core made while the views were left clo
   });
   const w = page(STATE(writeOf()), {
     answers: {
-      "/api/preview": { ok: true, result: PLAN },
       "/api/action": {
         ok: true,
         result: { ...PLAN, write: true },
@@ -1199,28 +1130,10 @@ test("dashboard views left: a create the core made while the views were left clo
     },
     state: after,
   });
-  w.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(w)[0], "Faster login");
-  primaryOf(w).click();
-  await settleUi();
-  primaryOf(w).click();
-  await settleUi();
-  assert.equal(w.dialog().hidden, true, "the dialog closed");
+  const sent = { epic: "PS-X", title: "Faster login", text: "## Description\n" };
+  const a = await w.ui.saveNew("story", sent);
+  await w.ui.finishNew("story", a, sent);
   assert.match(w.els["#write"].text(), /were not rebuilt \(kanban\.md: EISDIR/);
   assert.match(w.els["#write"].text(), /Your change does not need them/);
-
-  const left = { ...PLAN, left: [{ what: "the Stories row", error: "the epic file changed meanwhile", finish: "x" }] };
-  const r = page(STATE(writeOf()), {
-    answers: {
-      "/api/preview": { ok: true, result: PLAN },
-      "/api/action": { ok: false, result: left, error: "left: the Stories row", write: writeOf() },
-    },
-  });
-  r.ui.openCreate("story", { epic: "PS-X" });
-  type(inputsOf(r)[0], "Faster login");
-  primaryOf(r).click();
-  await settleUi();
-  primaryOf(r).click();
-  await settleUi();
-  assert.match(r.dialog().text(), /left: the Stories row \(the Stories row: the epic file changed meanwhile\)/);
+  assert.deepEqual(w.opened, [["story", "PS-X/story-faster-login"]]);
 });
