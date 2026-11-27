@@ -2847,7 +2847,11 @@ test("dashboard page: [dashboard-new#4] Save is off with the hint until the inpu
   assert.equal(page.finished.length, 1, "the answer goes on to open the made item");
   assert.equal(st.made, true);
   assert.equal(page.newMode(st), "made");
-  assert.match(page.drawer.text, /Saved\. The story is a draft change now, in epics\/PS-X\/stories\/story-t\.md/, "saved, with no editor, until the made item opens");
+  assert.match(
+    page.drawer.text,
+    /Saved\. The story is a draft change now, in epics\/PS-X\/stories\/story-t\.md/,
+    "saved, with no editor, until the made item opens",
+  );
   assert.ok(!page.drawer.all().some((e) => e === ed.host), "the editor is not shown");
   assert.equal(page.NEW.has(st.key), false, "the new state is gone");
   assert.equal(page.pasted.size, 0, "the sent picture is forgotten");
