@@ -63,7 +63,10 @@ On a large vault kept in iCloud, the first read can be slow while iCloud downloa
   The server builds the argv, and refuses a verb or a field outside the table (400). A file whose
   bytes are of no kept type, over 5 MiB, or named otherwise than the core's `nameOf` names them
   is refused (400) before any process starts; the spec "The page's pictures…" (alias
-  `dashboard-attachments`) holds the rules.
+  `dashboard-attachments`) holds the rules. The derived views are never part of the page's
+  commit, so a verb whose only failure is that it could not rebuild them (its whole message is
+  `left: the derived views`, with or without its reason in brackets) still commits the files it
+  wrote, and the page shows the core's reason, `views_left`.
 - One path rule for every route that takes a path (`readableRel` in `lib/state.mjs`): not empty,
   not absolute, no `\`, no NUL, no `.`, `..` or hidden segment, and after every link is followed
   still a file inside the vault under no hidden segment. `/api/item` and `/api/related` take a

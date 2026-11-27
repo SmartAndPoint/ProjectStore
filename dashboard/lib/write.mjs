@@ -287,6 +287,22 @@ export function positionalsOf(req, argv = VERB_ARGV) {
   const word = (call.word || []).find((k) => Object.hasOwn(req.fields, k));
   return [...(call.lead ? [call.lead] : []), ...(word ? [word, req.fields[word]] : []), ...call.positionals.map((k) => req.fields[k])];
 }
+// The core's reason when a verb's only failure is the derived views it
+// refreshes after its write (contract 7), else null: its whole message is
+// `left: the derived views`, with the reason in brackets or in `left[].error`.
+// A message that names anything else left, or a result whose items carry an
+// error of their own (`handover` names only the views even when a story's
+// write failed), is a failed verb.
+export function viewsLeftOnly(ran) {
+  if (!ran || ran.ok || ran.status !== 200 || typeof ran.error !== "string") return null;
+  const m = /^left: the derived views(?: \(([\s\S]*)\))?$/.exec(ran.error.trim());
+  if (!m) return null;
+  const items = Array.isArray(ran.result?.items) ? ran.result.items : [];
+  if (items.some((x) => x && x.error)) return null;
+  const left = Array.isArray(ran.result?.left) ? ran.result.left : [];
+  const fromLeft = left.find((l) => l && typeof l.error === "string" && l.error.trim())?.error.trim();
+  return m[1] || fromLeft || "the core gave no reason";
+}
 // The commit's subject for a checked request (contract 7): the entry's
 // template with each `{name}` replaced once by that field's value, so a value
 // that holds `{to}` stays as typed.
@@ -1651,8 +1667,15 @@ export async function openWriter({ ctx, project = ctx?.project, budgets = {}, re
         throw e;
       }
       if (!ran.ok) {
-        await restore(via);
-        return ran;
+        // Only the derived views were left (contract 7): the verb wrote its
+        // own files, and the page never commits a view, so they commit as on
+        // success and the answer carries the core's reason.
+        const reason = viewsLeftOnly(ran);
+        if (reason === null) {
+          await restore(via);
+          return ran;
+        }
+        ran = { status: 200, ok: true, result: ran.result, views_left: reason };
       }
       const views = lib.derivedViewPaths(ctx.layout);
       const derived = new Set([...Object.values(views).filter((v) => typeof v === "string"), ...views.indexes.map((x) => x.path)]);

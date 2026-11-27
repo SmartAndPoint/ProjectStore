@@ -126,6 +126,20 @@ const writeUi = (() => {
   const settled = () => {
     if (!busy && !ranking && note?.passing) note = null;
   };
+  // The views the core could not rebuild after a write it did make (the write
+  // path's contract 7): harmless to the change, shown with the core's reason.
+  const viewsNote = (a) =>
+    a && typeof a.views_left === "string" && a.views_left
+      ? `Some overview files of the page's own copy (the board, the folder lists, the maps) were not rebuilt (${a.views_left}). Your change does not need them: the core rebuilds them on its next run.`
+      : null;
+  // A refusal in the core's whole words: what it left and why, when the
+  // message names only what (its `left[].error`).
+  const fullError = (a) => {
+    const text = String(a?.error || "");
+    const left = Array.isArray(a?.result?.left) ? a.result.left : [];
+    const why = left.map((l) => (l && typeof l.error === "string" && l.error.trim() ? `${l.what || "a step"}: ${l.error.trim()}` : null)).filter((x) => x && !text.includes(x.split(": ").slice(1).join(": ")));
+    return why.length ? `${text} (${why.join("; ")})` : text;
+  };
 
   // ── what may be offered ──
   // A verb's entry the page may run now, or null: `write.can`, and the verb in
@@ -809,13 +823,14 @@ const writeUi = (() => {
         dlg.close();
         const b = w()?.batch;
         wrote = (b?.commits || 0) > before;
-        say("ok", wrote ? opts.doneText(sent) : `Nothing was written: ${opts.sameText(sent)}`);
+        // The views' note is part of the line, not folded under Details: it is how a failing view is found.
+        say("ok", [wrote ? opts.doneText(sent) : `Nothing was written: ${opts.sameText(sent)}`, viewsNote(a)].filter(Boolean).join(" "));
       } else {
         planned = null;
-        showError(a.error);
+        showError(fullError(a));
         sync();
         if (dlg.isOpen()) firstInput().focus();
-        else say("error", `${title}: ${a.error}`);
+        else say("error", `${title}: ${fullError(a)}`);
       }
       const read = await after(a.ok && wrote && opts.savedText ? opts.savedText(sent) : null);
       // What the verb does once its change is read back (a create opens the new item).
@@ -1376,5 +1391,5 @@ const writeUi = (() => {
 
   // The editor's save (dashboard-editor, contract 9): the core's edit verb as edit-doc, through the one POST.
   const saveDoc = (fields) => post("/api/action", { verb: "edit-doc", fields });
-  return { post, saveDoc, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, openDecide, openFields, openLink, openUnlink, itemButtons, itemCommands, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
+  return { post, saveDoc, viewsNote, movesOf, canHandOver, namesFor, dragCard, dropColumn, openMove, openHandover, openVerb, openCreate, openDecide, openFields, openLink, openUnlink, itemButtons, itemCommands, newOnRow, newInToolbar, itemCreateCommands, canRank, dragTreeRow, rankKey, openRank, confirmSend, confirmDiscard, refresh, paint, footLine, storyButtons, storyCommands, rootCommands, boot, sendWords, carryWords, ROUTES };
 })();

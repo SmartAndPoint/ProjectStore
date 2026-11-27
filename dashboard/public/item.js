@@ -563,6 +563,12 @@ function makeEditor(item) {
       notice.replaceChildren();
       notice.classList.remove("bad");
       await load(); // app.js: the state (the change count), the artifacts and this item, read again
+      // Saved, though the core could not rebuild the derived views in the page's copy (the write
+      // path's contract 7): a toast at once, and the same words above the text until the next edit.
+      if (a.views_left) {
+        if (!window.WS_SELFTEST) toast("info", "Saved", writeUi.viewsNote(a));
+        fill(notice, h("b", null, "Saved. "), writeUi.viewsNote(a));
+      }
     } else {
       // The reason stays above the text until the next edit, not only in a toast that fades.
       notice.classList.add("bad");

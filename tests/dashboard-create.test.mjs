@@ -1166,3 +1166,61 @@ test("dashboard initiative page: Set initiative takes a typed id offered from th
   await settleUi();
   assert.deepEqual(u.posts.at(-1), { url: "/api/preview", verb: "epic-unlink", fields: { epic: "PS-X" } });
 });
+
+// [dashboard-writes#7]
+test("dashboard views left: a create the core made while the views were left closes the dialog and says, with the core's reason, that the views were not rebuilt; a refusal shows the reason from left[].error", async () => {
+  const batch = {
+    branch: "dashboard/p/20261127T080000Z",
+    started_at: "2026-11-27T08:00:00Z",
+    commits: 1,
+    pull_request: null,
+  };
+  const after = STATE(writeOf(undefined, { batch }));
+  after.stories.push({
+    ref: "PS-X/story-faster-login",
+    epic: "PS-X",
+    title: "Faster login",
+    rel: PLAN.rel,
+    status: "planned",
+    column: "Backlog",
+    priority: "p2",
+    subtasks: [],
+    place: null,
+  });
+  const w = page(STATE(writeOf()), {
+    answers: {
+      "/api/preview": { ok: true, result: PLAN },
+      "/api/action": {
+        ok: true,
+        result: { ...PLAN, write: true },
+        views_left: "kanban.md: EISDIR: illegal operation on a directory",
+        write: after.write,
+      },
+    },
+    state: after,
+  });
+  w.ui.openCreate("story", { epic: "PS-X" });
+  type(inputsOf(w)[0], "Faster login");
+  primaryOf(w).click();
+  await settleUi();
+  primaryOf(w).click();
+  await settleUi();
+  assert.equal(w.dialog().hidden, true, "the dialog closed");
+  assert.match(w.els["#write"].text(), /were not rebuilt \(kanban\.md: EISDIR/);
+  assert.match(w.els["#write"].text(), /Your change does not need them/);
+
+  const left = { ...PLAN, left: [{ what: "the Stories row", error: "the epic file changed meanwhile", finish: "x" }] };
+  const r = page(STATE(writeOf()), {
+    answers: {
+      "/api/preview": { ok: true, result: PLAN },
+      "/api/action": { ok: false, result: left, error: "left: the Stories row", write: writeOf() },
+    },
+  });
+  r.ui.openCreate("story", { epic: "PS-X" });
+  type(inputsOf(r)[0], "Faster login");
+  primaryOf(r).click();
+  await settleUi();
+  primaryOf(r).click();
+  await settleUi();
+  assert.match(r.dialog().text(), /left: the Stories row \(the Stories row: the epic file changed meanwhile\)/);
+});
