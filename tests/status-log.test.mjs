@@ -258,11 +258,11 @@ test("grammar: a reason holding ' — ' and parentheses parses back, the actor i
 });
 
 // [SPEC-001#3]
-test("grammar: a reason is one line and an actor is one of the six", () => {
+test("grammar: a reason is one line and an actor is one of the seven", () => {
   assert.equal(oneLine("  next up "), "next up");
   for (const bad of ["", "   ", "a\nb", "a\rb", "a b", "a\u0085b"])
     assert.throws(() => oneLine(bad), JSON.stringify(bad));
-  assert.deepEqual([...STATUS_ACTORS], ["plan gate", "close gate", "follow", "groom", "handover", "move"]);
+  assert.deepEqual([...STATUS_ACTORS], ["plan gate", "close gate", "follow", "groom", "handover", "move", "assign"]);
   assert.throws(() => checkActor("robot"), /one of/);
   assert.throws(() => change(story(), { reason: "a\nb" }), /one line/);
   assert.throws(() => change(story(), { actor: "robot" }), /one of/);

@@ -76,6 +76,7 @@
   "node_modules/projectstore/scaffold/headings.json",
   "node_modules/projectstore/scaffold/layouts/engineering.json",
   "node_modules/projectstore/scripts/agents-change.mjs",
+  "node_modules/projectstore/scripts/assign.mjs",
   "node_modules/projectstore/scripts/attachment.mjs",
   "node_modules/projectstore/scripts/band-shared.mjs",
   "node_modules/projectstore/scripts/band-wip.mjs",

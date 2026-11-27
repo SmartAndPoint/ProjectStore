@@ -2886,6 +2886,7 @@ test("cli per-verb help: Usage comes from each row's usage — 0.29.2's forms, s
     "close-refs": ["close-refs <story> [options]"], // new in PS-SPECTREE (the close-refs spec, contract 1)
     next: ["next [options]"], // new in PS-FLOW (the next verb's spec, contract 1)
     handover: ["handover [options]"], // new in PS-FLOW (the handover spec, contract 1)
+    assign: ["assign <story> <name> [options]", "assign <story> --clear [options]"], // new in PS-BACKLOG (the assign spec, contract 1)
     groom: ["groom [options]"], // new in PS-FLOW (the groom spec, contract 1)
     export: ["export [options]"], // new in PS-FLOW (the export spec, contract 1)
     dashboard: ["dashboard [<dir>] [options]"], // new in PS-DASHBOARD (the dashboard spec, contract 3)

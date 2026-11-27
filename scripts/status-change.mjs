@@ -306,9 +306,21 @@ export function changeStatus(
 // no epic row. `allow(fm)` and `afterCompute` are changeStatus's: the
 // refusal is judged on the fresh bytes of every attempt, so a story
 // reassigned meanwhile is left as it is (the handover spec, contract 3).
+// `touch` false leaves `updated` and the "Last updated" line as they were
+// (the assign spec, contract 3); handover keeps the default.
 export function changeAssignee(
   path,
-  { to, reason, actor, at = nowIso(), lang = "en", allow = null, afterCompute = null, onWrite = null } = {},
+  {
+    to,
+    reason,
+    actor,
+    at = nowIso(),
+    lang = "en",
+    allow = null,
+    touch = true,
+    afterCompute = null,
+    onWrite = null,
+  } = {},
 ) {
   let from = null;
   let line = null;
@@ -320,7 +332,8 @@ export function changeAssignee(
       const c = applyAssigneeChange(base, { to, reason, actor, at, lang });
       from = c.from;
       line = c.line;
-      return { content: c.changed ? touchStory(c.text, at.slice(0, 10) || today()) : base };
+      if (!c.changed) return { content: base };
+      return { content: touch ? touchStory(c.text, at.slice(0, 10) || today()) : c.text };
     },
     { afterCompute, onWrite },
   );

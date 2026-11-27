@@ -297,6 +297,14 @@ export function wipLimitOf(vaultCfg, name) {
   return goodCount(byTime) ? byTime : null;
 }
 
+// Whether a name is an agent's (the ADR "An agent is a person of the flow
+// policy named agent:<name>…", decision 1; the assign spec, contract 4): it
+// starts with `agent:` and has at least one character after the colon. Every
+// other name is a person's. The page reads this rule from the core.
+export const AGENT_PREFIX = "agent:";
+export const isAgentName = (name) =>
+  typeof name === "string" && name.startsWith(AGENT_PREFIX) && name.length > AGENT_PREFIX.length;
+
 // ─── What the readers refuse (the flow-findings spec, contracts 7 and 8) ─
 
 // The people a reader takes: own keys of `flow.people` that are valid names
