@@ -7,7 +7,10 @@
 // the mark `written_by_verb: "create <instant>"` beside `review_status:
 // pending`. A story's row then goes into its epic's Stories table through the
 // same add `epic-row --add` runs, and the derived views are refreshed with a
-// bare reconcile --write, as `move` does. `reviewed <path>` clears the mark
+// bare reconcile --write, as `move` does. With `--from <file>` the new file's
+// `## ` sections are that text, through every check `edit` runs on a text, and
+// `--attach <file>` keeps the pictures it links, as `edit --attach` does
+// (contract 12). `reviewed <path>` clears the mark
 // once a review has read the file. `edit <path> --from <file> --base <hash>`
 // replaces the `## ` sections of an initiative, epic or story when its body
 // still has that hash, through the guards of edit-cut.mjs, and marks it
@@ -21,7 +24,7 @@
 // with the verb's name as the tool. The module runs no git.
 //
 // Spec: "Create verbs and the not-reviewed mark…" (alias `create`),
-// contracts 1 to 6. Only this module writes the mark's key, and only
+// contracts 1 to 6 and 12. Only this module writes the mark's key, and only
 // runReviewed removes it (tests/verb-mark.test.mjs). runCreate(ctx) and
 // runReviewed(ctx) follow move's contract: each returns {usage} or {ok, code,
 // result, text}, and the bin (cli.mjs) prints and asks. Loaded lazily.
@@ -306,6 +309,9 @@ function refusal(u, v, draft) {
 function createPlan(p, { project, args, asking = false, done = false }) {
   const lines = [`create ${p.kind}: ${p.rel}${done ? " written" : ""}`];
   for (const [k, val] of Object.entries(p.fields)) lines.push(`  ${k}: ${val}`);
+  if (p.sections) lines.push(`  text: ${p.sections.length ? p.sections.join(", ") : "the template's sections"}`);
+  for (const f of p.files || []) lines.push(f);
+  if (p.gitattributes) lines.push(`  .gitattributes: + ${p.gitattributes}`);
   lines.push(`  mark: ${MARK_KEY} "create <the write's instant>", review_status pending`);
   if (p.index) lines.push(`  index row: ${p.index}`);
   if (p.kind === "story")
@@ -327,6 +333,21 @@ export async function runCreate(ctx) {
   const { values, positionals, cfg, project, env, confirm, ownEnv, now = null, afterCompute = null } = ctx;
   const u = createUsage(values, positionals);
   if (u.usage) return { usage: u.usage };
+  // A text and the files it links (contract 12), read before the vault is: a
+  // usage error writes nothing.
+  const listed = attachList(values, "create --attach needs --from <file>");
+  if (listed.usage) return { usage: listed.usage };
+  const attach = listed.attach;
+  let text = null;
+  if (given(values.from)) {
+    const t = readText(
+      values.from,
+      "create",
+      "the text is empty: give the sections the new file holds, or leave out --from",
+    );
+    if (t.usage) return { usage: t.usage };
+    text = t.text;
+  }
   const result = (extra = {}) => ({
     write: Boolean(values.write),
     kind: u.kind,
@@ -373,7 +394,40 @@ export async function runCreate(ctx) {
     if (t.error) return fail(t.error);
     target = t.target;
   }
-  const base = createContent(draft, { kind: u.kind, fields: u.fields, target, lang });
+  let base = createContent(draft, { kind: u.kind, fields: u.fields, target, lang });
+
+  // The text as the new file's body (contract 12): the draft's frontmatter,
+  // head and foot kept, and every check edit runs on a text and its kept files
+  // but the base, against the template's body.
+  let att = { files: [], dirAbs: null };
+  let layoutDir = null;
+  let addLine = false;
+  let sections = [];
+  if (text !== null) {
+    const c = cutOf(base);
+    const parts = splitForEdit(c.rest);
+    const body = bodyFrom(text, parts.body);
+    const refused = guardEdit(u.kind, parts.body, body);
+    if (refused) return fail(refused.error);
+    const next = `${c.fm ?? ""}${parts.head}${body}${parts.foot}`;
+    if (!readsBack(withMark(next, "create check"), body)) return fail(READS_BACK);
+    layoutDir = layoutAttachDir(cfg);
+    if (attach.length && !layoutDir) return fail("this layout keeps no attachments");
+    if (layoutDir) {
+      att = await attachmentPlan({ vault: v.vault, realVault: realOf(v.vault), rel, body, dir: layoutDir, attach });
+      if (att.error) return fail(att.error);
+    }
+    addLine = attach.length > 0 && gitattributesLacks(v.vault, layoutDir);
+    if (addLine) {
+      // The line is written only into a plain file of the vault, never through a link.
+      const ga = lstatOrNull(join(v.vault, ".gitattributes"));
+      if (ga && !ga.isFile()) return fail(GITATTRIBUTES_NOT_PLAIN);
+    }
+    sections = changedSections(parts.body, body);
+    base = next;
+  }
+  const attached = (gitattributesState) =>
+    attach.length ? { files: filesOut(att.files), gitattributes: gitattributesState } : {};
 
   // The Stories row the add would write now: shown in the plan, computed
   // again from the epic's fresh bytes at the write.
@@ -391,6 +445,8 @@ export async function runCreate(ctx) {
     ...(u.id === null ? [] : [shellQuote(u.id)]),
     shellQuote(u.title),
     ...OPTIONS[u.kind].filter((o) => u.fields[o] !== undefined).map((o) => `--${o} ${shellQuote(u.fields[o])}`),
+    ...(text === null ? [] : [`--from ${shellQuote(String(values.from))}`]),
+    ...attach.map((a) => `--attach ${shellQuote(String(a))}`),
   ].join(" ");
   const plan = {
     kind: u.kind,
@@ -400,8 +456,18 @@ export async function runCreate(ctx) {
     row,
     note,
     notes: [],
+    sections: text === null ? null : sections,
+    files: att.files.map(fileLine),
+    gitattributes: addLine ? GITATTRIBUTES_LINE(layoutDir) : null,
   };
-  const planned = result({ path: abs, rel, index: plan.index, row, notes: note ? [note] : [] });
+  const planned = result({
+    path: abs,
+    rel,
+    index: plan.index,
+    row,
+    notes: note ? [note] : [],
+    ...attached(addLine ? "to-change" : null),
+  });
   if (!values.write) return { ok: true, code: 0, result: planned, text: createPlan(plan, { project, args }) };
   if (confirm && !(await confirm(createPlan(plan, { project, args, asking: true }))))
     return {
@@ -414,19 +480,33 @@ export async function runCreate(ctx) {
   // The mark's instant is the write's, taken after the question.
   const mark = `create ${markInstant(now)}`;
   const content = withMark(base, mark);
+  // The kept files first (contract 12, as edit --attach writes them); what this
+  // run made is taken back when the item's file is not written.
+  const made = { dir: null, files: [], ga: null };
+  try {
+    writeAttachments(made, { vault: v.vault, dir: layoutDir, dirAbs: att.dirAbs, files: att.files, addLine });
+  } catch (e) {
+    undoAttachments(made);
+    return fail(errMsg(e));
+  }
   try {
     mkdirSync(u.kind === "epic" ? join(dirname(abs), "stories") : dirname(abs), { recursive: true });
-    if (!createFileExclusive(abs, content))
+    if (!createFileExclusive(abs, content)) {
+      undoAttachments(made);
       return fail(`${rel} was made by another writer after the plan; it is kept, and nothing was written`, {
         path: abs,
         rel,
       });
+    }
   } catch (e) {
+    undoAttachments(made);
     return fail(`${rel} could not be written: ${errMsg(e)}`, { path: abs, rel });
   }
-  // Each write lands in this session's record (the record spec, contract 5).
+  // Each write lands in this session's record (the record spec, contract 5),
+  // the kept files and the .gitattributes line after the item's file.
   const onWrite = nodeWriteRecorder({ env, project, tool: "create" });
   onWrite(abs, null, content);
+  recordMade(onWrite, made);
 
   const left = [];
   const notes = [];
@@ -464,16 +544,22 @@ export async function runCreate(ctx) {
     notes,
     reconcile: rec.summary,
     left,
+    ...attached(made.ga ? "changed" : null),
   });
-  let text = createPlan(
-    { ...plan, row: written.row ?? row, notes, reconcile: rec.summary },
+  let out = createPlan(
+    { ...plan, files: att.files.map(fileLine), row: written.row ?? row, notes, reconcile: rec.summary },
     { project, args, done: true },
   );
-  if (!left.length) return { ok: true, code: 0, result: done, text };
+  if (!left.length) return { ok: true, code: 0, result: done, text: out };
   for (const l of left)
     lines.push(`left: ${l.what} (${l.error}). Finish it ${fromTerminalIn(project)}:`, `  ${l.finish}`);
-  text += `create: ${rel} was written, but not all that follows it.\n${lines.join("\n")}\n`;
-  return { ok: false, code: 1, result: { ...done, error: `left: ${left.map((l) => l.what).join(", ")}` }, text };
+  out += `create: ${rel} was written, but not all that follows it.\n${lines.join("\n")}\n`;
+  return {
+    ok: false,
+    code: 1,
+    result: { ...done, error: `left: ${left.map((l) => l.what).join(", ")}` },
+    text: out,
+  };
 }
 
 // ─── reviewed ──────────────────────────────────────────────────────────
@@ -735,6 +821,74 @@ function undoAttachments(made) {
 
 const filesOut = (files) => files.map(({ path, type, size, state }) => ({ path, type, size, state }));
 
+// The text a verb takes from --from (the edit spec, contract 1; the create
+// spec, contract 12), read before the vault is: {text}, or {usage} for exit 2.
+function readText(from, verb, empty) {
+  let buf;
+  try {
+    if (!statSync(String(from)).isFile()) return { usage: `--from ${from} is not a file` };
+    buf = readFileSync(String(from));
+  } catch (e) {
+    return { usage: `--from ${from} cannot be read: ${errMsg(e)}` };
+  }
+  const text = buf.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(buf)) return { usage: `--from ${from} is not UTF-8 text` };
+  if (text.length > EDIT_TEXT_LIMIT)
+    return { usage: `the text is ${text.length} characters; ${verb} takes at most ${EDIT_TEXT_LIMIT}` };
+  if (text.includes("\u0000")) return { usage: "the text holds a NUL character" };
+  if (!text.replace(/^\uFEFF/, "").trim()) return { usage: empty };
+  return { text };
+}
+
+// The attached files (the attachments spec, contract 3): repeatable, with a
+// text; {attach}, or {usage} for exit 2. `needs` is the message for --attach
+// with no --from.
+function attachList(values, needs) {
+  const attach = [].concat(values.attach ?? []).filter((a) => a !== undefined && a !== null);
+  if (attach.length && !given(values.from)) return { usage: needs };
+  for (const a of attach) {
+    try {
+      if (!statSync(String(a)).isFile()) return { usage: `--attach ${a} is not a file` };
+      closeSync(openSync(String(a), "r"));
+    } catch (e) {
+      return { usage: `--attach ${a} cannot be read: ${errMsg(e)}` };
+    }
+  }
+  return { attach };
+}
+
+// A text's frontmatter block, its fields and the text after it, line endings as LF.
+function cutOf(t) {
+  const n = normalise(t);
+  const fm = /^---\n[\s\S]*?\n---\n/.exec(n);
+  return { fm: fm ? fm[0] : null, data: fm ? parseFrontmatter(n).data : {}, rest: fm ? n.slice(fm[0].length) : n };
+}
+
+// A file whose body would not read back as the text (the edit spec, contract 6).
+const READS_BACK =
+  'The text would not read back as written: it ends with a `---` line and a "Last updated" line, which the file\'s own foot holds. Remove them from the text.';
+const readsBack = (content, body) => splitForEdit(cutOf(content).rest).body === body;
+
+// The attachments folder the layout names, or null.
+function layoutAttachDir(cfg) {
+  try {
+    const lay = loadLayout(cfg.layout || DEFAULT_LAYOUT);
+    return typeof lay.attachments?.path === "string" ? lay.attachments.path : null;
+  } catch {
+    return null;
+  }
+}
+
+// The kept files and the .gitattributes line a run made, into the session's record.
+function recordMade(onWrite, made) {
+  for (const f of made.files) onWrite(f.abs, null, f.bytes);
+  if (made.ga) onWrite(made.ga.file, made.ga.before, made.ga.after);
+}
+
+const GITATTRIBUTES_NOT_PLAIN =
+  ".gitattributes is not a plain file of the vault; the attachments line cannot be added to it";
+const fileLine = (f) => `  file: ${f.path} (${f.type}, ${f.size} bytes) — ${f.state}`;
+
 export async function runEdit(ctx) {
   const { values, positionals, cfg, project, env, confirm, afterCompute = null } = ctx;
   const now = ctx.now ?? null;
@@ -754,16 +908,9 @@ export async function runEdit(ctx) {
   if (given(base) && !HASH.test(String(base)))
     return { usage: `--base is the body's hash, 16 lowercase hex digits; ${JSON.stringify(base)} is not that` };
   // The attached files (the attachments spec, contract 3): repeatable, with a text.
-  const attach = [].concat(values.attach ?? []).filter((a) => a !== undefined && a !== null);
-  if (attach.length && !given(from)) return { usage: "edit --attach needs --from <file> and --base <hash>" };
-  for (const a of attach) {
-    try {
-      if (!statSync(String(a)).isFile()) return { usage: `--attach ${a} is not a file` };
-      closeSync(openSync(String(a), "r"));
-    } catch (e) {
-      return { usage: `--attach ${a} cannot be read: ${errMsg(e)}` };
-    }
-  }
+  const listed = attachList(values, "edit --attach needs --from <file> and --base <hash>");
+  if (listed.usage) return { usage: listed.usage };
+  const attach = listed.attach;
   const result = (extra2 = {}) => ({
     write: Boolean(values.write),
     path: null,
@@ -792,19 +939,9 @@ export async function runEdit(ctx) {
   // The text (contract 1), read before the vault is: a usage error writes nothing.
   let text = null;
   if (given(from)) {
-    let buf;
-    try {
-      if (!statSync(String(from)).isFile()) return { usage: `--from ${from} is not a file` };
-      buf = readFileSync(String(from));
-    } catch (e) {
-      return { usage: `--from ${from} cannot be read: ${errMsg(e)}` };
-    }
-    text = buf.toString("utf8");
-    if (!Buffer.from(text, "utf8").equals(buf)) return { usage: `--from ${from} is not UTF-8 text` };
-    if (text.length > EDIT_TEXT_LIMIT)
-      return { usage: `the text is ${text.length} characters; edit takes at most ${EDIT_TEXT_LIMIT}` };
-    if (text.includes("\u0000")) return { usage: "the text holds a NUL character" };
-    if (!text.replace(/^\uFEFF/, "").trim()) return { usage: "the text is empty: an edit never removes every section" };
+    const t = readText(from, "edit", "the text is empty: an edit never removes every section");
+    if (t.usage) return { usage: t.usage };
+    text = t.text;
   }
 
   // The path and the kind (contract 3): inside the bound vault once links are
@@ -825,16 +962,14 @@ export async function runEdit(ctx) {
   // The kind and the status, trimmed and in lower case as the dashboard's `readItem` reads them;
   // `refusal` is the one predicate of edit-cut.mjs the page asks too (contract 3).
   const kindOf = (t) => {
-    const n = normalise(t);
-    const fm = /^---\n[\s\S]*?\n---\n/.exec(n);
-    const data = fm ? parseFrontmatter(n).data : {};
-    const type = String(data.type ?? "")
+    const c = cutOf(t);
+    const type = String(c.data.type ?? "")
       .trim()
       .toLowerCase();
-    const refusal = fm
-      ? editRefusal(type, data.status)
+    const refusal = c.fm
+      ? editRefusal(type, c.data.status)
       : "it has no frontmatter, so it is no artifact the edit verb writes";
-    return { fm: fm ? fm[0] : null, type, refusal, rest: fm ? n.slice(fm[0].length) : n };
+    return { fm: c.fm, type, refusal, rest: c.rest };
   };
   const k = kindOf(raw);
   if (k.refusal) return fail(`${rel}: ${k.refusal}`, { path: abs, rel, kind: k.type || null });
@@ -860,20 +995,11 @@ export async function runEdit(ctx) {
   if (refused) return fail(refused.error, { ...found, part: refused.part });
   // The file as it would be written, read back: the body must be the text (contract 6).
   const writeOf = (fm, p, b, mark) => withMark(`${fm}${p.head}${b}${p.foot}`, mark);
-  const readsBack = (content, b) => splitForEdit(kindOf(content).rest).body === b;
-  if (!readsBack(writeOf(k.fm, parts, body, "edit check"), body))
-    return fail(
-      'The text would not read back as written: it ends with a `---` line and a "Last updated" line, which the file\'s own foot holds. Remove them from the text.',
-      found,
-    );
+  if (!readsBack(writeOf(k.fm, parts, body, "edit check"), body)) return fail(READS_BACK, found);
   // The attachments (the attachments spec, contract 4): after the guards and
   // the foot, before the same-text answer; on every edit of a vault whose
   // layout names the folder, `--attach` or not.
-  let layoutDir = null;
-  try {
-    const lay = loadLayout(cfg.layout || DEFAULT_LAYOUT);
-    layoutDir = typeof lay.attachments?.path === "string" ? lay.attachments.path : null;
-  } catch {}
+  const layoutDir = layoutAttachDir(cfg);
   if (attach.length && !layoutDir) return fail("this layout keeps no attachments", found);
   let att = { files: [], dirAbs: null };
   if (layoutDir) {
@@ -886,8 +1012,7 @@ export async function runEdit(ctx) {
   if (addLine) {
     // The line is written only into a plain file of the vault, never through a link.
     const ga = lstatOrNull(join(vault, ".gitattributes"));
-    if (ga && !ga.isFile())
-      return fail(".gitattributes is not a plain file of the vault; the attachments line cannot be added to it", found);
+    if (ga && !ga.isFile()) return fail(GITATTRIBUTES_NOT_PLAIN, found);
   }
   const attached = (gitattributesState) =>
     attach.length ? { files: filesOut(att.files), gitattributes: gitattributesState } : {};
@@ -902,7 +1027,7 @@ export async function runEdit(ctx) {
       text: `edit: ${rel} holds this text already; nothing to write.\n`,
     };
 
-  const fileLines = att.files.map((f) => `  file: ${f.path} (${f.type}, ${f.size} bytes) — ${f.state}`);
+  const fileLines = att.files.map(fileLine);
   const planText = (asking) =>
     [
       `edit ${k.type}: ${rel}`,
@@ -952,10 +1077,7 @@ export async function runEdit(ctx) {
     undoAttachments(made);
     return fail(errMsg(e), found);
   }
-  const recordAttachments = () => {
-    for (const f of made.files) onWrite(f.abs, null, f.bytes);
-    if (made.ga) onWrite(made.ga.file, made.ga.before, made.ga.after);
-  };
+  const recordAttachments = () => recordMade(onWrite, made);
   const refresh = () => {
     const rec = refreshViews({ project, env: ctx.ownEnv ? ctx.ownEnv(project) : projectEnv(env, project) });
     const left = rec.failed

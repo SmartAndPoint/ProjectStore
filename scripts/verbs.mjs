@@ -597,8 +597,9 @@ export const VERBS = Object.freeze([
     ],
   }),
   // A new initiative, epic or story, outside an agent session (the create
-  // spec, contracts 1 to 5): bare, the plan; --write writes it, asking at a
-  // terminal, and marks it not reviewed until a review clears the mark.
+  // spec, contracts 1 to 5, and 12 for --from and --attach): bare, the plan;
+  // --write writes it, asking at a terminal, and marks it not reviewed until a
+  // review clears the mark.
   Object.freeze({
     verb: "create",
     summary: "Create an initiative, an epic or a story, marked not reviewed.",
@@ -615,6 +616,8 @@ export const VERBS = Object.freeze([
       opt("owner", "<name>", "an initiative's owner, as a name"),
       opt("initiative", "<id>", "the initiative an epic belongs to"),
       opt("assignee", "<name>", "a story's assignee, as a name"),
+      opt("from", "<file>", "a file with the text of the sections under the title, in place of the template's"),
+      opt("attach", "<file>", "a PNG, JPEG, GIF, WebP or PDF the text links, kept in the attachments folder", true),
       opt("write", false, "write it (asks at a terminal; without one, --write is the confirmation)"),
       JSON_OPT,
     ],
@@ -1004,6 +1007,7 @@ const EXAMPLES = {
     '{cmd} create story PS-CORE "Faster login" --priority p1 --assignee "First Last" --write',
     '{cmd} create epic PS-AUTH "Sign-in" --initiative faster-onboarding --write',
     '{cmd} create initiative "Faster onboarding" --owner "First Last" --write',
+    '{cmd} create story PS-CORE "Faster login" --from text.md --attach shot.png --write',
   ],
   reviewed: ["{cmd} reviewed epics/PS-CORE/stories/story-faster-login.md --write"],
   edit: [

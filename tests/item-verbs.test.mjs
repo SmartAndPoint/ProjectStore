@@ -24,8 +24,10 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { run } from "../scripts/cli.mjs";
-import { loadTemplate, renderTemplate, parseFrontmatter, today } from "../scripts/lib.mjs";
+import { loadTemplate, renderTemplate, parseFrontmatter, today, loadLayout } from "../scripts/lib.mjs";
 import { runCreate, withMark, clearMark, NAME_LIMIT, TEMP_ROOM } from "../scripts/item-verbs.mjs";
+import { renderDraft } from "../scripts/draft.mjs";
+import { splitForEdit } from "../scripts/edit-cut.mjs";
 import { readEvents } from "../scripts/write-record.mjs";
 import { sourceHarness } from "../scripts/harness.mjs";
 import { makeVaultProject, writeBinding } from "./fixtures/vault.mjs";
@@ -699,5 +701,154 @@ test("create: in each bundled locale, a created epic's Stories table links no st
     const r = await cli(fx.proj, ["create", "epic", "PS-Z", "T", "--write"]);
     assert.equal(r.code, 0, `${lang}: ${r.err}`);
     assert.ok(!/\]\(\.\/stories\//.test(read(join(fx.vault, "epics", "PS-Z", "epic.md"))), lang);
+  }
+});
+
+// ─── Contract 12: a text and its pictures at create ──────────────────
+
+const textFile = (content, name = "t.md") => {
+  const p = join(mkdtempSync(join(tmpdir(), "create-text-")), name);
+  writeFileSync(p, content);
+  return p;
+};
+// The body a kind's draft gives after the edit verb's cut, as `edit <path>` prints it.
+const bodyOfDraft = (content) => splitForEdit(parseFrontmatter(content).body).body;
+const NO_MARK = (s) => s.replace(/^written_by_verb: .*\n/m, "");
+
+// [create#12]
+test("create: --from writes the draft's head with the text as its body, equal to create then edit but for the mark's value", async () => {
+  for (const [kind, args, rel] of [
+    ["story", ["PS-X", "Faster login"], "epics/PS-X/stories/story-faster-login.md"],
+    ["epic", ["PS-Q", "Sign-in"], "epics/PS-Q/epic.md"],
+    ["initiative", ["Better search"], "initiatives/better-search.md"],
+  ]) {
+    const a = vault();
+    const b = vault();
+    const made = await cli(b.proj, ["create", kind, ...args, "--write"]);
+    assert.equal(made.code, 0, made.err);
+    const shown = await cli(b.proj, ["edit", rel], { json: true });
+    const { body, hash } = shown.json.result;
+    assert.equal(body.search(/^## /m), 0, `${kind}: the template's body starts with a section`);
+    const first = body.indexOf("\n");
+    const text = `${body.slice(0, first + 1)}\nA line typed in the panel.\n${body.slice(first + 1)}`;
+    const f = textFile(text);
+    const e = await cli(b.proj, ["edit", rel, "--from", f, "--base", hash, "--write"]);
+    assert.equal(e.code, 0, e.err);
+    const r = await cli(a.proj, ["create", kind, ...args, "--from", f, "--write"], { json: true });
+    assert.equal(r.code, 0, `${kind}: ${JSON.stringify(r.json)}`);
+    assert.equal(r.json.result.rel, rel);
+    assert.ok(!("files" in r.json.result), "no files key without --attach");
+    const mine = read(join(a.vault, rel));
+    assert.ok(mine.includes("A line typed in the panel."), kind);
+    assert.match(mine, /^written_by_verb: "create \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"$/m);
+    assert.equal(NO_MARK(mine), NO_MARK(read(join(b.vault, rel))), kind);
+  }
+});
+
+// [create#12]
+test("create: --from in the plan names the sections the text changes and the --from in the command, and writes nothing", async () => {
+  const fx = vault();
+  const before = snapshot(fx.proj);
+  const body = bodyOfDraft(draftOf(fx.proj, ["story", "PS-X", "Faster login"]).content);
+  const f = textFile(body.replace("## Description\n", "## Description\n\nWhy.\n"));
+  const r = await cli(fx.proj, ["create", "story", "PS-X", "Faster login", "--from", f]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\n {2}text: Description\n/);
+  assert.ok(r.out.includes(`create story PS-X 'Faster login' --from ${f} --write`), r.out);
+  assert.deepEqual(snapshot(fx.proj), before);
+});
+
+// [create#12]
+test("create: a text the edit guards refuse exits 1 with the guard's words, bare and with --write, and nothing is written (failure)", async () => {
+  const fx = vault();
+  const before = snapshot(fx.proj);
+  const story = bodyOfDraft(draftOf(fx.proj, ["story", "PS-X", "Faster login"]).content);
+  const epic = bodyOfDraft(draftOf(fx.proj, ["epic", "PS-Q", "Sign-in"]).content);
+  const ini = bodyOfDraft(draftOf(fx.proj, ["initiative", "Better search"]).content);
+  const outcome = /^## Outcome[^\n]*\n/m.exec(ini)?.[0];
+  assert.ok(outcome, "the initiative template has an Outcome section");
+  const cases = [
+    [
+      ["story", "PS-X", "Faster login"],
+      `${story.trimEnd()}\n\n## Status log\n\n- a line\n`,
+      /the Status log is written by gates and verbs/,
+    ],
+    [
+      ["story", "PS-X", "Faster login"],
+      story.replace(/(## Acceptance Criteria[\s\S]*?)^- \[ \][^\n]*$/m, "$1- [x] It works"),
+      /A checked item of the Acceptance Criteria/,
+    ],
+    [
+      ["epic", "PS-Q", "Sign-in"],
+      epic.replace(/(## Expected Results[\s\S]*?)^- \[ \][^\n]*$/m, "$1- [x] Sign-in works"),
+      /A checked item of the Expected Results/,
+    ],
+    [
+      ["initiative", "Better search"],
+      ini.replace(outcome, `${outcome}\nDone already.\n`),
+      /the Outcome is written by gates/,
+    ],
+    [["story", "PS-X", "Faster login"], `Words above the sections.\n\n${story}`, /must start with a `## ` section/],
+    [
+      ["story", "PS-X", "Faster login"],
+      `${story.trimEnd()}\n\n---\n\n*Last updated: 2026-11-27*\n`,
+      /"Last updated" line/,
+    ],
+  ];
+  for (const [args, text, words] of cases) {
+    const f = textFile(text);
+    for (const write of [false, true]) {
+      const r = await cli(fx.proj, ["create", ...args, "--from", f, ...(write ? ["--write"] : [])], { json: true });
+      assert.equal(r.code, 1, `${args[0]} ${words}: ${JSON.stringify(r.json)}`);
+      assert.match(r.json.result.error, words);
+    }
+  }
+  assert.deepEqual(snapshot(fx.proj), before);
+});
+
+// [create#12]
+test("create: an unreadable, non-UTF-8, empty, NUL-holding or too long --from, and --attach with no --from or a missing file, exit 2 and write nothing (failure)", async () => {
+  const fx = vault();
+  const before = snapshot(fx.proj);
+  const dir = mkdtempSync(join(tmpdir(), "create-bad-"));
+  const bin = join(dir, "bin.md");
+  writeFileSync(bin, Buffer.from([0x23, 0x23, 0x20, 0xff, 0xfe, 0x0a]));
+  const cases = [
+    [["--from", join(dir, "missing.md")], /--from .* cannot be read/],
+    [["--from", dir], /--from .* is not a file/],
+    [["--from", bin], /is not UTF-8 text/],
+    [["--from", textFile("  \n\n")], /the text is empty/],
+    [["--from", textFile("## Description\n\0\n")], /holds a NUL character/],
+    [["--from", textFile(`## Description\n\n${"a".repeat(500001)}\n`)], /create takes at most 500000/],
+    [["--attach", textFile("x", "shot.png")], /create --attach needs --from <file>/],
+    [["--from", textFile("## Description\n"), "--attach", join(dir, "gone.png")], /--attach .* cannot be read/],
+  ];
+  for (const [extra, words] of cases) {
+    const r = await cli(fx.proj, ["create", "story", "PS-X", "T", ...extra, "--write"]);
+    assert.equal(r.code, 2, `${words}: ${r.out}${r.err}`);
+    assert.match(r.err, words);
+  }
+  assert.deepEqual(snapshot(fx.proj), before);
+});
+
+// [create#12]
+test("create: in each bundled locale, the body a kind's draft gives after the cut is the same for two titles, IDs and epics (edge)", () => {
+  for (const lang of LOCALES) {
+    const fx = vault({ lang });
+    mkdirSync(join(fx.vault, "epics", "PS-Y"), { recursive: true });
+    writeFileSync(join(fx.vault, "epics", "PS-Y", "epic.md"), read(fx.epicPath));
+    const cfg = { vault_path: fx.vault, layout: "engineering", language: lang, default_author: "Test" };
+    const layout = loadLayout("engineering");
+    const body = (kind, args) => bodyOfDraft(renderDraft(cfg, layout, kind, args).content);
+    for (const [kind, one, two] of [
+      ["story", ["PS-X", "Faster login"], ["PS-Y", "Другое название"]],
+      ["epic", ["PS-Q", "Sign-in"], ["ЭПИК-2", "Something else"]],
+      ["initiative", ["Better search"], ["Untitled"]],
+    ]) {
+      const a = body(kind, one);
+      assert.ok(a.startsWith("## "), `${lang} ${kind}`);
+      assert.equal(a, body(kind, two), `${lang} ${kind}`);
+      for (const w of one) assert.ok(!a.includes(w), `${lang} ${kind} names ${w}`);
+    }
   }
 });
